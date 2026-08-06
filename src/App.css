@@ -200,6 +200,64 @@ body {
 
 .log-empty { margin: 0; color: var(--muted); font-size: 12px; font-style: italic; }
 
+/* ---------------------------------------------------------------------------
+   Episode 3: broken mode. None of this renders without ?demo=broken.
+   --------------------------------------------------------------------------- */
+
+/* [2] Lag: the log is reporting from the past, and looks it. */
+.panel-log li[data-lagged='true'] {
+  border-left-color: rgba(148, 163, 184, 0.45);
+  opacity: 0.72;
+  font-style: italic;
+}
+
+/* [4] Denial: reads like a system status line, not an observation. */
+.panel-log li[data-kind='denial'] {
+  border-left-color: rgba(74, 222, 128, 0.55);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+/* [3] Ghost: present, but not really. */
+.panel-log li[data-kind='ghost'] { border-left-color: rgba(148, 163, 184, 0.35); }
+
+/* [5] Redemption: the one line that is true. */
+.panel-log li[data-kind='redemption'] {
+  border-left-color: var(--warn);
+  font-weight: 600;
+}
+
+/* Rehearsal indicator. `?hud=1` only — invisible in the recording. */
+.demo-indicator {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  pointer-events: none;
+}
+
+.demo-indicator-title { color: rgba(248, 113, 113, 0.9); letter-spacing: 0.14em; }
+.demo-chip {
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(248, 113, 113, 0.16);
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  color: rgba(254, 202, 202, 0.95);
+}
+.demo-chip-redeem {
+  background: rgba(251, 191, 36, 0.16);
+  border-color: rgba(251, 191, 36, 0.45);
+  color: rgba(253, 230, 138, 0.95);
+}
+.demo-chip-off { color: var(--muted); }
+
 @media (max-width: 900px) {
   .stage { grid-template-columns: minmax(0, 1fr); }
 }
