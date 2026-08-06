@@ -10,6 +10,7 @@ import {
   type NarrationEvent,
 } from './events';
 import { createLineGenerator } from './generateLine';
+import { primeSpeech, speak, stopSpeaking } from './speech';
 
 /** How often we sample the frame for scene changes. */
 const SAMPLE_MS = 250;
@@ -50,6 +51,10 @@ export function useNarrator(frameRef: React.RefObject<Frame>, enabled: boolean) 
   useEffect(() => setConfigState(loadConfig()), []);
 
   const setConfig = useCallback((patch: Partial<NarratorConfig>) => {
+    // Must run synchronously inside the click that enabled voice — browsers
+    // only unlock speech from a real user gesture.
+    if (patch.voice_enabled) primeSpeech();
+    if (patch.voice_enabled === false) stopSpeaking();
     setConfigState((prev) => {
       const next = { ...prev, ...patch };
       saveConfig(next);
@@ -112,7 +117,7 @@ export function useNarrator(frameRef: React.RefObject<Frame>, enabled: boolean) 
   // reintroduces the scene instead of silently assuming you heard it already.
   useEffect(() => {
     if (enabled) return;
-    window.speechSynthesis?.cancel();
+    stopSpeaking();
     trackerRef.current.reset();
     generatorRef.current.reset();
     candidateRef.current = null;
@@ -120,27 +125,4 @@ export function useNarrator(frameRef: React.RefObject<Frame>, enabled: boolean) 
   }, [enabled]);
 
   return { log, config, setConfig };
-}
-
-/** Picks the least theatrical English voice available. Deadpan needs a flat read. */
-function pickVoice(): SpeechSynthesisVoice | null {
-  const voices = window.speechSynthesis?.getVoices?.() ?? [];
-  const english = voices.filter((v) => v.lang?.toLowerCase().startsWith('en'));
-  if (english.length === 0) return null;
-  const novelty = /bubbles|jester|zarvox|bells|boing|trinoids|whisper|good news|bad news|wobble|superstar/i;
-  const plain = english.filter((v) => !novelty.test(v.name));
-  return plain.find((v) => v.default) ?? plain[0] ?? english[0];
-}
-
-function speak(text: string) {
-  const synth = window.speechSynthesis;
-  if (!synth) return;
-  // Never let speech lag more than one line behind the log.
-  synth.cancel();
-  const utter = new SpeechSynthesisUtterance(text);
-  const voice = pickVoice();
-  if (voice) utter.voice = voice;
-  utter.rate = 0.9;
-  utter.pitch = 1.0;
-  synth.speak(utter);
 }

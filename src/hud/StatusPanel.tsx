@@ -54,14 +54,15 @@ export function StatusPanel({
         <h2>Narrator</h2>
         <div className="narrator-controls">
           <button className="chip" onClick={onToggleBoring} aria-pressed={boring}>
-            {boring ? 'Boring mode' : 'Boring mode off'}
+            Boring mode: {boring ? 'on' : 'off'}
           </button>
           <button
             className="chip"
             onClick={() => onConfigChange({ voice_enabled: !config.voice_enabled })}
             aria-pressed={config.voice_enabled}
+            title="Speaks each line via the browser's built-in speech synthesis"
           >
-            {config.voice_enabled ? 'Voice on' : 'Voice off'}
+            Voice: {config.voice_enabled ? 'on' : 'off'}
           </button>
           <button
             className="chip"
@@ -69,7 +70,7 @@ export function StatusPanel({
               onConfigChange({ spice_level: (((config.spice_level + 1) % 3) as 0 | 1 | 2) })
             }
           >
-            Spice {config.spice_level}
+            Spice: {config.spice_level}
           </button>
         </div>
       </div>
