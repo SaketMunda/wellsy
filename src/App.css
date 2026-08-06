@@ -203,3 +203,20 @@ body {
 @media (max-width: 900px) {
   .stage { grid-template-columns: minmax(0, 1fr); }
 }
+
+.narrator-controls { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.chip {
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid #1e2a3d;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.chip:hover { border-color: #2c3d57; color: #cfe0f5; }
+.chip[aria-pressed='true'] { border-color: var(--cyan); color: var(--cyan); }
