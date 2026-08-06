@@ -19,7 +19,8 @@ First load downloads the model weights (a few MB); cached afterwards.
 
 - **Detects** objects in real time — COCO-SSD on the TensorFlow.js WebGL backend
 - **Draws** a HUD overlay: tracking brackets, labels, confidence, live telemetry
-- **Narrates** what changes, spoken via the Web Speech API
+- **Narrates** what changes, in the voice of a documentary narrator who is
+  deeply unimpressed — optionally spoken via the Web Speech API
 - **~12ms** inference per frame
 
 ## What it doesn't do (yet)
@@ -38,6 +39,20 @@ camera → [detect loop: COCO-SSD @ ~20-60fps] ─┐
                                               ├→ frameRef ─→ [draw loop: canvas @ 60fps]
                                               └→ [narration sampler @ 4fps → speech]
 ```
+
+Narration is two layers, deliberately kept apart:
+
+```
+settled scene → [event layer: appear/disappear/count_change/still_present] → truth
+                                    ↓
+                [personality layer: template bank + no-repeat memory] → voice
+```
+
+The event layer states facts; the personality layer may only restyle them,
+never invent them. Flip **boring mode** in the panel to show the raw events for
+the same rows — the sarcasm is a rendering, the detection underneath is real.
+The whole personality is a plain template bank: no LLM, no API, no network, so
+it works offline and costs nothing per line.
 
 Detections never enter React state — that would re-render the tree 30×/second.
 See [.claude/architecture.md](.claude/architecture.md) for the full picture and

@@ -9,10 +9,14 @@ import './App.css';
 export default function App() {
   const [active, setActive] = useState(false);
   const [narrating, setNarrating] = useState(true);
+  const [boring, setBoring] = useState(false);
 
   const { videoRef, status: cameraStatus, error: cameraError } = useCamera(active);
   const { frameRef, status: modelStatus, error: modelError, stats } = useDetector(videoRef, active);
-  const { log } = useNarrator(frameRef, active && narrating && modelStatus === 'ready');
+  const { log, config, setConfig } = useNarrator(
+    frameRef,
+    active && narrating && modelStatus === 'ready',
+  );
 
   const live = cameraStatus === 'live' && modelStatus === 'ready';
   const error = cameraError ?? modelError;
@@ -77,6 +81,10 @@ export default function App() {
           modelStatus={modelStatus}
           cameraStatus={cameraStatus}
           log={log}
+          boring={boring}
+          onToggleBoring={() => setBoring((b) => !b)}
+          config={config}
+          onConfigChange={setConfig}
         />
       </main>
     </div>
