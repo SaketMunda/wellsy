@@ -82,7 +82,12 @@ export function StatusPanel({
         ) : (
           <ul>
             {log.map((entry) => (
-              <li key={entry.at} title={entry.debug}>
+              <li
+                key={entry.id}
+                title={entry.debug}
+                data-lagged={entry.lagged ? 'true' : undefined}
+                data-kind={entry.kind}
+              >
                 <time>{new Date(entry.at).toLocaleTimeString([], { hour12: false })}</time>
                 <span>{boring ? entry.boring : entry.text}</span>
               </li>

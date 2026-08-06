@@ -1,4 +1,5 @@
 import type { Frame } from '../vision/types';
+import type { DemoDetection } from '../demo/types';
 
 const CYAN = '#22d3ee';
 const AMBER = '#fbbf24';
@@ -119,7 +120,7 @@ export function drawHud(
   // would flip the label text along with it and render it backwards.
   const flipX = (x: number, w: number) => (mirrored ? canvasW - x - w : x);
 
-  for (const d of frame.detections) {
+  for (const d of frame.detections as DemoDetection[]) {
     const [bx, by, bw, bh] = d.bbox;
     const w = bw * scaleX;
     const h = bh * scaleY;
@@ -127,7 +128,15 @@ export function drawHud(
     const y = by * scaleY;
     const color = d.label === 'person' ? AMBER : accentFor(d.label);
 
+    // A ghost box draws faint and dashed. The label stays at full strength so
+    // the confidence can be watched losing its nerve, one hundredth at a time.
+    if (d.ghost) {
+      ctx.globalAlpha = 0.45;
+      ctx.setLineDash([3, 5]);
+    }
     drawBrackets(ctx, x, y, w, h, color);
+    ctx.globalAlpha = 1;
+    ctx.setLineDash([]);
     drawLabel(ctx, x, y, d.label, d.score, color);
   }
 
