@@ -1,5 +1,8 @@
 import type { Frame } from '../vision/types';
-import type { DemoDetection } from '../demo/types';
+
+function formatAge(ageMs: number): string {
+  return `${(ageMs / 1000).toFixed(1)}s`;
+}
 
 const CYAN = '#22d3ee';
 const AMBER = '#fbbf24';
@@ -45,10 +48,10 @@ function drawBrackets(
 function drawLabel(
   ctx: CanvasRenderingContext2D,
   x: number, y: number,
-  label: string, score: number,
+  label: string, id: number, ageMs: number,
   color: string,
 ) {
-  const text = `${label.toUpperCase()}  ${(score * 100).toFixed(0)}%`;
+  const text = `${label.toUpperCase()} #${id}  ·  ${formatAge(ageMs)}`;
   ctx.font = '600 13px ui-monospace, SFMono-Regular, Menlo, monospace';
   const pad = 6;
   const width = ctx.measureText(text).width + pad * 2;
@@ -120,28 +123,20 @@ export function drawHud(
   // would flip the label text along with it and render it backwards.
   const flipX = (x: number, w: number) => (mirrored ? canvasW - x - w : x);
 
-  for (const d of frame.detections as DemoDetection[]) {
-    const [bx, by, bw, bh] = d.bbox;
+  for (const t of frame.tracks) {
+    const [bx, by, bw, bh] = t.bbox;
     const w = bw * scaleX;
     const h = bh * scaleY;
     const x = flipX(bx * scaleX, w);
     const y = by * scaleY;
-    const color = d.label === 'person' ? AMBER : accentFor(d.label);
+    const color = t.label === 'person' ? AMBER : accentFor(t.label);
 
-    // A ghost box draws faint and dashed. The label stays at full strength so
-    // the confidence can be watched losing its nerve, one hundredth at a time.
-    if (d.ghost) {
-      ctx.globalAlpha = 0.45;
-      ctx.setLineDash([3, 5]);
-    }
     drawBrackets(ctx, x, y, w, h, color);
-    ctx.globalAlpha = 1;
-    ctx.setLineDash([]);
-    drawLabel(ctx, x, y, d.label, d.score, color);
+    drawLabel(ctx, x, y, t.label, t.id, t.ageMs, color);
   }
 
   // Faint tracking line from centre to the largest target.
-  const primary = [...frame.detections].sort(
+  const primary = [...frame.tracks].sort(
     (a, b) => b.bbox[2] * b.bbox[3] - a.bbox[2] * a.bbox[3],
   )[0];
   if (primary) {

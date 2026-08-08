@@ -5,11 +5,14 @@
  * system: it says what happened, in structured form, with no opinions. The
  * personality layer downstream may only restyle these facts, never invent them.
  *
- * Nothing here touches the perception pipeline — it consumes the same settled
- * scene counts the old narrator did (via `toSceneState`), so the detections
- * themselves are byte-for-byte what they always were.
+ * As of Day 3 this reads track enter/exit directly off the tracker's output
+ * (`src/vision/tracker.ts`) rather than diffing label counts. A second person
+ * walking in is `appear` for that track, never `count_change` — `count_change`
+ * stays defined (and in the template bank) but a track-identity-based tracker
+ * has no case that produces it: every count delta already rides an appear or
+ * disappear for the track that caused it.
  */
-import type { Detection } from '../vision/types';
+import type { Track } from '../vision/types';
 
 export type NarrationEventType = 'appear' | 'disappear' | 'count_change' | 'still_present';
 
@@ -80,95 +83,106 @@ export function debugLine(event: NarrationEvent): string {
 
 export interface EventTracker {
   /**
-   * Feed one *settled* scene. Returns the events it implies.
+   * Feed one *settled* set of tracks. Returns the events it implies.
    *
    * `still_present` is only raised when nothing else happened — an idle remark
    * on top of real news is just noise.
    */
-  update(
-    counts: Record<string, number>,
-    detections: Detection[],
-    now: number,
-    idleEscalationMs: number,
-  ): NarrationEvent[];
+  update(tracks: Track[], now: number, idleEscalationMs: number): NarrationEvent[];
   reset(): void;
 }
 
+function countByLabel(tracks: Track[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const t of tracks) counts[t.label] = (counts[t.label] ?? 0) + 1;
+  return counts;
+}
+
 export function createEventTracker(): EventTracker {
-  let prev: Record<string, number> = {};
-  let firstSeen: Record<string, number> = {};
-  let lastConf: Record<string, number> = {};
-  let lastIdleEmit: Record<string, number> = {};
-  /** When this object last did anything — appeared or changed count. */
+  let prevTracks: Track[] = [];
+  /** When this label last did anything — a track of it appeared or left. */
   let lastChange: Record<string, number> = {};
+  let lastIdleEmit: Record<string, number> = {};
 
   return {
-    update(counts, detections, now, idleEscalationMs) {
-      // Best confidence per label in this frame.
-      for (const d of detections) {
-        lastConf[d.label] = Math.max(lastConf[d.label] ?? 0, d.score);
-      }
+    update(tracks, now, idleEscalationMs) {
+      const prevIds = new Set(prevTracks.map((t) => t.id));
+      const currentIds = new Set(tracks.map((t) => t.id));
+      const prevCounts = countByLabel(prevTracks);
+      const counts = countByLabel(tracks);
 
       const events: NarrationEvent[] = [];
-      const make = (
-        type: NarrationEventType,
-        object: string,
-        count: number,
-      ): NarrationEvent => ({
-        type,
-        object,
-        count,
-        previous_count: prev[object] ?? 0,
-        confidence: lastConf[object] ?? 0,
-        timestamp: now,
-        duration_in_frame: now - (firstSeen[object] ?? now),
-      });
 
-      for (const label of Object.keys(counts)) {
-        if (prev[label] === undefined) {
-          firstSeen[label] = now;
-          lastIdleEmit[label] = now;
-          lastChange[label] = now;
-          events.push(make('appear', label, counts[label]));
-        } else if (prev[label] !== counts[label]) {
-          lastIdleEmit[label] = now;
-          lastChange[label] = now;
-          events.push(make('count_change', label, counts[label]));
-        }
+      const newByLabel = new Map<string, Track[]>();
+      for (const t of tracks) {
+        if (prevIds.has(t.id)) continue;
+        const arr = newByLabel.get(t.label);
+        if (arr) arr.push(t);
+        else newByLabel.set(t.label, [t]);
+      }
+      for (const [label, arrived] of newByLabel) {
+        lastChange[label] = now;
+        lastIdleEmit[label] = now;
+        events.push({
+          type: 'appear',
+          object: label,
+          count: counts[label],
+          previous_count: prevCounts[label] ?? 0,
+          confidence: Math.max(...arrived.map((t) => t.score)),
+          timestamp: now,
+          duration_in_frame: Math.max(...arrived.map((t) => t.ageMs)),
+        });
       }
 
-      for (const label of Object.keys(prev)) {
-        if (counts[label] === undefined) {
-          events.push(make('disappear', label, 0));
-          delete firstSeen[label];
-          delete lastIdleEmit[label];
-          delete lastChange[label];
-        }
+      const goneByLabel = new Map<string, Track[]>();
+      for (const t of prevTracks) {
+        if (currentIds.has(t.id)) continue;
+        const arr = goneByLabel.get(t.label);
+        if (arr) arr.push(t);
+        else goneByLabel.set(t.label, [t]);
+      }
+      for (const [label, left] of goneByLabel) {
+        lastChange[label] = now;
+        delete lastIdleEmit[label];
+        events.push({
+          type: 'disappear',
+          object: label,
+          count: counts[label] ?? 0,
+          previous_count: prevCounts[label],
+          confidence: Math.max(...left.map((t) => t.score)),
+          timestamp: now,
+          duration_in_frame: Math.max(...left.map((t) => t.ageMs)),
+        });
       }
 
       if (events.length === 0) {
         for (const label of Object.keys(counts)) {
-          const since = lastIdleEmit[label] ?? firstSeen[label] ?? now;
+          const since = lastIdleEmit[label] ?? lastChange[label] ?? now;
           if (now - since >= idleEscalationMs) {
             lastIdleEmit[label] = now;
+            const ofLabel = tracks.filter((t) => t.label === label);
             events.push({
-              ...make('still_present', label, counts[label]),
-              idle_ms: now - (lastChange[label] ?? firstSeen[label] ?? now),
+              type: 'still_present',
+              object: label,
+              count: counts[label],
+              previous_count: counts[label],
+              confidence: Math.max(...ofLabel.map((t) => t.score)),
+              timestamp: now,
+              duration_in_frame: Math.max(...ofLabel.map((t) => t.ageMs)),
+              idle_ms: now - (lastChange[label] ?? now),
             });
           }
         }
       }
 
-      prev = counts;
+      prevTracks = tracks;
       return events;
     },
 
     reset() {
-      prev = {};
-      firstSeen = {};
-      lastConf = {};
-      lastIdleEmit = {};
+      prevTracks = [];
       lastChange = {};
+      lastIdleEmit = {};
     },
   };
 }

@@ -28,8 +28,8 @@ export interface Template {
   spice: 0 | 1 | 2;
   /**
    * Restrict to specific COCO labels. Object-specific jokes are what make the
-   * narrator feel authored rather than generated, so a handful of the labels we
-   * actually hit in a demo get their own lines. Omitted = applies to anything.
+   * narrator feel authored rather than generated, so a handful of common
+   * labels get their own lines. Omitted = applies to anything.
    */
   only?: string[];
   /**

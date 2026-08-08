@@ -1,6 +1,6 @@
 # Architecture
 
-**Status: current as of Day 1.**
+**Status: current as of Day 3.**
 
 ## The whole system in one picture
 
@@ -60,15 +60,16 @@ performance decision in the project.
 ```
 src/
 ├── vision/
-│   ├── types.ts          Detection, Frame, SceneState — the shared vocabulary
+│   ├── types.ts          Detection, Track, Frame — the shared vocabulary
+│   ├── tracker.ts        Pure function: IoU-matches + smooths detections into tracks.
 │   ├── useCamera.ts      Owns the MediaStream. Knows nothing about AI.
-│   └── useDetector.ts    Owns the model + detect loop. Knows nothing about drawing.
+│   └── useDetector.ts    Owns the model + detect loop + tracker. Knows nothing about drawing.
 ├── hud/
 │   ├── drawHud.ts        Pure canvas drawing. No React, no state, fully testable.
 │   ├── HudCanvas.tsx     Owns the draw loop + canvas sizing.
 │   └── StatusPanel.tsx   Telemetry + narration log.
 ├── narration/
-│   ├── describeScene.ts  Pure functions: detections → English. No side effects.
+│   ├── events.ts         Track enter/exit → structured NarrationEvents. No side effects.
 │   └── useNarrator.ts    Timing logic + speech output.
 ├── App.tsx               Composition + top-level on/off state.
 └── App.css               All styling. One file is correct at this size.
@@ -78,10 +79,10 @@ src/
 Data flows one way. This is what makes the camera swappable (webcam → phone →
 video file) without touching the HUD.
 
-**The purity rule:** `drawHud.ts` and `describeScene.ts` are pure. Given the
-same input they produce the same output, with no React and no browser APIs
-beyond the canvas context. These are the two files most likely to grow, and
-keeping them pure keeps them testable.
+**The purity rule:** `drawHud.ts`, `tracker.ts`, and `events.ts` are pure.
+Given the same input they produce the same output, with no React and no
+browser APIs beyond the canvas context. These are the files most likely to
+grow, and keeping them pure keeps them testable.
 
 ## Key implementation details
 
@@ -107,17 +108,19 @@ Confidence floor 0.5, max 12 detections/frame — both are latency guards as muc
 as quality guards.
 
 ## What this architecture does NOT do yet
-- **No temporal tracking.** Each frame is independent, so boxes jitter and
-  objects have no identity across frames. → Day 2.
-- **No scene-level reasoning.** Only object labels, no "this is a kitchen". → Day 3.
-- **No mobile camera path.** Desktop webcam only. → Day 6.
+- **No motion prediction or re-identification.** The Day 3 tracker matches by
+  IoU overlap and survives a short grace window (5 missed frames); it does
+  not predict velocity (no Kalman filter) and does not re-identify an object
+  that fully leaves and later returns — that gets a new id.
+- **No scene-level reasoning.** Only object labels, no "this is a kitchen". → Day 4.
+- **No mobile camera path.** Desktop webcam only. → Day 7.
 - **No frame throttling.** Detection runs as fast as it can, which is wasteful
-  on a static scene. → Day 5.
+  on a static scene. → Day 6.
 
 ## Extension points already in place
 - `useCamera` can be swapped for a file/stream source without touching anything
   downstream — the rest of the system only knows about a `<video>` element.
-- `Detection` carries `label`/`score`/`bbox`; a tracker adds an `id` field
-  without breaking the HUD.
-- `describeScene` is a pure function — swapping rule-based narration for an LLM
-  is a one-file change.
+- `Track` (in `types.ts`) is a `Detection` plus `id`/`ageMs`/`missedFrames` —
+  narration and HUD both consume it without knowing how it was computed.
+- `events.ts` is a pure function of tracks — swapping rule-based narration for
+  an LLM downstream is a one-file change in `generateLine.ts`.

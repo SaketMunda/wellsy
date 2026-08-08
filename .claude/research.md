@@ -24,7 +24,7 @@ Three realistic options were considered:
 | Option | Speed | Setup cost | Verdict |
 |---|---|---|---|
 | **TensorFlow.js + COCO-SSD** | ~10–30ms/frame on WebGL | Two npm packages | **Chosen** |
-| MediaPipe Object Detector | Comparable, sometimes faster | WASM assets, more config | Day 5 candidate |
+| MediaPipe Object Detector | Comparable, sometimes faster | WASM assets, more config | Day 6 candidate |
 | Cloud vision API | 200–800ms round trip | API key, cost, privacy | Rejected for the live loop |
 
 **COCO-SSD** = a Single-Shot Detector trained on the COCO dataset. It knows
@@ -52,7 +52,7 @@ programs on the GPU. This is why a laptop can do this at all — on CPU the same
 model is roughly an order of magnitude slower.
 
 - **WebGL** — works everywhere, chosen for Day 1.
-- **WebGPU** — newer, faster, less universal. A Day 5 experiment.
+- **WebGPU** — newer, faster, less universal. A Day 6 experiment.
 
 ## 5. The mirroring trap (a real bug, found and fixed on Day 1)
 
@@ -120,9 +120,9 @@ Not accuracy — style. Cheap, high-impact tricks:
 - COCO-SSD knows **80 classes only**. It cannot name your specific coffee mug
   brand or read text.
 - It does **object detection**, not scene understanding. It doesn't know
-  "kitchen" or "someone is cooking" — that's Day 2–3 work built on top.
+  "kitchen" or "someone is cooking" — that's Day 3–4 work built on top.
 - No **tracking identity** yet: object #1 this frame isn't linked to object #1
-  last frame. That's why boxes jitter. Day 2 fixes this.
+  last frame. That's why boxes jitter. Day 3 fixes this.
 - First load downloads model weights (a few MB); cached afterwards.
 
 ## Sources / anchors

@@ -3,6 +3,7 @@ import { DEFAULT_CONFIG, type NarratorConfig } from './config';
 import { createEventTracker, type NarrationEvent } from './events';
 import { createLineGenerator } from './generateLine';
 import { BANNED_WORDS, MAX_WORDS, TEMPLATES } from './templates';
+import type { Track } from '../vision/types';
 
 const COCO_SAMPLE = [
   'person', 'chair', 'bottle', 'cell phone', 'cup', 'laptop', 'book',
@@ -235,48 +236,63 @@ describe('generateLine', () => {
 });
 
 describe('event tracker', () => {
-  const det = (label: string, score = 0.9) => ({ label, score, bbox: [0, 0, 1, 1] as [number, number, number, number] });
+  const track = (id: number, label: string, ageMs = 0, score = 0.9): Track => ({
+    id,
+    label,
+    score,
+    bbox: [0, 0, 1, 1],
+    ageMs,
+    missedFrames: 0,
+  });
   const IDLE = 2 * 60_000;
 
-  it('raises appear, count_change and disappear truthfully', () => {
+  it('raises appear per track and disappear truthfully — a second same-label track is its own appear, not a count_change', () => {
     const t = createEventTracker();
-    expect(t.update({ chair: 1 }, [det('chair')], 0, IDLE)).toMatchObject([
+    expect(t.update([track(1, 'chair')], 0, IDLE)).toMatchObject([
       { type: 'appear', object: 'chair', count: 1 },
     ]);
-    expect(t.update({ chair: 2 }, [det('chair'), det('chair')], 100, IDLE)).toMatchObject([
-      { type: 'count_change', object: 'chair', count: 2 },
+    expect(t.update([track(1, 'chair', 100), track(2, 'chair', 0)], 100, IDLE)).toMatchObject([
+      { type: 'appear', object: 'chair', count: 2 },
     ]);
-    expect(t.update({}, [], 200, IDLE)).toMatchObject([
+    expect(t.update([], 200, IDLE)).toMatchObject([
       { type: 'disappear', object: 'chair', count: 0 },
     ]);
   });
 
-  it('emits nothing while a scene is unchanged and not yet idle', () => {
+  it('emits nothing while the track id set is unchanged and not yet idle', () => {
     const t = createEventTracker();
-    t.update({ chair: 1 }, [det('chair')], 0, IDLE);
-    expect(t.update({ chair: 1 }, [det('chair')], 1000, IDLE)).toEqual([]);
+    t.update([track(1, 'chair')], 0, IDLE);
+    expect(t.update([track(1, 'chair', 1000)], 1000, IDLE)).toEqual([]);
   });
 
   it('emits still_present once the idle threshold passes', () => {
     const t = createEventTracker();
-    t.update({ chair: 1 }, [det('chair')], 0, IDLE);
-    const events = t.update({ chair: 1 }, [det('chair')], IDLE + 1, IDLE);
+    t.update([track(1, 'chair')], 0, IDLE);
+    const events = t.update([track(1, 'chair', IDLE + 1)], IDLE + 1, IDLE);
     expect(events).toMatchObject([{ type: 'still_present', object: 'chair' }]);
     expect(events[0].duration_in_frame).toBeGreaterThanOrEqual(IDLE);
   });
 
   it('suppresses still_present when real news happened in the same tick', () => {
     const t = createEventTracker();
-    t.update({ chair: 1 }, [det('chair')], 0, IDLE);
-    const events = t.update({ chair: 1, cup: 1 }, [det('chair'), det('cup')], IDLE + 1, IDLE);
+    t.update([track(1, 'chair')], 0, IDLE);
+    const events = t.update(
+      [track(1, 'chair', IDLE + 1), track(2, 'cup', 0)],
+      IDLE + 1,
+      IDLE,
+    );
     expect(events.map((e) => e.type)).toEqual(['appear']);
   });
 
-  it('resets the idle clock when the count changes', () => {
+  it('resets the idle clock when a new track of the same label appears', () => {
     const t = createEventTracker();
-    t.update({ cup: 1 }, [det('cup')], 0, IDLE);
-    t.update({ cup: 2 }, [det('cup'), det('cup')], 50 * 60_000, IDLE);
-    const [e] = t.update({ cup: 2 }, [det('cup'), det('cup')], 52 * 60_000, IDLE);
+    t.update([track(1, 'cup')], 0, IDLE);
+    t.update([track(1, 'cup', 50 * 60_000), track(2, 'cup', 0)], 50 * 60_000, IDLE);
+    const [e] = t.update(
+      [track(1, 'cup', 52 * 60_000), track(2, 'cup', 2 * 60_000)],
+      52 * 60_000,
+      IDLE,
+    );
     expect(e.type).toBe('still_present');
     // Visible for 52 minutes, but only boring for 2 of them.
     expect(e.duration_in_frame).toBe(52 * 60_000);
@@ -285,7 +301,7 @@ describe('event tracker', () => {
 
   it('reports the observed confidence, not an invented one', () => {
     const t = createEventTracker();
-    const [e] = t.update({ chair: 1 }, [det('chair', 0.42)], 0, IDLE);
+    const [e] = t.update([track(1, 'chair', 0, 0.42)], 0, IDLE);
     expect(e.confidence).toBeCloseTo(0.42);
   });
 });

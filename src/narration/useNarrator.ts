@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Frame } from '../vision/types';
-import { toSceneState, sameScene } from './describeScene';
 import { DEFAULT_CONFIG, loadConfig, saveConfig, type NarratorConfig } from './config';
 import {
   byInterest,
@@ -12,7 +11,6 @@ import {
 import { createLineGenerator } from './generateLine';
 import { nextLogId } from './ids';
 import { primeSpeech, speak, stopSpeaking } from './speech';
-import type { DemoController } from '../demo/controller';
 
 /** How often we sample the frame for scene changes. */
 const SAMPLE_MS = 250;
@@ -29,10 +27,6 @@ export interface LogEntry {
   /** Structured event dump, for the debug tooltip. */
   debug: string;
   at: number;
-  /** Demo layer only: released late by lag mode, styled as past tense. */
-  lagged?: boolean;
-  /** Demo layer only: a line the failure modes authored rather than the scene. */
-  kind?: 'ghost' | 'denial' | 'redemption';
 }
 
 /**
@@ -42,12 +36,7 @@ export interface LogEntry {
  * (voice). The two stages are deliberately separate, so "boring mode" can show
  * the raw event for the same log row and prove the detection is real.
  */
-export function useNarrator(
-  frameRef: React.RefObject<Frame>,
-  enabled: boolean,
-  /** Present only under `?demo=broken`. Null in every normal session. */
-  demo: DemoController | null = null,
-) {
+export function useNarrator(frameRef: React.RefObject<Frame>, enabled: boolean) {
   const [log, setLog] = useState<LogEntry[]>([]);
   const [config, setConfigState] = useState<NarratorConfig>(DEFAULT_CONFIG);
 
@@ -56,7 +45,8 @@ export function useNarrator(
 
   const trackerRef = useRef(createEventTracker());
   const generatorRef = useRef(createLineGenerator(() => configRef.current));
-  const candidateRef = useRef<{ counts: Record<string, number>; since: number } | null>(null);
+  /** `key` is the sorted track-id set, joined — cheap way to detect "same cast". */
+  const candidateRef = useRef<{ key: string; since: number } | null>(null);
   const queueRef = useRef<NarrationEvent[]>([]);
   const lastSpokeAtRef = useRef(0);
 
@@ -82,33 +72,18 @@ export function useNarrator(
       const now = performance.now();
       const cfg = configRef.current;
 
-      // Lines the demo layer owes us: lag releases, ghosts, denial, redemption.
-      // Drained first so they land in order even if the narrator says nothing.
-      if (demo) {
-        const owed = demo.takePending(now);
-        if (owed.length > 0) {
-          setLog((prev) => [...owed.reverse(), ...prev].slice(0, 8));
-          if (cfg.voice_enabled) for (const e of owed) speak(e.text);
-        }
-        // The redemption shot owns the screen. One line, nothing else.
-        if (demo.isSuppressed()) return;
-      }
+      const tracks = frameRef.current.tracks;
+      const key = tracks.map((t) => t.id).sort((a, b) => a - b).join(',');
 
-      // In broken mode the narrator reads the *corrupted* frame, so a mug
-      // mislabelled as a toilet is a toilet in the boxes and in the log.
-      const detections = (demo?.current() ?? frameRef.current).detections;
-      const counts = toSceneState(detections);
-
-      // Track how long the current arrangement has held.
+      // Track how long the current cast of track ids has held.
       const candidate = candidateRef.current;
-      if (!candidate || !sameScene(candidate.counts, counts)) {
-        candidateRef.current = { counts, since: now };
+      if (!candidate || candidate.key !== key) {
+        candidateRef.current = { key, since: now };
         return;
       }
       if (now - candidate.since >= STABLE_MS) {
         const events = trackerRef.current.update(
-          counts,
-          detections,
+          tracks,
           now,
           cfg.idle_escalation_minutes * 60_000,
         );
@@ -123,12 +98,9 @@ export function useNarrator(
       queueRef.current = [];
       const [primary, secondary] = queued;
 
-      // The broken banks get first refusal; anything they have no line for
-      // falls through to the real voice, unchanged.
-      let text = demo?.brokenLine(primary) ?? generatorRef.current.generateLine(primary);
+      let text = generatorRef.current.generateLine(primary);
       if (secondary) {
-        const fold = demo?.brokenLine(secondary);
-        text += ` ${fold ? `also, ${fold}` : generatorRef.current.foldLine(secondary)}`;
+        text += ` ${generatorRef.current.foldLine(secondary)}`;
       }
 
       lastSpokeAtRef.current = now;
@@ -141,16 +113,12 @@ export function useNarrator(
         at: Date.now(),
       };
 
-      // Lag mode holds the row back and releases it with its original
-      // timestamp intact. The boxes stay live; only the story is late.
-      if (demo?.bufferLog(entry, now)) return;
-
       if (cfg.voice_enabled) speak(text);
       setLog((prev) => [entry, ...prev].slice(0, 8));
     }, SAMPLE_MS);
 
     return () => clearInterval(id);
-  }, [enabled, frameRef, demo]);
+  }, [enabled, frameRef]);
 
   // Reset the narrator's memory when it's switched off, so re-enabling it
   // reintroduces the scene instead of silently assuming you heard it already.

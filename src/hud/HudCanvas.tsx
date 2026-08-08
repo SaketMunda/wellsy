@@ -1,14 +1,11 @@
 import { useEffect, useRef } from 'react';
 import type { Frame } from '../vision/types';
-import type { DemoController } from '../demo/controller';
 import { drawHud } from './drawHud';
 
 interface Props {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   frameRef: React.RefObject<Frame>;
   active: boolean;
-  /** Present only under `?demo=broken`. Null in every normal session. */
-  demo?: DemoController | null;
 }
 
 /**
@@ -16,7 +13,7 @@ interface Props {
  * (scanline, chrome) even when detection is running slower than display
  * refresh — the boxes just hold their last known position between inferences.
  */
-export function HudCanvas({ videoRef, frameRef, active, demo = null }: Props) {
+export function HudCanvas({ videoRef, frameRef, active }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -41,11 +38,9 @@ export function HudCanvas({ videoRef, frameRef, active, demo = null }: Props) {
         }
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-        // Sole caller of `tick`: it advances ghost timers and the denial clock,
-        // and two callers advancing them independently would drift.
         drawHud(
           ctx,
-          demo ? demo.tick(frameRef.current, t) : frameRef.current,
+          frameRef.current,
           cssW,
           cssH,
           cssW / video.videoWidth,
@@ -59,7 +54,7 @@ export function HudCanvas({ videoRef, frameRef, active, demo = null }: Props) {
 
     raf = requestAnimationFrame(render);
     return () => cancelAnimationFrame(raf);
-  }, [active, videoRef, frameRef, demo]);
+  }, [active, videoRef, frameRef]);
 
   return <canvas ref={canvasRef} className="hud-canvas" />;
 }

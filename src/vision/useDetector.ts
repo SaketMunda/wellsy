@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as tf from '@tensorflow/tfjs';
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import type { Detection, Frame } from './types';
+import { updateTracks } from './tracker';
 
 const MIN_SCORE = 0.5;
 const MAX_DETECTIONS = 12;
@@ -24,8 +25,10 @@ export function useDetector(
   const [status, setStatus] = useState<ModelStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState({ fps: 0, inferenceMs: 0, count: 0 });
-  const frameRef = useRef<Frame>({ detections: [], inferenceMs: 0, fps: 0 });
+  const frameRef = useRef<Frame>({ detections: [], tracks: [], inferenceMs: 0, fps: 0 });
   const modelRef = useRef<cocoSsd.ObjectDetection | null>(null);
+  const tracksRef = useRef<Frame['tracks']>([]);
+  const nextTrackIdRef = useRef(1);
 
   // Load the model once, as soon as the app is switched on.
   useEffect(() => {
@@ -93,8 +96,11 @@ export function useDetector(
           ? instantFps
           : smoothedFps + (instantFps - smoothedFps) * FPS_SMOOTHING;
 
+        tracksRef.current = updateTracks(tracksRef.current, detections, dt, () => nextTrackIdRef.current++);
+
         frameRef.current = {
           detections,
+          tracks: tracksRef.current,
           inferenceMs: t1 - t0,
           fps: smoothedFps,
         };
@@ -116,7 +122,8 @@ export function useDetector(
     return () => {
       running = false;
       cancelAnimationFrame(raf);
-      frameRef.current = { detections: [], inferenceMs: 0, fps: 0 };
+      tracksRef.current = [];
+      frameRef.current = { detections: [], tracks: [], inferenceMs: 0, fps: 0 };
     };
   }, [active, status, videoRef]);
 

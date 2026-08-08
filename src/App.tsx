@@ -4,8 +4,6 @@ import { useDetector } from './vision/useDetector';
 import { useNarrator } from './narration/useNarrator';
 import { HudCanvas } from './hud/HudCanvas';
 import { StatusPanel } from './hud/StatusPanel';
-import { useDemoMode } from './demo/useDemoMode';
-import { DemoIndicator } from './demo/DemoIndicator';
 import './App.css';
 
 export default function App() {
@@ -13,16 +11,11 @@ export default function App() {
   const [narrating, setNarrating] = useState(true);
   const [boring, setBoring] = useState(false);
 
-  // Null unless the URL carries `?demo=broken`. Null means every line below
-  // behaves exactly as it did before episode 3 existed.
-  const demo = useDemoMode();
-
   const { videoRef, status: cameraStatus, error: cameraError } = useCamera(active);
   const { frameRef, status: modelStatus, error: modelError, stats } = useDetector(videoRef, active);
   const { log, config, setConfig } = useNarrator(
     frameRef,
     active && narrating && modelStatus === 'ready',
-    demo,
   );
 
   const live = cameraStatus === 'live' && modelStatus === 'ready';
@@ -53,8 +46,7 @@ export default function App() {
       <main className="stage">
         <div className="viewport">
           <video ref={videoRef} className="video" playsInline muted />
-          <HudCanvas videoRef={videoRef} frameRef={frameRef} active={active} demo={demo} />
-          <DemoIndicator demo={demo} />
+          <HudCanvas videoRef={videoRef} frameRef={frameRef} active={active} />
 
           {!active && (
             <div className="curtain">

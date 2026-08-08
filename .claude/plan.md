@@ -15,12 +15,13 @@ change is directly visible against yesterday's.
 | Day | Layer deepened | Files touched |
 |---|---|---|
 | 1 | The whole loop, thin | all |
-| 2 | Detection → **tracking** | `vision/` (+ new `tracker.ts`) |
-| 3 | **Narration** logic | `narration/` |
-| 4 | **HUD** presentation | `hud/` |
-| 5 | **Performance** | `vision/useDetector.ts` |
-| 6 | **Robustness** + mobile | `vision/useCamera.ts`, tests |
-| 7 | Deploy + docs | root |
+| 2 | Narration **latency** (events, not frames; decouple + rate-limit) | `narration/` |
+| 3 | Detection → **tracking** | `vision/` (+ new `tracker.ts`) |
+| 4 | **Narration** logic | `narration/` |
+| 5 | **HUD** presentation | `hud/` |
+| 6 | **Performance** | `vision/useDetector.ts` |
+| 7 | **Robustness** + mobile | `vision/useCamera.ts`, tests |
+| 8 | Deploy + docs | root |
 
 Note the near-perfect file isolation per day — that's the payoff from the
 layering rule in [architecture.md](architecture.md), and it's what makes each
@@ -29,7 +30,16 @@ day's diff explainable in public.
 ## Day 1 — done
 See [day1-poc.md](day1-poc.md).
 
-## Day 2 — next up, concrete
+## Day 2 — done
+Narration was chained to the 60fps detect loop in the original story, but the
+narrator-personality work already shipped the fix: events, not frames
+(`src/narration/events.ts`), decoupled from the detect loop on its own 250ms
+sampler with a 4s rate limit (`src/narration/useNarrator.ts`,
+`src/narration/config.ts`). See [day2-poc.md](day2-poc.md) — this session
+verified the architecture already matches the fix, rather than building it
+fresh.
+
+## Day 3 — next up, concrete
 1. `src/vision/tracker.ts` — IoU-based matcher. Pure function:
    `(previousTracks, newDetections) → updatedTracks`. Keep it pure so it's
    testable and explainable.
@@ -43,13 +53,17 @@ See [day1-poc.md](day1-poc.md).
 **Timebox:** IoU matching only. No Kalman filter, no re-identification.
 
 ## Open questions
-- **Day 3:** does narration need a real LLM for scene-level description, or is
-  rule-based enough? Decide *after* seeing tuned rule-based output — the rules
-  may well be enough, and a cloud call breaks the on-device story (see D1).
-- **Day 5:** is WebGPU actually faster here? Measure, don't assume. A negative
+- **Day 4:** ~~does narration need a real LLM~~ — decided: yes, but **local
+  only**. A tiny on-device LLM for line generation and a local TTS engine for
+  speech, both sized for mobile latency. No cloud call, not even optional
+  (see decisions.md D10). Open sub-question: which specific tiny model/engine
+  combo actually hits an acceptable latency bar on real mobile hardware —
+  that's a measure-don't-assume question for Day 4 itself.
+- **Day 6:** is WebGPU actually faster here? Measure, don't assume. A negative
   result is publishable.
-- **Day 6:** does mobile need a smaller input resolution to hold framerate?
-  Likely yes.
+- **Day 7:** does mobile need a smaller input resolution to hold framerate?
+  Likely yes — and now also relevant to whether the Day 4 local LLM/TTS
+  footprint is viable at all on that hardware.
 
 ## Success criteria for the week
 - [ ] Runs at ≥15 FPS on a normal laptop **and** a phone

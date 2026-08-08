@@ -60,4 +60,181 @@ the jittery boxes are a natural cliffhanger for Day 2.
 **Hook:** *"I gave my laptop eyes in one day. It just told me what's on my desk."*
 
 ### Next
-Day 2 — IoU tracking, box smoothing, persistent object IDs.
+Day 2 — narration latency: events, not frames; decouple + rate-limit.
+
+---
+
+## Day 2 — 2026-08-07
+
+**Goal:** The roadmap owner decided Day 2's story is a bug-and-fix: narration
+was chained to the 60fps detect loop, sixty opinions a second, all fighting
+each other. Two fixes — talk about events, not frames; decouple narration onto
+its own clock with a rate limit. Also: reschedule the week (old Day 2–7 become
+3–8), and retire the `src/demo/` "broken mode" layer that Day 2 no longer needs.
+
+### Researched
+- Read `src/narration/events.ts`, `src/narration/useNarrator.ts`,
+  `src/narration/config.ts` end to end, rather than trusting the reshuffle
+  prompt's summary of them.
+- Traced every code path in `useNarrator` that reaches `speak`/`generateLine`
+  to confirm none of them bypass the sampler → stability gate → event tracker
+  → rate limit chain.
+
+### Decided
+- **Treat this as "apply the fix if it's there," not "build it."** The
+  narrator-personality work already shipped this architecture before this
+  session started. No gap was found — nothing still fires narration on raw
+  per-frame detections — so no narration code needed to change for the fix
+  itself.
+- **Retire the demo/failure-injection layer entirely** rather than keep it
+  around unused, since Day 2's story no longer needs a staged "broken mode"
+  episode.
+- **Renumber the roadmap** — old Day 2 (tracking) through Day 7 (ship) shift to
+  Day 3 through Day 8, across `week-roadmap.md`, `tasks.md`, `plan.md`, and
+  `public-notes.md`.
+
+### Built
+- Verified (no code change needed): the events-not-frames + decoupled +
+  rate-limited narration architecture, against both the source and the
+  existing 23-test suite in `src/narration/narrator.test.ts`.
+- Removed `src/demo/` (all 8 files) and its wiring from `App.tsx`,
+  `HudCanvas.tsx`, `useNarrator.ts`, `StatusPanel.tsx`, `drawHud.ts`,
+  `App.css`; deleted `.claude/ep03-cue-sheet.md`; cleaned two stale comments
+  in `src/narration/ids.ts` and `templates.ts` that referenced the removed
+  layer.
+- `.claude/week-roadmap.md`, `.claude/tasks.md`, `.claude/plan.md`,
+  `.claude/public-notes.md` renumbered; new Day 2 sections written in the
+  existing voice.
+- `.claude/demo-script.md` — Day 2 demo flow, built around live telemetry
+  instead of a staged before/after (reconstructing the old frame-chained
+  narrator would mean deliberately regressing working code, which this
+  project's own rules treat as staging a fake failure).
+- `.claude/day2-poc.md` — verification notes and observed numbers.
+
+### Verified
+`npx tsc -b`, `npm run build`, `npx oxlint src/`, and `npm run test` (23
+tests) all clean after the demo-layer removal. Headless Chrome (Puppeteer,
+synthetic fake-camera device) confirmed detection still runs independently at
+`60.0–60.4 FPS`, `11ms` inference, `0` console errors, over a 2-minute
+observation window.
+
+### Still missing
+- **An actual narration line observed end-to-end.** The synthetic fake-camera
+  pattern flickers too fast (0/1 targets, roughly every 5s) to ever hold the
+  900ms `STABLE_MS` window, so the log stayed empty for the full 2-minute
+  headless run — same limitation Day 1 already flagged for this stability
+  gate. That the log stayed silent under constant flicker is itself
+  consistent with the gate working, but a real settled event was not watched
+  firing live in this session.
+- **Speech audio** — unverified, headless Chrome has no voices (same caveat as
+  Day 1).
+- **Narration timing tuned against real footage** — still Day 4's job, per the
+  rescheduled roadmap.
+
+### Can be shown publicly
+The architecture story is real and verifiable in the code and tests: events,
+not frames; a decoupled 250ms sampler; a 4-second rate limit; "boring mode"
+proving each styled line traces to a real detection event. The removal of the
+demo layer is also honest content — it shows the project keeping only what the
+current story needs.
+
+**Hook:** *"YAP had two jobs running at two speeds. The eyes kept up. The
+mouth was drowning."*
+
+### Next
+Day 3 — IoU tracking, box smoothing, persistent object IDs (the original
+Day 2 plan, now one day later).
+
+---
+
+## Day 3 — 2026-08-08
+
+**Goal:** Give detections identity across frames. Detection answers "what's
+here now"; tracking answers "is this the same thing as before" — boxes stop
+jittering and get a persistent id + age.
+
+### Researched
+- Read `architecture.md`, `decisions.md`, `week-roadmap.md`/`tasks.md` Day 3
+  sections, `public-notes.md`, and the full vision/hud/narration source
+  (`types.ts`, `useDetector.ts`, `drawHud.ts`, `HudCanvas.tsx`, `events.ts`,
+  `useNarrator.ts`, `describeScene.ts`, `generateLine.ts`, `templates.ts`)
+  before writing anything, per the session brief.
+- Confirmed `describeScene.ts`/`SceneState` were only ever consumed by
+  `useNarrator.ts` (`toSceneState`/`sameScene`) — safe to retire once the
+  narrator moved to track-based input.
+- Confirmed the existing `narrator.test.ts` template-bank tests construct
+  `NarrationEvent` objects directly and don't touch `createEventTracker`, so
+  keeping `count_change` in the type/template system wouldn't need those
+  tests rewritten — only the dedicated "event tracker" describe block would.
+
+### Decided
+Two new entries in [decisions.md](decisions.md) (D11, D12):
+- **Same-label IoU matching, α = 0.4 smoothing, 5-missed-frame grace** — the
+  simplest tracker that kills jitter and survives brief occlusion without a
+  Kalman filter or re-identification, per the explicit Day 3 timebox.
+- **`count_change` goes dormant rather than deleted.** Track-based events mean
+  every count delta already rides an `appear`/`disappear` for the specific
+  track that caused it, so `count_change` has no remaining trigger from
+  `createEventTracker`. Deleting the type, its ~25 authored template lines,
+  and updating their dedicated tests was judged bigger than Day 3's actual
+  ask; it stays defined and revisit-flagged instead of quietly vanishing.
+
+### Built
+```
+src/vision/tracker.ts     updateTracks() — pure IoU matcher + smoothing (new)
+src/vision/types.ts       Track type, Frame.tracks (new)
+src/vision/useDetector.ts wires the tracker into the detect loop
+src/hud/drawHud.ts        renders tracks: "LABEL #id · age" replaces "label score%"
+src/narration/events.ts   createEventTracker.update(tracks, now, idle) — track-based
+src/narration/useNarrator.ts  stability gate compares track-id sets, not label counts
+src/narration/describeScene.ts  deleted (dead once useNarrator stopped calling it)
+```
+`src/narration/narrator.test.ts`'s "event tracker" suite rewritten for the
+new `Track[]`-based signature; the template-bank/generateLine suites were
+untouched since they don't depend on event derivation.
+
+### Verified
+- `npx tsc -b`, `npm run build`, `npx oxlint src/`, `npm run test` (23 tests)
+  all clean.
+- **Live, headless Chrome + fake camera device (Puppeteer):**
+  `camera live · model ready · 60.0–60.1 FPS · 12ms inference · 0 console
+  errors`.
+- Temporarily instrumented the detect loop to log each frame's tracks
+  (id/label/ageMs/missedFrames/bbox), observed over ~30 samples, then removed
+  the instrumentation before finishing. Confirmed: ids assigned monotonically
+  and hold steady across consecutive frames; `missedFrames` climbs during a
+  gap (seen up to 3) before a track is dropped and a fresh id takes its
+  place; `ageMs` accumulates correctly frame to frame; bbox values move
+  gradually toward the new detection rather than jumping — smoothing is
+  visibly active, not a no-op.
+- **Screenshot confirms the HUD label change**: captured `KITE #13 · 0.3s`
+  rendered on a live bracket, replacing the old `label score%` format —
+  see `day3-poc.md`.
+
+### Still missing
+- **Real-webcam verification of occlusion recovery and new-object-gets-new-id**
+  — the fake-camera device's synthetic pattern doesn't hold a stable
+  detection long enough to walk something out of frame and back, the same
+  limitation Day 1/2 already noted for narration stability. First thing to
+  check when recording.
+- **A jitter before/after clip** — the headline demo asset for the day —
+  needs a real webcam and real movement, not the synthetic pattern.
+- **Smoothing/grace-window tuning against real footage** — α = 0.4 and the
+  5-missed-frame threshold are reasonable defaults, not measured against a
+  real camera's actual frame-drop behavior yet.
+- Speech audio — still unverified in headless Chrome (no voices), same
+  caveat as every prior day.
+
+### Can be shown publicly
+The tracker is real and independently verifiable: the HUD literally displays
+`LABEL #id · age`, which only a working tracker can produce, and the
+architecture change (events derived from track identity, not count-diffing)
+is a genuinely more accurate design, not just a relabeling. The still-missing
+real-webcam clip is an honest cliffhanger — Day 1 and Day 2 both had one too.
+
+**Hook:** *"Yesterday it saw. Today it remembers."*
+
+### Next
+Day 4 — narration tuned against real footage, spatial language, salience
+ranking, event narration built on Day 3 tracks, and the local-LLM/local-TTS
+voice upgrade (per D10 — no cloud, ever).
