@@ -131,11 +131,62 @@ which is the kind of thing worth stating in tradeoffs, not hiding.
 
 **Line:** "Yesterday it saw. Today it remembers."
 
-## Day 4 — "Teaching it when to shut up"
-> Getting an AI to talk is easy. Getting it to talk only when it's worth it is
-> the product.
+## Day 4 — "A better voice, still no cloud bill"
 
-**Line:** "The hard part of a talking AI isn't the talking."
+**Concept:** Two upgrades — a local LLM for what YAP says, a local neural
+voice for how it says it — both running entirely on-device, same promise as
+Day 1.
+
+**Simple explanation (2–4 lines):**
+> The narrator's lines came from a fixed template bank until today. Now
+> there's a small AI model — about 500 million parameters, roughly a
+> thousandth the size of the big cloud models — running directly in the
+> browser to write fresh lines instead. Same for the voice: a real neural
+> text-to-speech model instead of the robotic default your OS ships with.
+> Both download once (a few hundred MB, shown live in the network tab), get
+> cached, and after that run with zero network calls — same story as the
+> camera never leaving the device, just extended to the mouth.
+
+**What viewers should notice:**
+- The network tab, showing a real download the first time an engine is
+  switched on — this isn't a claim, it's traffic you can watch
+- A second load of the same page landing on "ready" in ~11 seconds instead
+  of ~50, with the network tab staying empty — the caching claim, provable
+- While the model downloads, narration doesn't go silent or stutter — it
+  keeps talking in the old templated voice until the new one is ready, then
+  switches over live
+- Live latency numbers on the panel for both the line-writing model and the
+  voice model — not adjectives, milliseconds
+
+**What was hard:**
+The model choice was the easy part — read what's actually in a local model
+library, pick the smallest one that clears the bar. The real problem was
+architectural: the existing line generator is a plain synchronous function,
+and an AI model is not — it takes real time to think. The fix wasn't to
+make the whole app wait on it. It was to start the model thinking the
+moment something happens, hand it several seconds of head start using
+timing the narrator already had for other reasons, and if it's not done
+thinking by the time it's due to speak, say the old reliable line instead
+and let the AI's answer catch up next time. And the honest part: the neural
+voice hit a real bug during testing — a dependency inside it failed to
+speak. Instead of hiding that, the system silently falls back to the
+built-in voice and logs why. That fallback *working exactly as designed*
+is arguably the most interesting result of the day, and it is going in the
+video, not around it.
+
+**Posts:**
+- **X:** "Day 4 of building YAP. Gave it a real brain and a real voice —
+  both running on-device, zero cloud calls. Watched the network tab do
+  nothing while it kept talking. Also found a real bug in the new voice
+  and shipped the video with the bug still in it. 🧵"
+- **LinkedIn:** Frame it as the general pattern for adding a slow AI model
+  behind a fast synchronous interface without blocking the caller — start
+  the work early, cache the result, fall back cleanly if it's not ready.
+  Applies far beyond a webcam toy.
+- **Reel caption:** "It downloads once. Then it never calls home again.
+  Watch the network tab do nothing while it keeps talking."
+
+**Line:** "A better voice usually means a cloud bill. Ours doesn't."
 
 ## Day 5 — "Same brain, better face"
 > I didn't touch the model today. It feels twice as smart. That gap is design.
@@ -168,8 +219,27 @@ which is the kind of thing worth stating in tradeoffs, not hiding.
 - Everything on screen comes from a real model
 - Objects get a persistent ID and age, matched frame to frame by IoU overlap,
   with position/size smoothing to kill jitter (Day 3)
+- A local LLM (Qwen2.5-0.5B) writes narration lines, and a local neural TTS
+  model (Kokoro-82M) exists behind the voice toggle — both run in the
+  browser, both download once and are then cached (Day 4)
+- The models are downloaded once over the network, then cached — inference
+  itself runs with zero network calls after that, verified by cutting the
+  network entirely mid-session and watching new narration lines keep
+  appearing (Day 4)
 
 ## What is NOT real yet (never overclaim)
+- ❌ "Runs entirely on the device" without the nuance — the model *weights*
+  are fetched over the network the first time (a few hundred MB), then
+  cached. Say "video never leaves the device" and "inference is local and
+  offline after the first load" — both true — not "no network, ever."
+- ❌ "It has a real voice now" — the local neural TTS (Kokoro) has a live,
+  unresolved bug and has not actually been heard to speak as of Day 4. What's
+  true and demoable: it downloads, loads, and the app never goes silent —
+  it falls back to the built-in voice automatically. Don't claim more.
+- ❌ "Nobody's heard YAP talk yet" isn't a caveat to bury — say it plainly if
+  asked. No audio has been confirmed audible on any machine this project has
+  run on, across all four days, because every verification session so far
+  has been headless with no speaker.
 - ❌ "It understands scenes" — it detects **objects**. It doesn't know "kitchen"
   or "someone is cooking".
 - ❌ "It recognises anything" — **80 fixed classes**. No text, no faces, no brands.

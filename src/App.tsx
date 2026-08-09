@@ -13,7 +13,7 @@ export default function App() {
 
   const { videoRef, status: cameraStatus, error: cameraError } = useCamera(active);
   const { frameRef, status: modelStatus, error: modelError, stats } = useDetector(videoRef, active);
-  const { log, config, setConfig } = useNarrator(
+  const { log, config, setConfig, llmStatus, ttsStatus } = useNarrator(
     frameRef,
     active && narrating && modelStatus === 'ready',
   );
@@ -85,6 +85,8 @@ export default function App() {
           onToggleBoring={() => setBoring((b) => !b)}
           config={config}
           onConfigChange={setConfig}
+          llmStatus={llmStatus}
+          ttsStatus={ttsStatus}
         />
       </main>
     </div>

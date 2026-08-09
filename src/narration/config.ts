@@ -8,8 +8,12 @@ export interface NarratorConfig {
   min_seconds_between_lines: number;
   /** How often a motionless scene earns a `still_present` remark. */
   idle_escalation_minutes: number;
-  /** Web Speech output. Off by default — a talking page is a rude default. */
+  /** Speech output on/off. Off by default — a talking page is a rude default. */
   voice_enabled: boolean;
+  /** Which line generator writes the narration: authored templates, or a local LLM. */
+  line_generator_engine: 'template' | 'local-llm';
+  /** Which engine speaks a line, when voice is on: the OS voice, or local neural TTS. */
+  voice_engine: 'system' | 'local-tts';
 }
 
 export const DEFAULT_CONFIG: NarratorConfig = {
@@ -18,6 +22,10 @@ export const DEFAULT_CONFIG: NarratorConfig = {
   min_seconds_between_lines: 4,
   idle_escalation_minutes: 2,
   voice_enabled: false,
+  // Safe on first load for every device: no download, no WebGPU requirement.
+  // The demo path switches these live; see StatusPanel.
+  line_generator_engine: 'template',
+  voice_engine: 'system',
 };
 
 const KEY = 'yap.narrator.config';

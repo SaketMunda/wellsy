@@ -238,3 +238,111 @@ real-webcam clip is an honest cliffhanger — Day 1 and Day 2 both had one too.
 Day 4 — narration tuned against real footage, spatial language, salience
 ranking, event narration built on Day 3 tracks, and the local-LLM/local-TTS
 voice upgrade (per D10 — no cloud, ever).
+
+---
+
+## Day 4 — 2026-08-09
+
+### Researched
+- Read `decisions.md` (D1, D10 binding), `week-roadmap.md`/`tasks.md` Day 4
+  sections, `architecture.md`, `public-notes.md`, and all of `src/narration/`
+  before writing anything, per the session brief.
+- Inspected `@mlc-ai/web-llm`'s actual prebuilt model catalog
+  (`node_modules/@mlc-ai/web-llm/lib/index.js`) for real `vram_required_MB`
+  figures rather than picking a model from a README table — Qwen2.5-0.5B-
+  Instruct-q4f16_1-MLC (944.62 MB, `low_resource_required: true`) is the
+  smallest instruct-tuned model WebLLM currently ships.
+- Read `kokoro-js`'s type definitions and README for its `dtype`/`device`
+  options before choosing `q8` (~85MB) over `fp32` (~326MB, the README's
+  WebGPU recommendation) — the download-size floor mattered more here than
+  the WebGPU-path quality delta, given D10's mobile-latency framing.
+- Confirmed via `grep` that neither `pickVoice` nor `speak`/`primeSpeech`/
+  `stopSpeaking` from `speech.ts` were consumed anywhere outside
+  `useNarrator.ts`, so widening `speech.ts`'s internals was safe without a
+  wider blast radius.
+
+### Decided
+One new entry in [decisions.md](decisions.md) (D13):
+- **Qwen2.5-0.5B-Instruct via WebLLM** for the line generator, **Kokoro-82M
+  via `kokoro-js`** for TTS — both chosen against measured catalog numbers,
+  not vibes.
+- **Generate-ahead, not widen-to-async.** `LineGenerator` stays synchronous;
+  a new optional `prefetch(event)` hook starts inference the moment an event
+  is queued (well before its narration slot), and `generateLine`/`foldLine`
+  read a cache, falling back to templates if it isn't ready. Chosen because
+  widening to `Promise<string>` would force the 250ms sampler to either
+  block or grow its own polling logic — generate-ahead gets that for free
+  from timing the project already has (900ms stability + 4s rate limit).
+- **Character enforcement is a filter (`sanitizeLlmLine`), not a prompt and
+  a hope** — word-ceiling truncation, banned-word/swear rejection, all
+  independent of whatever the system prompt actually got the model to do.
+
+### Built
+```
+src/narration/llmLineGenerator.ts   local-LLM LineGenerator, prefetch + WeakMap cache (new)
+src/narration/llmLineGenerator.test.ts  13 tests against a fake engine (new)
+src/narration/localTts.test.ts      5 tests against a fake TTS model (new)
+src/narration/generateLine.ts       LineGenerator gains optional prefetch()
+src/narration/speech.ts             local-tts engine behind the existing surface
+src/narration/config.ts             line_generator_engine, voice_engine
+src/narration/useNarrator.ts        wires prefetch-on-queue, engine swap, status plumbing
+src/hud/StatusPanel.tsx             engine toggles + load state + latency numbers
+src/App.tsx                         passes llmStatus/ttsStatus through
+vite.config.ts                      COOP/COEP headers (dev + preview) — see D13
+```
+
+### Verified
+- `npx tsc -b`, `npm run build`, `npx oxlint src/`, `npm run test` (48 tests,
+  up from 23) all clean. Main bundle chunk unchanged at ~1.31MB; WebLLM and
+  Kokoro each land in their own lazily-loaded chunk (~6.0MB, ~2.2MB) —
+  confirmed by reading the actual `vite build` chunk list, not assumed.
+- **Live, headless Chrome + fake camera device (Puppeteer,
+  `--enable-unsafe-webgpu`):** full run documented in `day4-poc.md`. Highlights:
+  cold LLM load ~45–63s (real ~945MB download), warm reload **11.1s with 0
+  bytes re-fetched**, first inference 350–567ms, narration correctly kept
+  producing template lines while the model was still loading, network cut
+  entirely mid-session (tab kept open) and the app kept generating new lines
+  with **zero** requests fired.
+- **Found and fixed, live:** Kokoro TTS synthesis threw `Invalid language
+  identifier` — root-caused to missing `SharedArrayBuffer`/cross-origin
+  isolation (both `kokoro-js` and `web-llm` ship threaded WASM). Added
+  `Cross-Origin-Opener-Policy`/`Cross-Origin-Embedder-Policy` headers to
+  `vite.config.ts`. This fixed the *silent degrade* (a Worker now visibly
+  spins up) but the underlying phonemizer error persists — filed as an open
+  bug in D13, not worked around by quietly changing the default engine.
+  Every failed local-tts call correctly logs a warning and falls back to
+  `speechSynthesis` rather than dropping the line.
+
+### Still missing
+- **Kokoro has never actually spoken**, in this session or any prior one —
+  the fallback path has been exercised, not the real voice.
+- **No audio confirmed audible from any machine, across all four days.**
+  This session is headless with no speaker; even `speechSynthesis` (191
+  voices reported available) cannot be confirmed to actually produce sound
+  from here. Stated loudly per the session brief, not glossed over.
+- **Mobile.** No phone was reachable. The model-choice rationale (D13) rests
+  on WebLLM's published VRAM figures and desktop latency only.
+- **Peak memory** — not measured, no reliable sampling method available in
+  this environment.
+- **Timing tuning, spatial language, salience ranking** — cut per the
+  agreed Day 4 scope decision; none reached. Carried to Day 5+.
+
+### Can be shown publicly
+Both model swaps are independently verifiable on camera, not just claimed:
+the network tab shows a genuine multi-hundred-MB download the first time an
+engine switches on, the panel shows live load/latency numbers, and a second
+load from the same profile visibly skips the download. The generate-ahead
+fallback is demonstrable live — flip to `local-llm` and the log keeps
+producing template lines with zero stutter while the real download runs in
+the background. The Kokoro bug is itself good content: a real, named,
+not-yet-fixed failure with a working, provable fallback, exactly the kind of
+seam `demo-script.md` already asks to show rather than hide.
+
+**Hook:** *"A better voice usually means a cloud bill. Ours doesn't."*
+
+### Next
+Day 5 — HUD/UX polish (lock-on animation, confidence rings, primary-target
+treatment, subtitle track, keyboard shortcuts). Carried in from Day 4's cut
+list: narration timing tuning, spatial language, salience ranking. Open from
+Day 4: the Kokoro phonemizer bug, and the still-outstanding "has anyone
+actually heard this thing" check on real hardware.

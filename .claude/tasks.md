@@ -92,24 +92,81 @@
 - [ ] Record the demo per `.claude/demo-script.md`'s Day 3 flow
 
 ## Day 4 — narration + local voice
-- [ ] Tune `STABLE_MS` / rate limit against real footage
-- [ ] Spatial language from bbox position ("on your left")
-- [ ] Salience ranking (size, centrality, novelty)
-- [ ] Event narration from Day 3 tracks
+**Scope decision:** local LLM and local TTS ship together on Day 4, not split
+across two days — the series is already one day over its 7-day target and
+splitting would push it to 9. If the day runs long, cut in this order:
+salience ranking → spatial language → timing tuning. The LLM and the TTS are
+the day; everything else is trim.
+
+- [x] Event narration from Day 3 tracks — **already shipped on Day 3** as a
+      side effect of the track-based event switch (see decisions.md D12)
+- [ ] Tune `STABLE_MS` / rate limit against real footage — cut, see below
+- [ ] Spatial language from bbox position ("on your left") — cut, see below
+- [ ] Salience ranking (size, centrality, novelty) — cut, see below
 - [x] Decide: rule-based vs LLM for scene description — **local LLM**, no
       cloud, ever (see decisions.md D10)
-- [ ] Survey tiny on-device LLM options (in-browser: WebLLM/Transformers.js
-      + a small GGUF/ONNX model; check what's actually mobile-viable, not
-      just desktop-viable) — pick on measured latency, not defaults
-- [ ] Survey local neural TTS options (in-browser or on-device — needs to
-      replace `speechSynthesis` without adding a network dependency)
-- [ ] Wire local LLM into `src/narration/generateLine.ts` path as the new
-      line generator, keep the template generator as a fallback/off-mode
-- [ ] Wire local TTS into `src/narration/speech.ts`, same fallback pattern
-- [ ] Measure and record: model load time, per-line inference latency, memory
-      footprint — on both desktop and (if available) a mobile device
-- [ ] Confirm zero network calls at runtime (check the network tab, not just
-      the code) — this is the claim, so verify it like one
+- [x] Survey tiny on-device LLM options — WebLLM's actual prebuilt catalog
+      inspected for real VRAM numbers; **Qwen2.5-0.5B-Instruct-q4f16_1-MLC**
+      (944.62 MB, smallest instruct model WebLLM ships) — see decisions.md D13
+- [x] Survey local neural TTS options — **Kokoro-82M** via `kokoro-js`
+      (`dtype: "q8"`, ~85MB), `speechSynthesis` stays the safe default and
+      fallback — see decisions.md D13
+- [x] Wire local LLM into `src/narration/generateLine.ts` path — new
+      `src/narration/llmLineGenerator.ts`, generate-ahead via an optional
+      `prefetch()` hook so the narrator sampler never awaits it; template
+      generator is the automatic fallback (not ready, rejected, unavailable)
+- [x] Wire local TTS into `src/narration/speech.ts`, same fallback pattern —
+      `speechSynthesis` remains the default and the automatic fallback on
+      any local-tts failure
+- [x] Config + UI: `line_generator_engine`/`voice_engine` toggles in
+      `NarratorConfig` and `StatusPanel`, plus live load state/progress and
+      latency numbers for whichever engine is active
+- [x] Measure and record: model load time (cold ~45–63s, warm ~11.1s with 0
+      bytes re-fetched), per-line inference latency (350–567ms), TTS load
+      time (~ready alongside LLM in the same run) — see `day4-poc.md`.
+      **Peak memory not measured** (no reliable sampling method in this
+      environment) and **no mobile device was reachable this session** —
+      both stated plainly as unverified in `day4-poc.md`, not assumed
+- [x] Confirm zero network calls at runtime — verified two ways: (a) warm
+      reload re-fetched 0 bytes from the model hosts, (b) network cut
+      entirely mid-session (tab kept open, no reload) and the app kept
+      generating new narration lines with 0 requests fired. A **full page
+      reload** while offline does fail (`ERR_INTERNET_DISCONNECTED`) — this
+      project has no service worker, so the HTML/JS shell itself isn't
+      offline-capable; the model-caching claim is separate from that and
+      holds. See `day4-poc.md`.
+- [x] `npx tsc -b`, `npm run build` (main chunk unchanged at ~1.31MB; LLM and
+      TTS each land in their own lazy chunk), `npx oxlint src/`,
+      `npm run test` (48 tests, new fake-model-driven suites for both
+      adapters) — all clean
+- [x] Verified live: headless Chrome + fake camera device (Puppeteer,
+      `--enable-unsafe-webgpu`), see `day4-poc.md` for the full run
+
+### Cut this session, per the Day 4 scope decision below
+`STABLE_MS`/rate-limit tuning, spatial language, and salience ranking were
+all cut in favor of shipping both model swaps — the agreed order was "cut
+the last one first," and none of the three were reached. Carried to Day 5+.
+
+### What to film for Day 4
+- [ ] Cold open on the network tab, empty, then start the camera — proves
+      detection + template narration need zero network from the first frame
+- [ ] Same scene narrated three ways, switched live: Day 1 flat English →
+      Day 2 templated personality → Day 4 local-LLM line, `StatusPanel`
+      visible throughout so the engine toggle and latency numbers are on
+      camera, not just claimed
+- [ ] The generate-ahead moment: flip to `local-llm` and immediately point
+      out the log keeps producing template lines with zero stutter while the
+      model downloads in the background in the network tab
+- [ ] A second, cached reload — same page, same profile — landing on `LLM:
+      ready` in ~11s instead of ~50s+, network tab showing no re-download
+- [ ] Local TTS: show the honest state — it loads for real, then falls back
+      to the system voice with a visible console warning rather than staying
+      silent. Say the bug out loud; don't cut around it (decisions.md D13)
+- [ ] Offline test on camera: devtools network → Offline, keep interacting
+      (not reload) — narration keeps talking, network tab stays empty
+- [ ] State plainly on camera: no audio has been confirmed audible from this
+      machine yet (headless dev environment) — first real-speaker check is
+      still owed, same as every prior day
 
 ## Day 5 — HUD polish
 - [ ] Lock-on acquire animation

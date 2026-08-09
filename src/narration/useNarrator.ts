@@ -8,9 +8,10 @@ import {
   literalLine,
   type NarrationEvent,
 } from './events';
-import { createLineGenerator } from './generateLine';
+import { createLineGenerator, type LineGenerator } from './generateLine';
 import { nextLogId } from './ids';
-import { primeSpeech, speak, stopSpeaking } from './speech';
+import { createLlmLineGenerator, type LlmStatus } from './llmLineGenerator';
+import { onTtsStatus, primeSpeech, setVoiceEngine, speak, stopSpeaking, type TtsStatus } from './speech';
 
 /** How often we sample the frame for scene changes. */
 const SAMPLE_MS = 250;
@@ -39,23 +40,55 @@ export interface LogEntry {
 export function useNarrator(frameRef: React.RefObject<Frame>, enabled: boolean) {
   const [log, setLog] = useState<LogEntry[]>([]);
   const [config, setConfigState] = useState<NarratorConfig>(DEFAULT_CONFIG);
+  const [llmStatus, setLlmStatus] = useState<LlmStatus>({
+    state: 'idle',
+    progress: 0,
+    lastInferenceMs: null,
+  });
+  const [ttsStatus, setTtsStatus] = useState<TtsStatus>({
+    engine: 'system',
+    state: 'idle',
+    progress: 0,
+    lastSynthMs: null,
+  });
 
   const configRef = useRef(config);
   configRef.current = config;
 
   const trackerRef = useRef(createEventTracker());
-  const generatorRef = useRef(createLineGenerator(() => configRef.current));
+  const templateGeneratorRef = useRef(createLineGenerator(() => configRef.current));
+  const llmGeneratorRef = useRef<LineGenerator | null>(null);
   /** `key` is the sorted track-id set, joined — cheap way to detect "same cast". */
   const candidateRef = useRef<{ key: string; since: number } | null>(null);
   const queueRef = useRef<NarrationEvent[]>([]);
   const lastSpokeAtRef = useRef(0);
 
+  // The local LLM is only ever instantiated once voice narration actually
+  // asks for it — never on first load, and never bundled eagerly either
+  // (`llmLineGenerator.ts` dynamic-imports `@mlc-ai/web-llm` itself).
+  function activeGenerator(): LineGenerator {
+    if (configRef.current.line_generator_engine !== 'local-llm') return templateGeneratorRef.current;
+    llmGeneratorRef.current ??= createLlmLineGenerator(() => configRef.current, setLlmStatus);
+    return llmGeneratorRef.current;
+  }
+
+  useEffect(() => {
+    onTtsStatus(setTtsStatus);
+    return () => onTtsStatus(() => {});
+  }, []);
+
   // Load persisted settings once on mount.
-  useEffect(() => setConfigState(loadConfig()), []);
+  useEffect(() => {
+    const loaded = loadConfig();
+    setVoiceEngine(loaded.voice_engine);
+    setConfigState(loaded);
+  }, []);
 
   const setConfig = useCallback((patch: Partial<NarratorConfig>) => {
-    // Must run synchronously inside the click that enabled voice — browsers
-    // only unlock speech from a real user gesture.
+    // Must run synchronously inside the click that changed voice settings —
+    // browsers only unlock speech (and a fresh AudioContext) from a real
+    // user gesture, and every call here originates from a StatusPanel click.
+    if (patch.voice_engine) setVoiceEngine(patch.voice_engine);
     if (patch.voice_enabled) primeSpeech();
     if (patch.voice_enabled === false) stopSpeaking();
     setConfigState((prev) => {
@@ -87,7 +120,13 @@ export function useNarrator(frameRef: React.RefObject<Frame>, enabled: boolean) 
           now,
           cfg.idle_escalation_minutes * 60_000,
         );
-        if (events.length > 0) queueRef.current.push(...events);
+        if (events.length > 0) {
+          queueRef.current.push(...events);
+          // Start inference now, well ahead of this event's narration slot —
+          // see llmLineGenerator.ts's "generate-ahead" doc comment.
+          const generator = activeGenerator();
+          for (const e of events) generator.prefetch?.(e);
+        }
       }
 
       // Rate limit: at most one line per min_seconds_between_lines.
@@ -97,10 +136,11 @@ export function useNarrator(frameRef: React.RefObject<Frame>, enabled: boolean) 
       const queued = [...queueRef.current].sort(byInterest);
       queueRef.current = [];
       const [primary, secondary] = queued;
+      const generator = activeGenerator();
 
-      let text = generatorRef.current.generateLine(primary);
+      let text = generator.generateLine(primary);
       if (secondary) {
-        text += ` ${generatorRef.current.foldLine(secondary)}`;
+        text += ` ${generator.foldLine(secondary)}`;
       }
 
       lastSpokeAtRef.current = now;
@@ -126,10 +166,11 @@ export function useNarrator(frameRef: React.RefObject<Frame>, enabled: boolean) 
     if (enabled) return;
     stopSpeaking();
     trackerRef.current.reset();
-    generatorRef.current.reset();
+    templateGeneratorRef.current.reset();
+    llmGeneratorRef.current?.reset();
     candidateRef.current = null;
     queueRef.current = [];
   }, [enabled]);
 
-  return { log, config, setConfig };
+  return { log, config, setConfig, llmStatus, ttsStatus };
 }

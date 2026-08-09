@@ -84,40 +84,53 @@ limitation Day 1/2 already noted for narration stability.
 
 ---
 
-## Day 4 — "Giving it a real voice" (local LLM + local TTS)
+## Day 4 — "Giving it a real voice" (local LLM + local TTS) ✅ SHIPPED
 **Ships:**
-- Narration timing **tuned against real scenes** (Day 1 numbers are guesses)
-- **Spatial language** — "on your left", "in the centre", from bbox position
-- **Salience ranking** — talk about the big/close/new thing, not the 6th chair
-- **Event narration** built on Day 3 tracks — "someone just walked in"
-- A **local LLM** replacing the template-based line generator for richer,
-  less repetitive narration — small enough to run on-device, sized for
-  mobile latency, not desktop-only
-- A **local neural TTS** voice replacing the default `speechSynthesis` output
-  — expressive, not robotic, still fully offline
+- **A local LLM** (WebLLM, Qwen2.5-0.5B-Instruct, 4-bit) replacing the
+  template-based line generator, generate-ahead so the 250ms narration
+  sampler never awaits it — `src/narration/llmLineGenerator.ts`
+- **A local neural TTS voice** (Kokoro-82M via `kokoro-js`, `q8`) behind the
+  existing `speech.ts` seam, `speechSynthesis` retained as the default and
+  the automatic fallback on any failure
+- **Engine toggles + honest telemetry** in `StatusPanel` — line-generator
+  engine, voice engine, live load progress, per-line/per-synth latency, all
+  switchable live for the three-way demo
+- Both models dynamically imported; main bundle chunk unchanged (~1.31MB)
+
+**Cut this session** (agreed order, none reached): `STABLE_MS`/rate-limit
+tuning against real footage, spatial language from bbox position, salience
+ranking. Carried to Day 5+ — see `tasks.md`.
 
 **Concept:** Two upgrades, same constraint. The hard part of narration is
 still **when to speak**, not what to say (Day 2's fix stands). But *how* it's
-said matters too — and the answer isn't a cloud API. Everything in YAP has
-been on-device from Day 1: no backend, no API keys, video never leaves the
-machine. A better voice can't be the thing that breaks that promise. So the
-upgrade is a tiny local LLM for line generation and a local TTS engine for
-speech — both picked for the smallest footprint that still sounds like a
-person, because this has to run on a phone, not just a laptop with a GPU.
+said matters too — and the answer isn't a cloud API. The harder problem
+turned out to be architectural, not the model choice: `LineGenerator` is
+synchronous and an LLM isn't. The fix is **generate-ahead** — start inference
+the instant an event is queued, well before its narration slot, and let the
+existing stability gate + rate limit absorb the latency. If the line isn't
+ready in time, it falls back to a template rather than the narrator going
+silent or stuttering.
 
 **Demo:** Same scene, three narrators back to back — Day 1's flat English,
-Day 2's rate-limited-but-templated personality, Day 4's local-LLM line read
-by local TTS. Latency numbers on screen the whole time, so "local" isn't a
-claim, it's a number with no network tab activity to contradict it.
+Day 2's rate-limited-but-templated personality, Day 4's local-LLM line.
+Latency numbers on screen throughout, plus a live network tab: switch the
+engine on, watch a real multi-hundred-MB download happen, reload the same
+page and watch it load in ~11s from cache instead with zero re-download.
 
 **Hook:** *"A better voice usually means a cloud bill. Ours doesn't — it
 still runs entirely on the device, even the part that sounds human."*
 
-**Risk:** Tiny local LLMs and local TTS are meaningfully heavier than the
-current template narrator — model size, load time, and inference latency all
-need to hold up on real mobile hardware, not just a dev laptop. If the
-quality/latency bar isn't hittable in the timebox, fall back to a smaller
-local model, not a cloud call (see decisions.md D10).
+**Risk, resolved and unresolved:** The LLM path is fully verified — real
+download, real caching, real offline inference, a genuine quality ceiling
+(0.5B doesn't always nail the deadpan tone; recorded honestly, not hidden).
+The TTS path found a real bug: Kokoro's phonemizer throws on synthesis in
+this environment (root-caused to a `SharedArrayBuffer`/cross-origin-isolation
+gap, partially fixed, not fully resolved — decisions.md D13), and correctly
+falls back to `speechSynthesis` rather than going silent. **No audio has
+been confirmed audible from any machine this project has run on, across all
+four days** — that gap is still open and is the most honest thing to say on
+camera. See `day4-poc.md` for the full verification writeup, including what
+could not be checked (mobile, peak memory, actual heard audio).
 
 ---
 

@@ -202,3 +202,109 @@ delete it or find it a new legitimate trigger.
 use and deletes it + its templates cleanly, or (b) finds it a genuine new
 meaning (e.g. a track's label being corrected mid-life by a confidence
 re-check) — don't leave it dormant indefinitely.
+
+---
+
+### D13 — Local LLM (WebLLM + Qwen2.5-0.5B) and local TTS (Kokoro-82M), generate-ahead to stay synchronous
+**Decided:** Day 4
+**Why an LLM at all, and why this one:** D10 committed to a local LLM, no
+cloud, sized for mobile. WebLLM (`@mlc-ai/web-llm`) was chosen over
+Transformers.js-for-text-generation because its prebuilt catalog ships
+WebGPU-compiled model libraries with measured `vram_required_MB` per model —
+the actual number needed to pick the smallest one, not a guess.
+**Qwen2.5-0.5B-Instruct (q4f16_1, 944.62 MB VRAM, `low_resource_required:
+true`)** is the smallest *instruct-tuned* model in that catalog — smaller
+options exist (down to ~0.5B is already the floor for anything base-instruct
+in WebLLM today; nothing like a 135M/360M instruct model is in the prebuilt
+list) — so this is "smallest that clears the bar," per the house rule,
+measured against WebLLM's actual registry rather than assumed.
+**Cost:** Requires WebGPU. No WebGPU (older mobile Safari, some Android
+WebViews) means `state: 'unavailable'` and a permanent, correct fallback to
+templates — never a hang, never a cloud call. ~945MB VRAM is real weight on a
+phone; this is the known ceiling risk called out in D10, not yet resolved.
+**Why Kokoro-82M for TTS:** smallest widely-used *neural* (not formant/robotic)
+TTS with a browser runtime (`kokoro-js`, Transformers.js/onnxruntime-web
+under the hood). Loaded at `dtype: "q8"` (~85–90MB) rather than `fp32`
+(~326MB) — README recommends fp32 for the WebGPU path, but `q8` is the
+deliberate choice here: the download-size floor mattered more than the
+quality delta for a nature-documentary narrator, and `q8`/`wasm` avoids
+committing every device to WebGPU just to get a voice out at all (`system`
+`speechSynthesis` needs neither WebGPU nor a big download, so it stays the
+safe fallback either way).
+**The async problem — approach chosen: generate-ahead, not widen-to-async.**
+`LineGenerator` stays fully synchronous (`generateLine`/`foldLine`); a new
+optional `prefetch(event)` hook starts inference the moment an event is
+*queued* in `useNarrator.ts`, not when it's *spoken*. Because the pipeline
+already has a 900ms stability gate plus up to `min_seconds_between_lines`
+(4s default) of rate-limit buffer before that event's narration slot arrives,
+a ~350–600ms chat completion (measured, see below) almost always finishes
+inside that window. `generateLine`/`foldLine` read a `WeakMap<NarrationEvent,
+…>` cache keyed by the event object itself and fall back to the template
+generator — synchronously, no await, ever — if the line isn't cached yet,
+failed, or got rejected by the character filter. This was chosen over
+widening the interface to `Promise<string>` because a widen-to-async version
+would force `useNarrator`'s 250ms sampler tick to either block on `await`
+(reintroducing exactly the "mouth chained to a clock it doesn't control"
+failure Day 2 fixed) or grow its own separate readiness-polling logic that
+generate-ahead gets for free from timing the project already has.
+**In-flight inference is serialized**, not parallel — a promise chain in
+`llmLineGenerator.ts` ensures only one chat completion runs at a time, since
+WebGPU/WASM inference backends are not generally safe for concurrent calls
+and only one line is ever needed at once anyway.
+**Character enforcement is a filter, not a hope.** The system prompt states
+the voice rules and gives a few authored lines as tone anchors, but
+`sanitizeLlmLine()` is what's actually load-bearing: strips wrapping quotes,
+lowercases, converts `!` to `.`, rejects `BANNED_WORDS` hits, rejects swear
+words below `spice_level` 2, rejects anything under 3 words, and **truncates**
+(never passes through) anything over `line_max_words` — matching the
+day4-voice-prompt's explicit "truncate or re-roll, never let a long line
+through." A rejected line falls back to the template generator for that slot,
+exactly like an unloaded model would.
+**Measured, not claimed (headless Chrome + Puppeteer, fake camera device,
+`--enable-unsafe-webgpu`, see `day4-poc.md` for the full run):**
+- Qwen2.5-0.5B cold load (first visit, real network): **~45–63s**,
+  ~945MB, mostly `params_shard_*.bin` fetches from `huggingface.co` plus
+  the WebGPU shader wasm from `raw.githubusercontent.com`.
+- Warm reload (same profile, weights already in the browser's Cache
+  Storage): **~11s**, confirmed **0 bytes** re-fetched from
+  `huggingface.co`/`githubusercontent.com` — the caching claim holds.
+- First chat completion after load: **350–567ms**.
+- With the network then cut entirely (CDP offline, tab kept open, no
+  reload): the app kept producing new narration lines and fired **zero**
+  network requests — inference genuinely has no network dependency once
+  loaded.
+- Output quality, honestly: the sanitizer's hard rules (word count, banned
+  words, swears) held on every observed line, but 0.5B does **not**
+  reliably nail the "one deadpan sentence" tone — observed output included
+  multi-clause, mildly flowery lines ("kite flew high, its kite spirit
+  soaring...") that pass every mechanical check but read closer to
+  generic-assistant prose than the authored template bank. This is the
+  quality ceiling D10 already flagged as an accepted trade for
+  latency/privacy/cost — recorded here as measured, not assumed.
+**Kokoro TTS status — a genuine bug found, not glossed over:** on first
+attempt, `kokoro-js`'s phonemizer (`espeak-ng`, compiled to WASM, running in
+a Worker) failed at synthesis time with `Invalid language identifier:
+"en-us". Should be one of: .` — its internal language table came back empty.
+Root-caused to missing cross-origin isolation: `kokoro-js`/`onnxruntime-web`
+and `web-llm` both ship multi-threaded WASM builds that need
+`SharedArrayBuffer`, which browsers only grant a page that opts into
+`Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy:
+require-corp`. Added both headers to `vite.config.ts` (dev *and* preview
+servers). That fixed the silent-degrade-to-broken failure mode (a Worker now
+visibly spins up), but **the same "Invalid language identifier" error
+persists even with COI enabled** — the model loads, `state` correctly
+reaches `ready`, and the app **correctly falls back to `system`
+speechSynthesis with a console warning** rather than going silent (per the
+non-negotiable "never go silent" rule), but Kokoro itself has not yet been
+heard to actually speak in this environment. Filed as a real open bug, not
+worked around by quietly defaulting away from it: `voice_engine` still
+defaults to `'system'` (D10-safe, zero download, known-good), and switching
+to `'local-tts'` is an explicit opt-in for the demo, with the honest caveat
+stated on camera if it's still broken at recording time.
+**Revisit if:** the Kokoro/phonemizer language-table bug gets root-caused
+(next suspects: `phonemizer`/`kokoro-js` version pin, or the Worker's own
+COI status not inheriting the page's) — or if it doesn't, drop to a
+non-Worker phonemizer path or a different local TTS model entirely, per D10's
+"smaller local model, never a cloud call" fallback rule. Also revisit the
+0.5B tone quality if a smaller-but-better-tuned instruct model lands in
+WebLLM's catalog.

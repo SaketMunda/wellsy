@@ -155,6 +155,79 @@ exception.
 
 ---
 
+## Day 4 demo flow (90–120 seconds) — "A better voice, still no cloud bill"
+
+### 0:00 — Cold open on the network tab
+Open devtools, Network tab, empty. Start the camera.
+
+> "Everything you're about to see — the detection, the narration — has made
+> zero network requests so far. That hasn't changed today. What's new is
+> what happens when I turn on a smarter voice."
+
+### 0:15 — The same scene, three narrators
+With `boring mode` and the panel visible, cycle the line-generator engine
+between `template` and `local-llm` while an object is in frame.
+
+> "This is Day 2's narrator — a bank of authored lines, sub-millisecond,
+> zero download. Watch the network tab stay empty. Now—" *(flip the toggle)*
+> "—that's a real half-billion-parameter language model, running in this
+> tab, writing a fresh line instead of picking one."
+
+### 0:35 — Watch the download happen, live
+Point at the network tab as requests to `huggingface.co` appear.
+
+> "That's the model downloading right now — a few hundred megabytes, once.
+> And notice: narration didn't stop or stutter while that happened. It's
+> still talking in the old voice until the new one's actually ready — then
+> it switches over, live."
+
+Point at the panel's `LLM` status line climbing to `ready`, then the
+`LLM latency` number appearing on the next line.
+
+> "That number is real: how long this model took to write that specific
+> line, on this machine, right now."
+
+### 0:55 — Prove the caching claim
+Reload the page. Reopen the network tab. Switch the engine on again.
+
+> "Same page, same model, but I've already downloaded it once. Watch the
+> network tab—" *(nothing happens)* "—and watch the status line—" *(reaches
+> `ready` in ~11 seconds instead of ~50)* "—that's the model loading
+> entirely from the browser's own cache. Downloaded once. Never again."
+
+### 1:15 — The honest part: a real bug, shown, not hidden
+Switch `voice_engine` to `local-tts` and turn voice on.
+
+> "This one's not fully working yet. There's a real bug in the neural voice
+> model — I found it building this, and I haven't fixed it. Watch what
+> happens instead of it going silent."
+
+Point at the console warning and the fact that speech still comes out (via
+`speechSynthesis`).
+
+> "It tried, it failed, it logged why, and it fell back to the built-in
+> voice instead of just... not talking. That fallback working correctly is
+> arguably the actual result of today, more than the bug itself."
+
+### 1:40 — Honest close
+> "Two model swaps today, both fully local. One works end to end — a small
+> AI model writing narration, verified with the network cut entirely mid-run
+> and it kept talking. One's got a bug I'm showing you instead of hiding.
+> Neither one called home."
+
+---
+
+### Why this demo leans on the network tab, not the speakers
+Every verification session for this project, across all four days, has run
+headless with no audio output — nobody has yet confirmed YAP is *audible*,
+only that the code correctly drives `speechSynthesis`/Kokoro and produces the
+right log entries. Say this on camera rather than implying it's been heard:
+"I haven't personally listened to this talk yet — here's what I can show
+you instead," then lean on the network tab and the latency numbers, which
+are independently checkable without trusting anyone's ears.
+
+---
+
 ## Terms to simplify
 
 | Don't say | Say instead |

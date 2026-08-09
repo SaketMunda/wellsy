@@ -1,5 +1,7 @@
 import type { LogEntry } from '../narration/useNarrator';
 import type { NarratorConfig } from '../narration/config';
+import type { LlmStatus } from '../narration/llmLineGenerator';
+import type { TtsStatus } from '../narration/speech';
 
 interface Props {
   fps: number;
@@ -12,6 +14,13 @@ interface Props {
   onToggleBoring: () => void;
   config: NarratorConfig;
   onConfigChange: (patch: Partial<NarratorConfig>) => void;
+  llmStatus: LlmStatus;
+  ttsStatus: TtsStatus;
+}
+
+/** `loading` engines get a live percentage; everything else is a fixed word. */
+function engineLabel(state: string, progress: number): string {
+  return state === 'loading' ? `loading ${Math.round(progress * 100)}%` : state;
 }
 
 function Stat({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
@@ -34,6 +43,8 @@ export function StatusPanel({
   onToggleBoring,
   config,
   onConfigChange,
+  llmStatus,
+  ttsStatus,
 }: Props) {
   return (
     <aside className="panel">
@@ -60,7 +71,7 @@ export function StatusPanel({
             className="chip"
             onClick={() => onConfigChange({ voice_enabled: !config.voice_enabled })}
             aria-pressed={config.voice_enabled}
-            title="Speaks each line via the browser's built-in speech synthesis"
+            title="Speaks each line out loud, via whichever voice engine is selected below"
           >
             Voice: {config.voice_enabled ? 'on' : 'off'}
           </button>
@@ -73,6 +84,55 @@ export function StatusPanel({
             Spice: {config.spice_level}
           </button>
         </div>
+      </div>
+
+      <div className="panel-block">
+        <h2>Engines</h2>
+        <div className="narrator-controls">
+          <button
+            className="chip"
+            onClick={() =>
+              onConfigChange({
+                line_generator_engine:
+                  config.line_generator_engine === 'template' ? 'local-llm' : 'template',
+              })
+            }
+            aria-pressed={config.line_generator_engine === 'local-llm'}
+            title="template: authored line bank, sub-millisecond. local-llm: on-device model, generated ahead of its slot"
+          >
+            Lines: {config.line_generator_engine}
+          </button>
+          <button
+            className="chip"
+            onClick={() =>
+              onConfigChange({
+                voice_engine: config.voice_engine === 'system' ? 'local-tts' : 'system',
+              })
+            }
+            aria-pressed={config.voice_engine === 'local-tts'}
+            title="system: browser speechSynthesis. local-tts: on-device neural voice (Kokoro)"
+          >
+            Voice engine: {config.voice_engine}
+          </button>
+        </div>
+        {config.line_generator_engine === 'local-llm' && (
+          <>
+            <Stat label="LLM" value={engineLabel(llmStatus.state, llmStatus.progress)} warn={llmStatus.state === 'error'} />
+            <Stat
+              label="LLM latency"
+              value={llmStatus.lastInferenceMs === null ? '—' : `${llmStatus.lastInferenceMs.toFixed(0)} ms`}
+            />
+          </>
+        )}
+        {config.voice_engine === 'local-tts' && (
+          <>
+            <Stat label="TTS" value={engineLabel(ttsStatus.state, ttsStatus.progress)} warn={ttsStatus.state === 'error'} />
+            <Stat
+              label="TTS latency"
+              value={ttsStatus.lastSynthMs === null ? '—' : `${ttsStatus.lastSynthMs.toFixed(0)} ms`}
+            />
+          </>
+        )}
       </div>
 
       <div className="panel-block panel-log">

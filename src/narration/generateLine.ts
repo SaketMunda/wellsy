@@ -65,6 +65,15 @@ export interface LineGenerator {
   generateLine(event: NarrationEvent): string;
   /** Styles a secondary event as a trailing clause: "also, the bottle left." */
   foldLine(event: NarrationEvent): string;
+  /**
+   * Generate-ahead hook. Called the moment an event is queued, well before its
+   * narration slot (900ms stability + up to `min_seconds_between_lines`
+   * later). Implementations that need real latency (an LLM) start async work
+   * here and cache the result; `generateLine`/`foldLine` stay synchronous and
+   * read the cache, falling back to templates if it isn't ready yet. The
+   * template generator has nothing to prefetch, so this is optional.
+   */
+  prefetch?(event: NarrationEvent): void;
   reset(): void;
 }
 
