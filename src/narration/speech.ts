@@ -208,7 +208,9 @@ async function loadKokoro(onProgress: (progress: number) => void): Promise<Local
       if (p.status === 'progress' && typeof p.progress === 'number') onProgress(p.progress / 100);
     },
   });
-  return { generate: async (text) => tts.generate(text, { voice: 'am_onyx' }) };
+  // af_heart: Kokoro's top-graded ("A" overall) English voice, female —
+  // the least robotic option available, and what was asked for.
+  return { generate: async (text) => tts.generate(text, { voice: 'af_heart' }) };
 }
 
 const localTts = createLocalTtsAdapter(

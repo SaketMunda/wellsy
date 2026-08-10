@@ -21,4 +21,12 @@ export default defineConfig({
       'Cross-Origin-Embedder-Policy': 'require-corp',
     },
   },
+  // `phonemizer`'s Emscripten glue (espeak-ng compiled to WASM) breaks when
+  // Vite's dev-time esbuild pre-bundler rewrites it: espeak's internal voice
+  // table ends up empty ("Invalid language identifier ... Should be one of:
+  // <empty>") every time, deterministically, not as a race. Serving it
+  // unbundled fixes it.
+  optimizeDeps: {
+    exclude: ['kokoro-js', 'phonemizer'],
+  },
 })

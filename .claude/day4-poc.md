@@ -103,17 +103,30 @@ offline" claim for real — not just typecheck it.
     — that would be a PWA/service-worker feature, out of scope for Day 4.
   - Local TTS (`voice_engine: 'local-tts'`): model reached `ready` in the
     same run (Kokoro, ~85MB at `q8`), confirmed via network log — but
-    synthesis itself threw `Invalid language identifier: "en-us". Should be
-    one of: .` from `phonemizer`'s espeak-ng WASM every time it was called.
-    Root-caused to missing cross-origin isolation (`SharedArrayBuffer`
-    required by the threaded WASM builds `kokoro-js`/`web-llm` both ship);
-    added `Cross-Origin-Opener-Policy`/`Cross-Origin-Embedder-Policy`
-    headers to `vite.config.ts`, which fixed the *silent* part (a Worker now
-    visibly spins up instead of running degraded) but not the underlying
-    error — still open, see decisions.md D13. **The fallback worked exactly
-    as designed**: every failed local-tts call logged a warning and spoke
-    the line via `speechSynthesis` instead, so voice output was never
-    silently dropped, only ever downgraded to the always-available engine.
+    synthesis initially threw `Invalid language identifier: "en-us". Should
+    be one of: .` from `phonemizer`'s espeak-ng WASM every time it was
+    called (deterministic, not a race — confirmed by repeated failures
+    seconds apart). Root-caused in two parts: missing cross-origin isolation
+    (fixed via COOP/COEP headers in `vite.config.ts`, necessary but not
+    sufficient) and, the actual cause, **JS-bundler reorganization breaking
+    phonemizer's Emscripten glue**. Excluding `kokoro-js`/`phonemizer` from
+    Vite's dev-time esbuild pre-bundler (`optimizeDeps.exclude`) **fixed it
+    in `npm run dev`** — re-verified live afterward: no error, real
+    synthesis, ~3–4s first-call latency. **Still broken in the production
+    build** (`npm run build` + `npm run preview`) — Rollup does its own
+    equivalent reorganization and `optimizeDeps` has no effect there;
+    confirmed it's bundling, not minification, by building with `--minify
+    false` (still broken). Decision (with the project owner): ship as-is —
+    `local-tts` works in dev, not yet in a built app; documented rather than
+    silently patched over. See decisions.md D13 for the full trace and the
+    production-fix path if it's picked back up later. **The fallback worked
+    exactly as designed the whole time**: every failed local-tts call logged
+    a warning and spoke the line via `speechSynthesis` instead, so voice
+    output was never silently dropped, only ever downgraded to the
+    always-available engine — true in dev before the fix, and still true in
+    production today. Voice persona also changed from the placeholder
+    `am_onyx` (male) to `af_heart` (Kokoro's top-graded, "A"-quality female
+    voice) per the project owner's request for something less robotic.
 
 ## What is NOT verified from this session — stated plainly
 

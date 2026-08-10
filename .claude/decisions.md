@@ -281,30 +281,46 @@ exactly like an unloaded model would.
   generic-assistant prose than the authored template bank. This is the
   quality ceiling D10 already flagged as an accepted trade for
   latency/privacy/cost — recorded here as measured, not assumed.
-**Kokoro TTS status — a genuine bug found, not glossed over:** on first
-attempt, `kokoro-js`'s phonemizer (`espeak-ng`, compiled to WASM, running in
-a Worker) failed at synthesis time with `Invalid language identifier:
-"en-us". Should be one of: .` — its internal language table came back empty.
-Root-caused to missing cross-origin isolation: `kokoro-js`/`onnxruntime-web`
-and `web-llm` both ship multi-threaded WASM builds that need
-`SharedArrayBuffer`, which browsers only grant a page that opts into
-`Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy:
-require-corp`. Added both headers to `vite.config.ts` (dev *and* preview
-servers). That fixed the silent-degrade-to-broken failure mode (a Worker now
-visibly spins up), but **the same "Invalid language identifier" error
-persists even with COI enabled** — the model loads, `state` correctly
-reaches `ready`, and the app **correctly falls back to `system`
-speechSynthesis with a console warning** rather than going silent (per the
-non-negotiable "never go silent" rule), but Kokoro itself has not yet been
-heard to actually speak in this environment. Filed as a real open bug, not
-worked around by quietly defaulting away from it: `voice_engine` still
-defaults to `'system'` (D10-safe, zero download, known-good), and switching
-to `'local-tts'` is an explicit opt-in for the demo, with the honest caveat
-stated on camera if it's still broken at recording time.
-**Revisit if:** the Kokoro/phonemizer language-table bug gets root-caused
-(next suspects: `phonemizer`/`kokoro-js` version pin, or the Worker's own
-COI status not inheriting the page's) — or if it doesn't, drop to a
-non-Worker phonemizer path or a different local TTS model entirely, per D10's
-"smaller local model, never a cloud call" fallback rule. Also revisit the
-0.5B tone quality if a smaller-but-better-tuned instruct model lands in
-WebLLM's catalog.
+**Kokoro TTS status — a genuine bug found, root-caused, half-fixed, not
+glossed over:** `kokoro-js`'s phonemizer (`espeak-ng`, compiled to WASM)
+failed at synthesis time with `Invalid language identifier: "en-us". Should
+be one of: .` — its internal language table came back empty, deterministically
+(every call, not a race — confirmed by observing repeated failures seconds
+apart with no self-healing). Two contributing causes found:
+1. **Missing cross-origin isolation** — `kokoro-js`/`onnxruntime-web` and
+   `web-llm` both ship multi-threaded WASM builds that need
+   `SharedArrayBuffer`, granted only to a page with
+   `Cross-Origin-Opener-Policy: same-origin` +
+   `Cross-Origin-Embedder-Policy: require-corp`. Added both to
+   `vite.config.ts` (dev *and* preview servers) — necessary, not sufficient.
+2. **The actual root cause: JS-bundler reorganization breaks phonemizer's
+   Emscripten glue.** Confirmed by testing `optimizeDeps.exclude:
+   ['kokoro-js', 'phonemizer']` in `vite.config.ts`, which tells Vite's dev
+   server not to run these through esbuild's dependency pre-bundler —
+   **this fixed it in `npm run dev`**, verified live: no error, real
+   synthesis, ~3–4s first-call latency, no fallback triggered. Also set the
+   Kokoro voice persona to `af_heart` (Kokoro's top-graded, "A"-quality
+   female voice) in place of the placeholder `am_onyx` (male) used while
+   the engine was still broken.
+**Still broken in the production build** (`npm run build` + `npm run
+preview`) — Rollup, the production bundler, does its own reorganization of
+the same glue code and hits the identical error; `optimizeDeps` only
+controls dev-time esbuild pre-bundling and has no Rollup equivalent.
+Confirmed this is bundling/module-reorganization, not minification
+specifically, by building with `--minify false`: still broken. **Decision:
+ship as-is.** Asked the project owner whether to keep chasing a production
+fix (likely requires vendoring `kokoro-js`/`phonemizer` as unbundled static
+assets so Rollup can't touch them — a real packaging change, not a tweak);
+answer was to document and move on for now. `voice_engine` still defaults to
+`'system'` (D10-safe, zero download, known-good); `'local-tts'` is an
+explicit opt-in that **works in `npm run dev` and does not yet work in a
+built/deployed app** — say this plainly if demoing from a production build,
+and prefer `npm run dev` for any local-TTS demo footage until the prod fix
+lands. Every failed call still logs a warning and falls back to
+`speechSynthesis` rather than going silent, in both environments.
+**Revisit if:** pursuing the production fix — vendor `kokoro-js` +
+`phonemizer` (+ their `@huggingface/transformers` dependency) as static,
+unbundled files served from `public/`, imported via a runtime
+`import()` Vite is told to ignore, so Rollup never reorganizes them. Also
+revisit the 0.5B tone quality if a smaller-but-better-tuned instruct model
+lands in WebLLM's catalog.
