@@ -3,7 +3,18 @@ import { ACQUIRE_MS, EMPTY_HUD_STATE, EXIT_MS, updateHudState } from './hudState
 import type { Frame, Track } from '../vision/types';
 
 function track(id: number, bbox: [number, number, number, number], overrides: Partial<Track> = {}): Track {
-  return { id, label: 'person', score: 0.9, bbox, ageMs: 0, missedFrames: 0, ...overrides };
+  return {
+    id,
+    label: 'person',
+    score: 0.9,
+    bbox,
+    ageMs: 0,
+    missedFrames: 0,
+    labelConfidence: 1,
+    runnerUpLabel: null,
+    labelVotes: { person: 0.9 },
+    ...overrides,
+  };
 }
 
 function frame(tracks: Track[]): Frame {

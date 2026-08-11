@@ -2,10 +2,13 @@ import type { LogEntry } from '../narration/useNarrator';
 import type { NarratorConfig } from '../narration/config';
 import type { LlmStatus } from '../narration/llmLineGenerator';
 import type { TtsStatus } from '../narration/speech';
+import type { AsrStatus } from '../voice/speechToText';
+import type { MicStatus } from '../voice/useVoiceInput';
 
 interface Props {
   fps: number;
   inferenceMs: number;
+  trackMs: number;
   hudDrawMs: number;
   count: number;
   modelStatus: string;
@@ -17,6 +20,8 @@ interface Props {
   onConfigChange: (patch: Partial<NarratorConfig>) => void;
   llmStatus: LlmStatus;
   ttsStatus: TtsStatus;
+  micStatus: MicStatus;
+  asrStatus: AsrStatus;
 }
 
 /** `loading` engines get a live percentage; everything else is a fixed word. */
@@ -36,6 +41,7 @@ function Stat({ label, value, warn }: { label: string; value: string; warn?: boo
 export function StatusPanel({
   fps,
   inferenceMs,
+  trackMs,
   hudDrawMs,
   count,
   modelStatus,
@@ -47,6 +53,8 @@ export function StatusPanel({
   onConfigChange,
   llmStatus,
   ttsStatus,
+  micStatus,
+  asrStatus,
 }: Props) {
   return (
     <aside className="panel">
@@ -54,6 +62,7 @@ export function StatusPanel({
         <h2>Telemetry</h2>
         <Stat label="FPS" value={fps.toFixed(1)} warn={fps > 0 && fps < 10} />
         <Stat label="Inference" value={`${inferenceMs.toFixed(0)} ms`} warn={inferenceMs > 100} />
+        <Stat label="Track" value={`${trackMs.toFixed(2)} ms`} />
         <Stat label="HUD draw" value={`${hudDrawMs.toFixed(1)} ms`} warn={hudDrawMs > 8} />
         <Stat label="Targets" value={String(count)} />
       </div>
@@ -136,6 +145,45 @@ export function StatusPanel({
             />
           </>
         )}
+      </div>
+
+      <div className="panel-block">
+        <h2>Latency breakdown</h2>
+        <Stat label="Inference" value={`${inferenceMs.toFixed(1)} ms`} />
+        <Stat label="Track" value={`${trackMs.toFixed(2)} ms`} />
+        <Stat label="Draw" value={`${hudDrawMs.toFixed(2)} ms`} />
+        <Stat
+          label="ASR"
+          value={asrStatus.lastTranscribeMs === null ? '—' : `${asrStatus.lastTranscribeMs.toFixed(0)} ms`}
+        />
+        <Stat
+          label="LLM"
+          value={llmStatus.lastInferenceMs === null ? '—' : `${llmStatus.lastInferenceMs.toFixed(0)} ms`}
+        />
+        <Stat
+          label="TTS"
+          value={ttsStatus.lastSynthMs === null ? '—' : `${ttsStatus.lastSynthMs.toFixed(0)} ms`}
+        />
+        <p className="panel-note">
+          Every number here is measured, not modeled — each stage times
+          itself. No frame-capture number: the browser doesn't expose when a
+          video frame actually decoded, only when `useDetector` next reads
+          it, so a real one isn't available to show.
+        </p>
+      </div>
+
+      <div className="panel-block">
+        <h2>Voice input</h2>
+        <Stat label="Mic" value={micStatus} warn={micStatus === 'denied' || micStatus === 'error'} />
+        <Stat label="ASR" value={engineLabel(asrStatus.state, asrStatus.progress)} warn={asrStatus.state === 'error'} />
+        <Stat
+          label="ASR latency"
+          value={asrStatus.lastTranscribeMs === null ? '—' : `${asrStatus.lastTranscribeMs.toFixed(0)} ms`}
+        />
+        <p className="panel-note">
+          Hold T or the mic button to talk. Audio is transcribed on this device only — nothing is
+          recorded to disk or sent anywhere.
+        </p>
       </div>
 
       <div className="panel-block panel-log">

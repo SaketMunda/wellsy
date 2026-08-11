@@ -9,7 +9,7 @@
  */
 import type { NarratorConfig } from './config';
 import type { NarrationEvent } from './events';
-import { ALSO_PREFIXES, TEMPLATES, type Template } from './templates';
+import { ALSO_PREFIXES, HEDGES, TEMPLATES, type HedgeEvent, type Template } from './templates';
 
 /** A (type, object) pair may not reuse a template within this many utterances. */
 const NO_REPEAT_WINDOW = 10;
@@ -139,20 +139,47 @@ export function createLineGenerator(
     return template.text
       .replace(/\{objects\}/g, plural(event.object, event.count))
       .replace(/\{object\}/g, event.object)
+      .replace(/\{alt\}/g, event.alternativeObject ?? 'something else')
       .replace(/\{count\}/g, String(event.count))
       .replace(/\{minutes_idle\}/g, String(Math.max(1, Math.round(idleMs(event) / 60000))));
   }
 
+  /**
+   * Hedge lines for a `count_change`-typed event fall back to `still_present`'s
+   * bank — `count_change` has no case that reaches this path today (see
+   * decisions.md D12) but the type union still requires an answer.
+   */
+  function hedgeBank(type: NarrationEvent['type']): Template[] {
+    return HEDGES[type as HedgeEvent] ?? HEDGES.still_present;
+  }
+
+  function pickHedge(event: NarrationEvent, config: NarratorConfig): Template {
+    const pool = hedgeBank(event.type).filter((t) => t.spice <= config.spice_level);
+    const key = `hedge:${event.type}:${event.object}`;
+    const recent = history.get(key) ?? [];
+    const window = Math.min(NO_REPEAT_WINDOW, pool.length - 1);
+    const blocked = new Set(recent.slice(0, window));
+    const fresh = pool.filter((t) => !blocked.has(t.text));
+    const from = fresh.length > 0 ? fresh : pool;
+    const chosen = from[Math.floor(random() * from.length)] ?? { text: '{object}, or maybe {alt}. unclear.', spice: 0 };
+    history.set(key, [chosen.text, ...recent].slice(0, NO_REPEAT_WINDOW));
+    return chosen;
+  }
+
+  function generate(event: NarrationEvent, config: NarratorConfig): string {
+    if (event.uncertain) return fill(pickHedge(event, config), event);
+    return fill(pick(event, config), event);
+  }
+
   return {
     generateLine(event) {
-      const config = getConfig();
-      return fill(pick(event, config), event);
+      return generate(event, getConfig());
     },
 
     foldLine(event) {
       const config = getConfig();
       const prefix = ALSO_PREFIXES[Math.floor(random() * ALSO_PREFIXES.length) % ALSO_PREFIXES.length];
-      return prefix + fill(pick(event, config), event);
+      return prefix + generate(event, config);
     },
 
     reset() {

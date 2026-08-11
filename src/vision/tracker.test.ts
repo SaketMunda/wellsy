@@ -87,13 +87,65 @@ describe('updateTracks', () => {
     expect(ids(tracks)).toEqual([1]);
   });
 
-  it('never matches across different labels even when boxes coincide exactly', () => {
+  it('never matches across different labels when geometric overlap is weak', () => {
     let counter = 1;
     const nextId = () => counter++;
+    // Two genuinely different, non-overlapping objects — a chair must never
+    // inherit a person's id off a coincidence, and there is none here to lean on.
     let tracks = updateTracks([], [det('chair', [100, 100, 200, 400])], 16, nextId);
-    tracks = updateTracks(tracks, [det('person', [100, 100, 200, 400])], 16, nextId);
+    tracks = updateTracks(tracks, [det('person', [900, 100, 200, 400])], 16, nextId);
     expect(tracks.map((t) => t.label).sort()).toEqual(['chair', 'person']);
     expect(tracks.map((t) => t.id).sort()).toEqual([1, 2]);
+  });
+
+  it('cross-label match: a track survives the model flipping its label when the box barely moves (bed -> dining table)', () => {
+    let counter = 1;
+    const nextId = () => counter++;
+    let tracks = updateTracks([], [det('bed', [100, 100, 400, 250])], 16, nextId);
+    expect(tracks.map((t) => t.id)).toEqual([1]);
+    tracks = updateTracks(tracks, [det('dining table', [102, 98, 400, 250])], 16, nextId);
+    expect(tracks).toHaveLength(1);
+    expect(tracks[0].id).toBe(1); // same id survived the label flip
+    expect(counter).toBe(2); // no second id was minted
+  });
+
+  it('cross-label match: works in the other direction too (dining table -> bed)', () => {
+    let counter = 1;
+    const nextId = () => counter++;
+    let tracks = updateTracks([], [det('dining table', [100, 100, 400, 250])], 16, nextId);
+    tracks = updateTracks(tracks, [det('bed', [102, 98, 400, 250])], 16, nextId);
+    expect(tracks).toHaveLength(1);
+    expect(tracks[0].id).toBe(1);
+    expect(counter).toBe(2);
+  });
+
+  it('label voting: a track flip-flopping between two labels settles on a winner rather than showing the latest frame', () => {
+    let counter = 1;
+    const nextId = () => counter++;
+    let tracks: Track[] = [];
+    const bbox: [number, number, number, number] = [100, 100, 400, 250];
+    // Mostly "bed", occasionally "dining table" — a noisy but bed-leaning model.
+    const sequence = ['bed', 'bed', 'dining table', 'bed', 'bed', 'dining table', 'bed', 'bed'];
+    for (const label of sequence) {
+      tracks = updateTracks(tracks, [det(label, bbox, 0.8)], 16, nextId);
+    }
+    expect(tracks).toHaveLength(1);
+    expect(tracks[0].id).toBe(1);
+    expect(tracks[0].label).toBe('bed');
+    expect(tracks[0].runnerUpLabel).toBe('dining table');
+    expect(tracks[0].labelConfidence).toBeGreaterThan(0.5);
+    expect(tracks[0].labelConfidence).toBeLessThan(1);
+  });
+
+  it('a track with a single consistent label carries full label confidence and no runner-up', () => {
+    let counter = 1;
+    const nextId = () => counter++;
+    let tracks: Track[] = [];
+    for (let i = 0; i < 5; i++) {
+      tracks = updateTracks(tracks, [det('laptop', [100, 100, 200, 150])], 16, nextId);
+    }
+    expect(tracks[0].labelConfidence).toBe(1);
+    expect(tracks[0].runnerUpLabel).toBeNull();
   });
 
   it('smooths matched box position toward the new detection rather than snapping', () => {

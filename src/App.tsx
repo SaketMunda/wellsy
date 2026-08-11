@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useCamera } from './vision/useCamera';
 import { useDetector } from './vision/useDetector';
 import { useNarrator } from './narration/useNarrator';
+import { describeScene, queryObject } from './narration/describeScene';
 import { HudCanvas } from './hud/HudCanvas';
 import { StatusPanel } from './hud/StatusPanel';
-import { SubtitleTrack } from './hud/SubtitleTrack';
+import { SubtitleTrack, type Transcript } from './hud/SubtitleTrack';
 import { BootSequence } from './hud/BootSequence';
 import { ShortcutOverlay } from './hud/ShortcutOverlay';
+import { HELP_TEXT, parseIntent } from './voice/parseIntent';
+import { useVoiceInput } from './voice/useVoiceInput';
 import './App.css';
 
 /** True while the OS/browser asks for reduced motion — re-read live if the
@@ -41,12 +44,52 @@ export default function App() {
   const { videoRef, status: cameraStatus, error: cameraError } = useCamera(active);
   const { frameRef, status: modelStatus, error: modelError, stats } = useDetector(videoRef, active);
   const narratorEnabled = active && narrating && modelStatus === 'ready';
-  const { log, config, setConfig, llmStatus, ttsStatus } = useNarrator(frameRef, narratorEnabled);
+  const { log, config, setConfig, llmStatus, ttsStatus, speakAnswer, stopAll } = useNarrator(frameRef, narratorEnabled);
 
   const live = cameraStatus === 'live' && modelStatus === 'ready';
   const error = cameraError ?? modelError;
 
   const onDrawMs = useCallback((ms: number) => setHudDrawMs(ms), []);
+
+  const [transcript, setTranscript] = useState<Transcript | null>(null);
+
+  // Deterministic, not the LLM (decisions.md Day 6) — a control action like
+  // "stop" must never depend on a model that can hallucinate.
+  const handleTranscript = useCallback(
+    (text: string) => {
+      setTranscript({ text, at: Date.now() });
+      const intent = parseIntent(text);
+      switch (intent.type) {
+        case 'stop':
+          stopAll();
+          break;
+        case 'wake':
+          setNarrating(true);
+          speakAnswer('waking up.');
+          break;
+        case 'sleep':
+          setNarrating(false);
+          speakAnswer('going quiet.');
+          break;
+        case 'describe_scene':
+          speakAnswer(describeScene(frameRef.current.tracks));
+          break;
+        case 'query_object':
+          speakAnswer(queryObject(frameRef.current.tracks, intent.object));
+          break;
+        case 'help':
+          speakAnswer(HELP_TEXT);
+          break;
+        case 'unknown':
+          speakAnswer("i only handle a few commands. say help to hear them.");
+          break;
+      }
+    },
+    [frameRef, speakAnswer, stopAll],
+  );
+
+  const { start: startListening, stop: stopListening, micStatus, recording, asrStatus } = useVoiceInput(handleTranscript);
+  const listeningKeyDown = useRef(false);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -68,6 +111,14 @@ export default function App() {
         case 'V':
           setConfig({ voice_enabled: !config.voice_enabled });
           break;
+        case 't':
+        case 'T':
+          // Held key, not a toggle — ignore OS key-repeat so this fires once per press.
+          if (!listeningKeyDown.current) {
+            listeningKeyDown.current = true;
+            void startListening();
+          }
+          break;
         case '?':
           setShortcutsOpen((s) => !s);
           break;
@@ -76,9 +127,21 @@ export default function App() {
           break;
       }
     }
+    function onKeyUp(e: KeyboardEvent) {
+      if (e.key === 't' || e.key === 'T') {
+        if (listeningKeyDown.current) {
+          listeningKeyDown.current = false;
+          stopListening();
+        }
+      }
+    }
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [active, config.voice_enabled, setConfig]);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, [active, config.voice_enabled, setConfig, startListening, stopListening]);
 
   return (
     <div className="app">
@@ -101,6 +164,25 @@ export default function App() {
           </button>
           <button
             className="btn"
+            aria-pressed={recording === 'recording'}
+            data-warn={recording === 'transcribing' ? 'true' : undefined}
+            title="Hold to talk (or press and hold T). Audio is transcribed on-device and never leaves this browser."
+            onMouseDown={(e) => {
+              e.preventDefault();
+              void startListening();
+            }}
+            onMouseUp={stopListening}
+            onMouseLeave={() => recording === 'recording' && stopListening()}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              void startListening();
+            }}
+            onTouchEnd={stopListening}
+          >
+            {recording === 'recording' ? 'Listening…' : recording === 'transcribing' ? 'Transcribing…' : 'Hold to talk'}
+          </button>
+          <button
+            className="btn"
             onClick={() => setShortcutsOpen((s) => !s)}
             aria-pressed={shortcutsOpen}
             title="Keyboard shortcuts"
@@ -120,7 +202,7 @@ export default function App() {
             reducedMotion={reducedMotion}
             onDrawMs={onDrawMs}
           />
-          <SubtitleTrack log={log} boring={boring} visible={narratorEnabled} />
+          <SubtitleTrack log={log} boring={boring} visible={active} transcript={transcript} />
 
           {!active && (
             <div className="curtain">
@@ -146,6 +228,7 @@ export default function App() {
         <StatusPanel
           fps={stats.fps}
           inferenceMs={stats.inferenceMs}
+          trackMs={stats.trackMs}
           hudDrawMs={hudDrawMs}
           count={stats.count}
           modelStatus={modelStatus}
@@ -157,6 +240,8 @@ export default function App() {
           onConfigChange={setConfig}
           llmStatus={llmStatus}
           ttsStatus={ttsStatus}
+          micStatus={micStatus}
+          asrStatus={asrStatus}
         />
       </main>
 

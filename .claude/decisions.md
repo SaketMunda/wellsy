@@ -471,3 +471,254 @@ D17 already drew for distance in metres.
 **Cost:** free, measured — see D18's target-count table.
 **Revisit if:** a readout is ever added that can't be traced to a real
 number, at which point the honesty rule outranks the look.
+
+---
+
+### D20 — `mobilenet_v2` A/B'd against the D2 baseline, reverted: measured cost, unmeasured benefit
+**Decided:** Day 6
+**Why:** `useDetector.ts` has loaded `lite_mobilenet_v2` since D2, chosen for
+speed over accuracy. Day 6's bed/dining-table confusion report is exactly
+the kind of thing a heavier backbone might improve, so it was tried:
+swapping `base: 'lite_mobilenet_v2'` → `base: 'mobilenet_v2'`, same headless
+Chrome + fake-camera-device harness used in every prior session, 5 samples
+each, 3s warm-up.
+**Measured:** inference rose from **~11ms to ~16–17ms** (roughly +50%); FPS
+stayed at ~60 in both cases (the draw loop, not the detect loop, is what's
+rAF-capped, so this doesn't yet show up as a visible framerate change).
+Inference is still comfortably inside budget at this cost — this was *not*
+a latency-forced revert.
+**Reverted anyway, and here's the honest reason:** the fake camera device's
+synthetic test pattern has no bed and no dining table in it, and no other
+real-webcam scene was available this session. There was no way to check
+whether the accuracy actually improved — only that the cost was real. Per
+the day's own timebox rule ("keep only if accuracy improves and inference
+stays inside budget; otherwise revert and record the numbers"), paying a
+confirmed 50% inference cost for an unconfirmed accuracy gain is the wrong
+trade. `useDetector.ts` still loads `lite_mobilenet_v2`, with the measured
+numbers left in a comment at the point of the (unchanged) call.
+**This is a negative result, not a non-result** — it rules out "just swap
+the backbone" as the fix, which is exactly why D21 below exists.
+**Revisit if:** a real webcam scene with a bed/dining-table-style
+confusable pair becomes available to test against — the inference cost is
+known and affordable if the accuracy case turns out to hold up.
+
+---
+
+### D21 — Per-track label voting + cross-label match gate, not a bigger model
+**Decided:** Day 6
+**Why:** D20 ruled out "swap the backbone." The actual bug was structural,
+not a model-quality problem: `tracker.ts`'s `updateTracks` took a track's
+label from whichever detection matched *that* frame — 30 frames of history
+per track, thrown away, keeping only the last vote. Worse, matching
+*required* the same label (`if (track.label !== detection.label) continue`),
+so the instant the model flipped `bed` → `dining table`, the old track went
+unmatched and a **brand-new track id was minted** — the same id-churn
+failure mode as D11, with a different trigger.
+**Two changes to `src/vision/tracker.ts`:**
+1. **Cross-label matching, gated on IoU ≥ `CROSS_LABEL_IOU_THRESHOLD`
+   (0.5).** Same-label matching stays exactly as permissive as D11 left it
+   (IoU ≥ 0.15 *or* center-distance fallback). A *different*-label pair is
+   only eligible via a much stricter IoU-only check — no center-distance
+   fallback for cross-label, since the geometric case this is fixing (the
+   same physical object, box barely moved) is exactly the case with high
+   IoU. This is deliberately asymmetric: a chair must never inherit a
+   person's id off a weak or coincidental overlap, and the wide gap between
+   0.15 (same-label) and 0.5 (cross-label) is what buys that.
+2. **A per-track vote histogram** (`Track.labelVotes: Record<string,
+   number>`), decayed by `VOTE_DECAY = 0.9` each matched frame before the
+   new detection's score is added — a rolling, recency-weighted tally, not
+   "first label wins forever" or "latest label wins." `Track.label` is now
+   the argmax of this histogram. Two new fields ride along: `labelConfidence`
+   (the winner's vote share, 0..1 — a genuinely different number from
+   `Detection.score`, which is this frame's raw per-detection confidence)
+   and `runnerUpLabel` (second place, for the hedge — see D22).
+**Cost:** `Track` carries an extra `labelVotes` map per track — bounded,
+since `castVote` prunes entries below `VOTE_PRUNE_THRESHOLD` each update, so
+it can't grow unboundedly even under a model that cycles through many
+labels. The `0.5` cross-label threshold and `0.9` decay rate are both first-
+guess constants (same caveat as D11's `α = 0.4` and D15's `τ = 70ms`) —
+tuned against synthetic sequences in `tracker.test.ts`
+(`'label voting: a track flip-flopping between two labels settles on a
+winner rather than showing the latest frame'` and the two cross-label
+direction tests), not real footage.
+**Revisit if:** real footage shows the 0.5 threshold either merges two
+genuinely different objects that happen to overlap, or fails to catch a
+real bed/dining-table flip — tune in the direction the failure points.
+
+---
+
+### D22 — `UNIDENTIFIED` is a `labelConfidence` threshold, not a scripted state
+**Decided:** Day 6
+**Why:** D21 gives every track a real, continuous `labelConfidence`. Below
+`UNCERTAIN_CONFIDENCE = 0.6` (duplicated as a literal in `drawHud.ts`,
+`events.ts`, and `describeScene.ts` — same reasoning as `generateLine.ts`'s
+`PLURALS` duplication: three separate consumers of the same tracker fact,
+not worth a shared import just to agree on one number), the system stops
+committing to a single label everywhere at once:
+- **HUD** (`drawHud.ts`): the target's label reads `BED / DINING TABLE ?`
+  instead of one word, in the HUD's one warn color (amber — reused, not
+  invented, per the day's own instruction not to add new visual language),
+  plus a real `LBL nn%` readout in the primary data card showing the vote
+  share itself.
+- **Narration** (`events.ts` → `generateLine.ts`): an `appear`/`disappear`/
+  `still_present` event carries `uncertain: boolean` and
+  `alternativeObject: string | null`, computed from whichever contributing
+  track has the *lowest* `labelConfidence` (hedging about the least-sure
+  one is more honest than averaging it away). A dedicated `HEDGES` template
+  bank (`templates.ts`) replaces the normal bank entirely for that line —
+  "something enters. bed, maybe dining table. hard to say." — never a
+  normal template with the uncertain object's name slotted in.
+- **Voice answers** (`describeScene.ts`): an uncertain track is reported as
+  "something unidentified," grouped with any other uncertain tracks, never
+  guessed.
+**The LLM must restyle the hedge, never resolve it.** `llmLineGenerator.ts`
+passes `uncertain`/`alternativeObject` into the prompt with an explicit
+instruction, and `sanitizeLlmLine` gained a mechanical check to match: a
+line generated for an uncertain event is rejected — same as a banned word
+or an under-spice swear — unless it either names the alternative object or
+contains a hedge cue word (`or`, `maybe`, `unclear`, `hard to say`, …). A
+confidently single-label line for an uncertain event falls back to the
+template hedge bank exactly like a swear falls back to the template
+generator.
+**Cost:** none of this fires unless a track is genuinely torn — a
+consistently-labeled track (`labelConfidence` near 1) never touches this
+code path, verified by `tracker.test.ts`'s "single consistent label"
+cases and `narrator.test.ts`'s "does not mark an event uncertain when the
+track is confident."
+**Not built this session (see week-roadmap.md):** open-vocabulary
+relabeling via CLIP — the actual fix for a genuinely out-of-vocabulary
+object like a microphone (COCO has no `microphone` class at all, so no
+amount of voting or hedging can produce the right word, only an honest
+"unsure between the 80 words I know"). D21/D22 fix the *in-vocabulary*
+confusion (bed vs. dining table, both real COCO classes); they cannot and
+do not claim to fix the out-of-vocabulary case. Both are demoable on their
+own — see day6-poc.md.
+
+---
+
+### D23 — Deterministic `parseIntent`, not the LLM, for control actions
+**Decided:** Day 6
+**Why:** `src/voice/parseIntent.ts` is a pure `(transcript: string) =>
+Intent` function, fixed-pattern regex matching, no model, no async. This
+was not a close call: Qwen2.5-0.5B (D13) is already known, measured, to
+occasionally produce flowery off-tone output even under a hard sanitizer —
+acceptable for a narration joke, where a rejected line just falls back to a
+template. It is not acceptable for deciding whether "stop" actually stops
+the narrator, since a control action has no meaningful fallback if the
+model mishears its own job. `stop` is checked first, ahead of every other
+pattern, specifically so it can never be shadowed by a longer sentence that
+happens to contain a different trigger phrase.
+**Cost:** this is pattern-matching, not language understanding. Off-script
+phrasing ("could you tell me what's around") falls to `unknown` rather than
+being loosely interpreted — stated plainly as a NOT-real claim in
+`public-notes.md`, not hidden behind a generous demo take. `unknown` also
+never improvises a guess at what the user might have meant; it states that
+it only handles a fixed set of commands.
+**Revisit if:** real usage shows the fixed pattern list is too narrow to be
+useful — widen the patterns (still deterministic), don't hand intent
+resolution to the LLM.
+
+---
+
+### D24 — Local Whisper (`Xenova/whisper-tiny.en`) via `@huggingface/transformers`, push-to-talk only
+**Decided:** Day 6
+**Why not the browser's free `SpeechRecognition`:** in Chrome it streams
+microphone audio to Google's servers to do the recognition — a cloud call,
+and D10 already drew this line for narration/voice with no exceptions and
+no toggle. The same reasoning applies here without modification: speech-to-
+text runs locally or the feature doesn't ship. This is one of the
+better beats of the day precisely because the free, zero-effort option was
+sitting right there and had to be turned down on principle.
+**Why Whisper, why `tiny.en`, why `@huggingface/transformers`:** the
+library is already on disk (v3.8.1), pulled in transitively via
+`kokoro-js` — promoted to a **direct** dependency in `package.json` this
+session (a transitive dependency you `import` from directly is a footgun
+waiting for a lockfile change to break it silently), at zero new download
+cost, only model weights. `whisper-tiny.en` (English-only, smallest Whisper
+class Xenova ships) was chosen over `whisper-base` because push-to-talk
+commands are short, English, and few-word — exactly the case a tiny model
+handles fine, and the smallest model that clears the bar is the house rule
+(same reasoning as D13's Qwen2.5-0.5B pick).
+**Device selection:** WebGPU when `'gpu' in navigator`, wasm otherwise —
+unlike the LLM loader's hard WebGPU gate (D13, `yapUnavailable` on no
+WebGPU), ASR must keep working on wasm-only hardware, so this is a
+preference passed to `transformers.js`'s own device selection, not a
+hard requirement that throws.
+**Push-to-talk, not always-listening:** hold `T` (added to the shortcut
+overlay) or the mic button; release to transcribe. Chosen as the shippable
+version for the reasons the day's own brief states: reliable, zero cost
+when idle, and immune to a TV or speaker accidentally triggering it — none
+of which an always-on wake-word listener can promise without real cost.
+Recording happens via `MediaRecorder` at the browser's native audio rate,
+then re-rendered to mono 16kHz via `OfflineAudioContext`
+(`resampleTo16kMono` in `speechToText.ts`) — the sample rate Whisper
+expects — rather than naive downsampling, which would alias.
+**A second `getUserMedia` prompt, handled like the first:**
+`useVoiceInput.ts` requests audio-only microphone access independently of
+`useCamera`'s video-only stream, and denial is handled the same way:
+a stated `micStatus`, visible in the panel, never a crash, and every other
+feature keeps working with the mic refused.
+**Verified in a production build, not just dev** — this mattered because
+D13 is a standing warning that this exact dependency family (Transformers.js/
+onnxruntime-web-adjacent packages) breaks specifically under Rollup's
+bundling, not esbuild's. `npm run build && npm run preview`, headless
+Chrome with `--use-fake-device-for-media-stream`: mic permission granted,
+`MediaRecorder` captured, Whisper loaded and reached `ready` with **zero
+console errors** (only benign onnxruntime execution-provider warnings, not
+exceptions) — unlike Kokoro, this dependency does **not** hit the D13
+bundler bug. See day6-poc.md for the full run.
+**Not verified: a real spoken command transcribed correctly.** The headless
+fake-camera device provides no real microphone input (silence or a
+synthetic tone, depending on the flag), so end-to-end transcription
+accuracy — "did it actually hear 'what do you see' and produce that text"
+— was not checked this session. Stated plainly, same standing caveat shape
+as "no audio has been confirmed audible" (D13).
+**Cost / not shipped:** wake word (always-listening, transcribe-then-match
+against "yap"/"hey yap") is explicitly the stretch item per the day's own
+brief and was not attempted — push-to-talk is a complete feature on its
+own, not a broken one. Because only push-to-talk shipped, the
+self-hearing gate ("don't let YAP's own voice trigger the mic") was not
+needed and was not built — it only matters for an always-listening mode.
+**Revisit if:** wake word is picked up later — it needs voice-activity
+segmentation, continuous transcription, and the self-hearing gate this
+session skipped as unnecessary for push-to-talk; say plainly that
+transcribe-then-match is not a trained keyword spotter, per the day's
+honesty rules.
+
+---
+
+### D25 — Voice answers preempt the narration queue; latency breakdown is measured stage-by-stage
+**Decided:** Day 6
+**Why:** `describeScene.ts` (revived from its Day 3 deletion — see D12 —
+under a new name and purpose: a direct answer, not ambient narration) and
+`queryObject` are pure functions of `frameRef.current.tracks`, same
+grounding discipline as `events.ts`. The wiring problem was making sure an
+answer doesn't collide with ambient narration: `useNarrator.ts` gained
+`speakAnswer(text)` (drops anything queued, resets the rate-limit clock so
+the next ambient line waits the full `min_seconds_between_lines` from *now*,
+routes through the same log + speak path so it lands in the subtitle track
+like any other line) and `stopAll()` (cuts speech immediately, for the
+`stop` intent, independent of `enabled` so it works even if narration
+happens to be asleep).
+**Await, don't generate-ahead, for this one path.** D13's generate-ahead
+model exists because narration's 250ms sampler must never block. A push-to-
+talk answer is different in kind: the user just spoke and is waiting for a
+reply, so a plain `await` with the LLM's existing ~1.5s effective timeout
+(via the sanitizer's ready/error states) is the right shape here, not a
+prefetch queue with nothing to prefetch against.
+**Latency breakdown panel** (kept from the old Day 6 scope per
+week-roadmap.md's reshuffle) reports capture→inference→track→draw→ASR→LLM→
+TTS as `StatusPanel` stats, each measured at its own call site
+(`useDetector.ts` now separately times `updateTracks` as `trackMs`,
+alongside the existing `inferenceMs`/`hudDrawMs`/`llmStatus.lastInferenceMs`/
+`ttsStatus.lastSynthMs`/`asrStatus.lastTranscribeMs`). No `capture` number
+is shown — the browser doesn't expose when a video frame actually decoded,
+only when `useDetector`'s loop next reads it, so there was no real number
+to put there; the panel says so rather than showing a fabricated one,
+consistent with D17's rule for the same situation.
+**Measured, headless Chrome + fake-camera device, production build:** FPS
+60.1, inference 11ms, track 0.02ms, HUD draw 0.1ms — unchanged from the Day
+5 baseline (0.050–0.070ms across target counts). See day6-poc.md.
+**Revisit if:** a real frame-capture timestamp becomes available (e.g. via
+`requestVideoFrameCallback`'s metadata) — add it for real then, don't
+approximate it now.

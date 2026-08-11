@@ -21,6 +21,21 @@ export interface Track extends Detection {
   ageMs: number;
   /** Consecutive frames this track had no matching detection. */
   missedFrames: number;
+  /**
+   * `label` above is the winning label's *vote share* across this track's
+   * recent frames (see tracker.ts), not the raw per-frame model output —
+   * `Detection.score` (also inherited) stays this frame's raw model
+   * confidence for whichever label matched. `labelConfidence` is a
+   * different number: the winning label's share of total accumulated
+   * votes, 0..1. A track flickering between two plausible labels (e.g.
+   * `bed` / `dining table`) has a low `labelConfidence` even when each
+   * individual detection was confident.
+   */
+  labelConfidence: number;
+  /** Second-place label by vote share, if the track has ever seen one. */
+  runnerUpLabel: string | null;
+  /** Internal vote history driving `label`/`labelConfidence`/`runnerUpLabel` above. Not for display. */
+  labelVotes: Record<string, number>;
 }
 
 /** Everything the HUD needs to render one frame. */

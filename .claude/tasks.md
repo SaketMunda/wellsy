@@ -243,19 +243,122 @@ the last one first," and none of the three were reached. Carried to Day 5+.
 - [ ] Close on the telemetry panel: FPS + HUD draw ms both on screen,
       proving the polish didn't cost the frame budget
 
-## Day 6 — performance
-- [ ] WebGPU backend + fallback, **measured**
-- [ ] Adaptive frame skipping on static scenes
-- [ ] Decouple detection resolution from display resolution
-- [ ] Latency breakdown panel
-- [ ] Before/after benchmark table
+## Day 6 — uncertainty + voice — COMPLETE ✅ (items 1–5, 7 of 8)
+**Scope reshuffle:** the old Day 6 (WebGPU, adaptive frame skipping,
+resolution decoupling) moved to **Day 7**, alongside mobile — see
+week-roadmap.md for why. The real Day 6 is two complaints that are the same
+complaint: wrong labels, and no way to talk back.
 
-## Day 7 — robustness
+- [x] **Model A/B, timeboxed:** `mobilenet_v2` vs the D2 baseline
+      `lite_mobilenet_v2` — measured +50% inference (~11ms → ~16-17ms), FPS
+      unaffected. **Reverted**: no real-webcam scene available this session
+      to confirm an accuracy gain, so a confirmed cost for an unconfirmed
+      benefit was the wrong trade. Recorded as a negative result —
+      decisions.md D20.
+- [x] **Per-track label voting** (`src/vision/tracker.ts`) — `Track` gains
+      `labelVotes`, `labelConfidence` (winning label's vote share, a
+      different number from `Detection.score`), `runnerUpLabel`. Label is
+      now the decayed-vote argmax, not the latest detection. **Cross-label
+      matching** gated on IoU ≥ 0.5 (much stricter than same-label's 0.15)
+      fixes the actual id-churn bug: a track surviving the model flipping
+      `bed` → `dining table` without minting a new id. Chair/person still
+      never merge on a weak overlap. 5 new tests, 11 total in
+      `tracker.test.ts` — decisions.md D21.
+- [x] **`UNIDENTIFIED` / hedged labels** — below `labelConfidence` 0.6, the
+      HUD renders `BED / DINING TABLE ?` in the existing warn color (amber,
+      reused not invented) plus a real `LBL nn%` readout; narration switches
+      to a dedicated hedge template bank (`templates.ts`'s `HEDGES`); the
+      LLM may only *restyle* the hedge, enforced mechanically by
+      `sanitizeLlmLine` rejecting any line that doesn't hedge — decisions.md
+      D22. Verified live: see day6-poc.md's screenshot.
+- [x] **Push-to-talk local ASR** — `Xenova/whisper-tiny.en` via
+      `@huggingface/transformers` (promoted to a direct dependency),
+      `src/voice/useVoiceInput.ts` + `speechToText.ts`. Hold `T` or the mic
+      button; a second, independently-handled `getUserMedia` prompt.
+      **Verified working in a production build** (`npm run build && npm run
+      preview`) — the exact bundler risk D13 flagged for this dependency
+      family did not reproduce for Whisper. decisions.md D24.
+- [x] **`parseIntent`** (`src/voice/parseIntent.ts`) — pure, deterministic,
+      not the LLM. `wake` / `sleep` / `stop` / `describe_scene` /
+      `query_object` / `help` / `unknown`. 8 tests. decisions.md D23.
+- [x] **`describeScene` + `queryObject`** (`src/narration/describeScene.ts`)
+      — pure functions of `Track[]`, grounded exactly like the pre-Day-3
+      `describeScene` this revives (D12). Reports uncertain tracks as
+      "unidentified," never guesses. 10 tests.
+- [x] **Voice answers preempt narration** — `useNarrator.ts` gained
+      `speakAnswer`/`stopAll`; an answer drops the queue, resets the
+      rate-limit clock, and lands in the same log/subtitle path as ambient
+      narration. `stop` cuts speech immediately regardless of narrator
+      `enabled` state. decisions.md D25.
+- [x] **Subtitle track shows the user's transcript** — `SubtitleTrack.tsx`
+      now renders a second, visually distinct row (dimmer, italic, `>`
+      prefix) above YAP's line for the last push-to-talk transcript.
+- [x] **Latency breakdown panel** — capture→inference→track→draw→ASR→LLM→TTS,
+      kept from the old Day 6 scope per the reshuffle below.
+      `useDetector.ts` now separately times `updateTracks` (`trackMs`). No
+      fabricated `capture` number — the panel says why one isn't shown.
+      decisions.md D25.
+- [x] `@huggingface/transformers` promoted from a transitive (`kokoro-js`)
+      dependency to a direct one in `package.json` — zero new download,
+      just an honest dependency graph.
+- [x] `npx tsc -b`, `npm run build`, `npx oxlint src/`, `npm run test` (84
+      tests, up from 55) all clean.
+- [x] Verified live: headless Chrome + fake-camera device, **dev and
+      production/preview builds both** — see day6-poc.md, including a
+      direct synthetic-`HudState` screenshot proving the `BED / DINING
+      TABLE ?` hedge renders correctly.
+
+### Cut this session
+- [ ] **Open-vocabulary relabeling (CLIP)** — item 6 of the day's own build
+      order, explicitly optional ("if 6 doesn't land, the microphone is
+      still mislabelled and that's fine — you'll have shipped a system that
+      says UNIDENTIFIED instead of confidently saying tie"). Not started;
+      the real out-of-vocabulary fix (a mic reported as `tie`) is still
+      open. Carried to **Day 7 or later** — see week-roadmap.md.
+- [ ] **Wake word / always-listening mode** — item 8, explicitly the
+      stretch goal. Push-to-talk is a complete feature on its own per the
+      day's own brief; not attempted. Carried forward, no fixed day.
+- [ ] WebGPU backend, adaptive frame skipping, resolution decoupling — moved
+      to **Day 7** (see week-roadmap.md) — the old Day 6 scope, reshuffled
+      out before this session started per day6-prompt.md.
+
+### What to film for Day 6
+- [ ] Point the camera at a bed/table-ambiguous object (or simulate via the
+      synthetic-`HudState` technique used for verification) and watch the
+      label settle instead of flickering ids
+- [ ] The `BED / DINING TABLE ?` hedge rendering live, amber, with the real
+      `LBL nn%` confidence readout in the data card
+- [ ] Hold `T`, ask "what do you see" — the transcript appears dim/italic
+      above YAP's spoken answer in the subtitle track, sound off
+- [ ] Say "stop" mid-narration-line and show it actually cuts off
+- [ ] The Voice input panel block: mic status, ASR state/latency, the
+      on-device-only note
+- [ ] The Latency breakdown panel, all seven-minus-one stages populated
+      live, next to the unchanged FPS/inference/draw numbers from Day 5
+- [ ] State plainly on camera: no real spoken command has been transcribed
+      and checked for accuracy yet — the fake-camera device has no real
+      microphone input, same shape of caveat as "no audio confirmed
+      audible" from Day 4
+
+## Day 7 — robustness + mobile + performance
+**Scope note (Day 6 reshuffle):** this day now also carries the *original*
+Day 6 scope — WebGPU backend + fallback, adaptive frame skipping on static
+scenes, and decoupling detection resolution from display resolution — moved
+here because it's genuinely a mobile-battery concern first and a desktop
+nice-to-have second (see week-roadmap.md). Open-vocabulary CLIP relabeling
+(Day 6 item 6, not shipped) and wake word (Day 6 item 8, not shipped) are
+also candidates here if there's room, but robustness/mobile takes priority.
 - [ ] Rear camera + portrait + touch controls
 - [ ] Handle: permission denied, no camera, model load failure
 - [ ] Pause detection when tab is backgrounded
-- [ ] Unit tests for `describeScene` and `tracker`
+- [ ] WebGPU backend + WebGL fallback, **measured** (moved from Day 6)
+- [ ] Adaptive frame skipping on static scenes (moved from Day 6)
+- [ ] Decouple detection resolution from display resolution (moved from Day 6)
+- [ ] Unit tests for `tracker` cross-label edge cases against real footage
 - [ ] Low-light behaviour documented honestly
+- [ ] (Stretch) Open-vocabulary relabeling via CLIP crop classification —
+      carried from Day 6, see decisions.md D22 and tasks.md's Day 6 cut list
+- [ ] (Stretch) Wake word — carried from Day 6, see decisions.md D24
 
 ## Day 8 — ship
 - [ ] Deploy static build to a public URL

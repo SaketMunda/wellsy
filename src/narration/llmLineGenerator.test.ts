@@ -12,6 +12,8 @@ function event(over: Partial<NarrationEvent> = {}): NarrationEvent {
     duration_in_frame: 0,
     count: 1,
     previous_count: 0,
+    uncertain: false,
+    alternativeObject: null,
     ...over,
   };
 }
@@ -52,6 +54,21 @@ describe('sanitizeLlmLine', () => {
 
   it('converts exclamation marks to periods (deadpan, never excited)', () => {
     expect(sanitizeLlmLine('a chair appears!!', cfg())).toBe('a chair appears.');
+  });
+
+  it('rejects a confident single-label line for an uncertain event, even if otherwise in-character', () => {
+    const hedge = { alternativeObject: 'dining table' };
+    expect(sanitizeLlmLine('the bed remains. as expected.', cfg(), hedge)).toBeNull();
+  });
+
+  it('accepts a line that hedges by naming the alternative', () => {
+    const hedge = { alternativeObject: 'dining table' };
+    expect(sanitizeLlmLine('a bed, or a dining table. unclear which.', cfg(), hedge)).not.toBeNull();
+  });
+
+  it('accepts a line that hedges with a cue word even without naming the alternative', () => {
+    const hedge = { alternativeObject: 'dining table' };
+    expect(sanitizeLlmLine('something bed-shaped. hard to say what.', cfg(), hedge)).not.toBeNull();
   });
 });
 

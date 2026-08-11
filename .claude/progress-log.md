@@ -451,3 +451,127 @@ skipping, decoupled detect/display resolution, a latency breakdown panel.
 Day 5's HUD draw-time telemetry (~0.1ms at 1 target) is the number Day 6
 inherits and needs to hold at 5+ targets — that verification gap carries
 forward as Day 6's first thing to check, not a fresh unknown.
+
+---
+
+## Day 6 — 2026-08-11
+
+**Goal:** Two complaints from real use that are the same complaint — YAP
+says confidently wrong things about what it sees, and it can only talk *at*
+you. Ship "I don't know" and "ask me something," not a performance pass.
+The day's own prompt reshuffled the *original* Day 6 (WebGPU, frame
+skipping, resolution decoupling) out to Day 7, keeping only the latency
+breakdown panel as load-bearing since two more models were about to load
+onto the page.
+
+### Researched
+- Read `context.md`, `decisions.md` (D1–D19), `tasks.md`, `architecture.md`
+  before touching code, per the session brief.
+- Read all of `src/vision/tracker.ts` + `tracker.test.ts`, `src/hud/
+  drawHud.ts` + `hudState.ts`, `src/narration/events.ts`,
+  `generateLine.ts`, `templates.ts`, `useNarrator.ts`, `llmLineGenerator.ts`,
+  `speech.ts`, `src/App.tsx`, `StatusPanel.tsx` before writing anything —
+  the day touches almost every layer of the system at once, and getting the
+  existing seams wrong would have been expensive.
+- Confirmed via `npm ls puppeteer` and the local Puppeteer Chrome cache that
+  the same live-verification technique every prior day used (headless
+  Chrome + fake-camera device) was available this session too, plus
+  confirmed a bundled Chromium existed locally so verification didn't
+  depend on network access to download one mid-session.
+
+### Decided
+Six new entries in [decisions.md](decisions.md) (D20–D25): the
+`mobilenet_v2` A/B, measured and reverted as a negative result (cost
+confirmed, accuracy benefit unconfirmed — no real bed/table scene to test
+against); per-track label voting with an asymmetric cross-label match gate
+(0.15 same-label, 0.5 cross-label — the width of that gap is what protects
+against a chair inheriting a person's id); `UNIDENTIFIED`/hedging as a
+continuous `labelConfidence` threshold rather than a scripted state, with
+the LLM mechanically forced to hedge rather than resolve; deterministic
+`parseIntent`, never the LLM, for control actions; local Whisper over the
+free (but cloud-streaming) browser `SpeechRecognition` API, push-to-talk
+only; and voice answers preempting the narration queue via a plain `await`
+rather than forcing the generate-ahead model onto a request-response
+interaction it wasn't built for.
+
+### Built
+```
+src/vision/tracker.ts          label voting, cross-label match gate (rewritten)
+src/vision/tracker.test.ts     +5 tests (11 total)
+src/vision/types.ts            Track gains labelVotes/labelConfidence/runnerUpLabel
+src/vision/useDetector.ts      separately-timed trackMs stat
+src/hud/drawHud.ts             UNIDENTIFIED hedge rendering, real LBL readout
+src/hud/hudState.ts            TargetState carries labelConfidence/runnerUpLabel
+src/narration/events.ts        uncertain/alternativeObject on NarrationEvent
+src/narration/templates.ts     HEDGES bank (new)
+src/narration/generateLine.ts  routes uncertain events to HEDGES
+src/narration/llmLineGenerator.ts  uncertainty prompt case + sanitizer hedge check
+src/narration/describeScene.ts     describeScene + queryObject (new, revived from Day 3)
+src/narration/describeScene.test.ts  10 tests (new)
+src/narration/useNarrator.ts   speakAnswer/stopAll (preempt + rate-limit reset)
+src/voice/parseIntent.ts       deterministic intent parser (new)
+src/voice/parseIntent.test.ts  8 tests (new)
+src/voice/speechToText.ts      local Whisper adapter (new)
+src/voice/useVoiceInput.ts     push-to-talk hook: mic, MediaRecorder, resample (new)
+src/hud/SubtitleTrack.tsx      user transcript row, visually distinct (rewritten)
+src/hud/StatusPanel.tsx        Voice input + Latency breakdown panel blocks
+src/hud/ShortcutOverlay.tsx    "Hold T" entry
+src/App.tsx                    voice command wiring, mic button, T shortcut
+src/App.css                    subtitle-track restructure, panel-note style
+package.json                   @huggingface/transformers promoted to a direct dep
+```
+
+### Verified
+- `npx tsc -b`, `npm run build`, `npx oxlint src/`, `npm run test` (**84
+  tests**, up from 55) — all clean.
+- **Model A/B, live, headless Chrome + fake-camera device:** `lite_
+  mobilenet_v2` (kept) at 11ms inference / ~60 FPS vs `mobilenet_v2`
+  (reverted) at 16–17ms / ~57–60 FPS, 5 samples each. Real numbers, not
+  estimated — see day6-poc.md.
+- **Live, headless Chrome + fake-camera device, against the production
+  build** (`npm run build && npm run preview`, not just dev — deliberately,
+  since D13 flagged this exact dependency family's Rollup risk): FPS 60.1,
+  inference 11ms, track 0.02ms, HUD draw 0.1ms — unchanged from Day 5.
+  Voice input panel present, mic granted, Whisper reached `ASR: ready` with
+  zero console errors (only benign onnxruntime info/warning lines). Unlike
+  Kokoro (D13), this dependency did **not** hit the Rollup bundler bug.
+- **A direct synthetic-`HudState` render** (same technique `day5-poc.md`
+  used for its draw-cost benchmark) proved the `BED / DINING TABLE ?` hedge
+  renders correctly — amber label, real `LBL 52%` readout, a confident
+  secondary target rendering normally alongside it — with zero exceptions.
+  Full method and the screenshot description are in day6-poc.md.
+
+### Still missing
+- **A real spoken command, transcribed and checked for accuracy** — the
+  fake-camera device has no real microphone input. Same shape of gap as "no
+  audio confirmed audible" (open since Day 4).
+- **The uncertainty hedge on a real ambiguous-object camera scene** — no
+  bed/dining-table-confusable scene was available in headless verification;
+  proven correct via the tracker's unit tests and a direct synthetic render
+  of the drawing code instead.
+- **Open-vocabulary relabeling (CLIP)** and **wake word** — both explicitly
+  cut this session per the day's own prioritization (items 6 and 8 of 8).
+  The microphone-as-`tie` failure mode is still open. Carried to Day 7+.
+- Mic permission *denial* was not exercised against a real browser prompt
+  (the fake-media-stream flag always grants).
+
+### Can be shown publicly
+The model A/B numbers came off the live panel under both real
+configurations. The `BED / DINING TABLE ?` render is the actual `drawHud.ts`
+module executing, not a mockup. The production-build ASR verification is a
+genuine Rollup output, catching exactly the kind of bundler risk D13
+already burned a session on for a sibling dependency. FPS/inference/draw
+are unchanged from Day 5's measured baseline. The honest gaps — no real
+spoken command checked, no real ambiguous-object scene, CLIP and wake word
+both cut cleanly rather than half-built — are stated plainly in
+day6-poc.md, not buried.
+
+**Hook:** *"An AI that admits uncertainty reads as more intelligent, not
+less."*
+
+### Next
+Day 7 — robustness + mobile + the performance work reshuffled out of Day 6
+(WebGPU backend, adaptive frame skipping, resolution decoupling — a mobile
+battery budget is where that actually matters most). Open-vocabulary CLIP
+relabeling and wake word are both candidates to pick back up here if there's
+room, but robustness/mobile takes priority per the day's own scope note.

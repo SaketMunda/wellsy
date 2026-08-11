@@ -283,6 +283,93 @@ Point at the telemetry panel's `HUD draw` figure.
 
 ---
 
+## Day 6 demo flow (90–120 seconds) — "It stops guessing, and it answers back"
+
+### 0:00 — Cold open on a confidently wrong label
+Point the camera at a bed (or narrate over a captured clip/screenshot if a
+real bed isn't in reach — see the note at the end of this section).
+
+> "Yesterday, this was a dining table. Then a bed. Then a dining table
+> again. Same object. It never moved."
+
+### 0:15 — The fix, shown as a settling label
+Let the label hold on one word, or — if simulating — show the
+`BED / DINING TABLE ?` hedge render.
+
+> "Now it keeps a vote across the last thirty-ish frames instead of trusting
+> whatever it saw one frame ago. And when the vote is genuinely split — not
+> often, but sometimes — it says so instead of guessing." *(point at the
+> amber `BED / DINING TABLE ?` label and the real `LBL 52%` readout)*
+> "That percentage is the actual vote share. Not a decoration."
+
+### 0:35 — The other half of the problem, stated honestly
+> "This doesn't fix everything. Point it at a microphone—" *(if available)*
+> "—and it's still going to call it a tie or a bottle. That's not the model
+> being dumb. It's being asked a question it structurally cannot answer —
+> microphone isn't one of the 80 words it knows. Different problem, not
+> today's fix."
+
+### 0:55 — Push-to-talk
+Hold `T`.
+
+> "New this session: you can talk to it." *(ask, out loud)* "What do you
+> see?"
+
+Release the key. Let the answer come back — spoken, and subtitled.
+
+> "That's a real local speech-to-text model, transcribing what I just said,
+> entirely on this machine. Watch the subtitle track—" *(point at the
+> dim, right-aligned line above YAP's answer)* "—that's my question. That's
+> YAP's answer. Both real, both on screen, sound off."
+
+### 1:20 — "Stop" actually stops it
+Ask a question that triggers a longer answer, then say "stop" mid-sentence.
+
+> "And if I say stop—" *(cuts off immediately)* "—it stops. Immediately.
+> Not 'finishes its thought first.' That one's not allowed to be
+> approximate."
+
+### 1:40 — The honesty beat
+> "One important thing this is *not*: it doesn't understand what I'm
+> saying. It's matching my words against a short list of things it knows
+> how to do — what do you see, stop, wake up, a handful of others. Off
+> that script, it tells you so instead of guessing at what I meant."
+
+### 1:55 — The number that proves it wasn't free
+Point at the Latency breakdown panel.
+
+> "Two more models loaded onto this page today. Inference, tracking,
+> drawing — every number here is exactly what it was yesterday. The new
+> stuff runs entirely off to the side."
+
+### 2:10 — Honest close
+> "It used to lie with total confidence. Now it says 'I'm not sure' — and
+> somehow that reads as more intelligent, not less. That's today's whole
+> thesis, and I think it's actually true."
+
+---
+
+### Why this demo leans on a simulated hedge render for one beat
+A real bed/dining-table-confusable scene wasn't available in this session's
+verification environment (headless, fake-camera device with a synthetic
+test pattern — no furniture in it at all). The `BED / DINING TABLE ?` render
+shown/described above was captured by feeding the real `drawHud.ts` module a
+hand-built but realistic `HudState` directly — genuine code, synthetic
+input, not a mockup — see day6-poc.md. Say this plainly if shooting before a
+real ambiguous-object scene is confirmed on camera, the same way Day 5 was
+honest about leaning on the fake-camera device for its acquire/hold/lose arc.
+
+### Why this demo doesn't claim a verified real spoken command
+The fake-camera device used for all of this week's headless verification
+has no real microphone input. What's confirmed: the ASR pipeline loads and
+runs cleanly in a production build (a real bundler risk this exact
+dependency family has hit before — see decisions.md D13/D24). What's *not*
+confirmed: that a real spoken "what do you see" gets transcribed correctly.
+Say this the same way Day 4 said "no audio confirmed audible" — plainly, not
+as a caveat to bury.
+
+---
+
 ### Why this demo leans on screenshots and the fake-camera device for some beats
 Real-webcam verification of a clean single-object acquire→hold→lose arc
 under natural motion (not the fake camera's synthetic churn, and not a

@@ -35,6 +35,7 @@ const SYSTEM_PROMPT = `You are YAP, a deadpan nature-documentary narrator watchi
 - Always name the object and say what happened to it. The fact survives the joke.
 - Roast the habitat -- the room, the mess, the clutter -- never a person's appearance or identity.
 - Lowercase. No hashtags, no emoji, no addressing the viewer, no talking about being an AI.
+- If the event says uncertain: true, you MUST hedge between object and alternative_object. Never confidently pick one -- "I don't know" is more interesting than a guess.
 Examples of the voice, for tone only -- never reuse these verbatim:
 - "the bottle has left. as bottles do."
 - "a laptop. the screen time defence begins."
@@ -78,6 +79,9 @@ function eventPrompt(event: NarrationEvent, config: NarratorConfig): string {
     `object: ${event.object}`,
     `count: ${event.count}`,
     event.type === 'still_present' ? `idle_minutes: ${idleMinutes}` : null,
+    event.uncertain
+      ? `uncertain: true, alternative_object: ${event.alternativeObject} -- the tracker cannot tell "${event.object}" and "${event.alternativeObject}" apart. Hedge between the two (e.g. "maybe", "or", "hard to say"). Do not confidently assert either one.`
+      : null,
     `spice_level: ${config.spice_level} (0 = clean, 1 = default snark, 2 = mild swears allowed)`,
     'Write one narration line for this event, following the voice rules.',
   ]
@@ -85,8 +89,22 @@ function eventPrompt(event: NarrationEvent, config: NarratorConfig): string {
     .join('\n');
 }
 
-/** Enforces the character bible and the word ceiling on raw model output. Returns null to signal "reject, fall back to template" rather than let a bad line through. */
-export function sanitizeLlmLine(raw: string, config: NarratorConfig): string | null {
+/** Words that signal the line actually hedged, for the uncertain-event check below. */
+const HEDGE_CUES = /\bor\b|\bmaybe\b|\bperhaps\b|unclear|unsure|not sure|hard to say|no idea|who knows/i;
+
+/**
+ * Enforces the character bible and the word ceiling on raw model output.
+ * Returns null to signal "reject, fall back to template" rather than let a
+ * bad line through. When `hedge` is set (the event is uncertain), the LLM is
+ * only ever allowed to *restyle* the hedge, never resolve it — a line that
+ * doesn't actually hedge (names the alternative, or uses a hedge word) is
+ * rejected exactly like a banned word or a swear, not just discouraged.
+ */
+export function sanitizeLlmLine(
+  raw: string,
+  config: NarratorConfig,
+  hedge?: { alternativeObject: string | null },
+): string | null {
   let line = raw
     .trim()
     .replace(/^["']|["']$/g, '')
@@ -95,6 +113,10 @@ export function sanitizeLlmLine(raw: string, config: NarratorConfig): string | n
   if (!line) return null;
   if (BANNED_WORDS.some((w) => line.includes(w))) return null;
   if (config.spice_level < 2 && SWEARS.test(line)) return null;
+  if (hedge) {
+    const namesAlternative = hedge.alternativeObject ? line.includes(hedge.alternativeObject.toLowerCase()) : false;
+    if (!namesAlternative && !HEDGE_CUES.test(line)) return null;
+  }
 
   const words = line.split(/\s+/).filter(Boolean);
   if (words.length < 3) return null;
@@ -162,7 +184,8 @@ export function createLlmLineGenerator(
           temperature: 0.9,
         });
         setStatus({ lastInferenceMs: performance.now() - start });
-        const clean = sanitizeLlmLine(reply.choices[0]?.message?.content ?? '', config);
+        const hedge = event.uncertain ? { alternativeObject: event.alternativeObject } : undefined;
+        const clean = sanitizeLlmLine(reply.choices[0]?.message?.content ?? '', config, hedge);
         cache.set(event, clean ? { status: 'ready', text: clean } : { status: 'error' });
       })
       .catch(() => {

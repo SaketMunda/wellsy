@@ -221,3 +221,39 @@ export const TEMPLATES: Record<NarrationEventType, Template[]> = {
  * more than one thing happened inside the rate-limit window.
  */
 export const ALSO_PREFIXES = ['also, ', 'meanwhile, ', 'elsewhere, '];
+
+// ---------------------------------------------------------------------------
+// uncertainty hedges — Day 6
+//
+// Used instead of the banks above whenever `NarrationEvent.uncertain` is set
+// (the tracker's own vote share for the winning label is low — see
+// decisions.md and `tracker.ts`'s `labelConfidence`). The voice must hedge,
+// never pick a winner: `{object}` is the tracker's current top guess,
+// `{alt}` is its runner-up. No object-specific lines here on purpose — an
+// object the vote can't settle on doesn't get a bespoke joke, it gets an
+// honest shrug.
+// ---------------------------------------------------------------------------
+
+export type HedgeEvent = 'appear' | 'disappear' | 'still_present';
+
+export const HEDGES: Record<HedgeEvent, Template[]> = {
+  appear: [
+    { text: 'something enters. {object}, maybe {alt}. hard to say.', spice: 0 },
+    { text: 'a shape shows up. calling it {object}, provisionally.', spice: 0 },
+    { text: '{object}, or {alt}. the vote is still out.', spice: 0 },
+    { text: 'something {object}-shaped appears. could be {alt} too.', spice: 0 },
+    { text: 'unclear arrival. {object} is the leading theory.', spice: 1 },
+    { text: 'a thing appears. {object} or {alt}. genuinely not sure.', spice: 1 },
+  ],
+  disappear: [
+    { text: 'the {object}, or {alt}, is gone either way.', spice: 0 },
+    { text: 'whatever that was -- {object}, {alt} -- it left.', spice: 0 },
+    { text: 'unclear what it was. it is gone now regardless.', spice: 0 },
+    { text: 'the {object}-or-{alt} situation resolved itself. it left.', spice: 1 },
+  ],
+  still_present: [
+    { text: 'still {object}, probably. could be {alt}. unresolved.', spice: 0 },
+    { text: 'the {object}-or-{alt} question remains open. it remains too.', spice: 0 },
+    { text: 'undecided between {object} and {alt}. still there either way.', spice: 1 },
+  ],
+};

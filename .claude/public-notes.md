@@ -242,11 +242,66 @@ HUD shows the box's honest size as a percentage of the frame.
 
 **Line:** "Perceived intelligence is mostly interface."
 
-## Day 6 — "33 milliseconds"
-> At 30fps you get 33ms to capture, think, and draw. Optimisation is just
-> deciding where those milliseconds go.
+## Day 6 — "It stops guessing, and it answers back"
 
-**Line:** "Real-time isn't a feature, it's a budget."
+**Concept:** Two complaints from real use, and they're the same complaint —
+the system was *asserting* instead of *communicating*. A bed reported as a
+dining table, with total confidence. No way to ask it anything. Today it
+learns to say "I'm not sure," to be corrected, and to be asked a question.
+
+**Simple explanation (2–4 lines):**
+> Every object's label used to come from whichever single detection matched
+> it *this frame* — throwing away everything the system had seen about that
+> object a moment ago. Now each tracked object keeps a running vote across
+> its recent frames, and when that vote is genuinely torn between two
+> answers, it says so instead of picking one and sounding sure. On the voice
+> side: hold a key, ask it what it sees, and it answers out loud — using a
+> tiny local speech-to-text model, the same "runs on your machine, not in
+> the cloud" rule as everything else this week, extended to your voice this
+> time instead of your camera.
+
+**What viewers should notice:**
+- A bed that used to flicker between two different track ids as the model
+  flip-flopped now keeps one id, and if the model genuinely can't decide,
+  the label reads `BED / DINING TABLE ?` instead of confidently picking one
+- Holding a key and asking "what do you see" gets a real spoken answer,
+  subtitled, with your own question shown dim and separate from YAP's reply
+- Saying "stop" actually stops it, immediately, mid-sentence
+- The telemetry panel now shows a full latency breakdown — inference,
+  tracking, drawing, speech recognition, the line-writing model, the voice
+  model — every stage timing itself
+
+**What was hard:**
+The honest failure has two different shapes and conflating them wastes the
+whole day. A bed read as a dining table is the model picking the *wrong
+word it actually knows* — fixable, with memory. A microphone read as a tie
+is the model being asked a question it structurally *cannot* answer — COCO
+has no `microphone` class, so no amount of voting fixes that, only a
+different kind of model or an honest shrug. This session shipped the fix
+for the first shape and ran out of runway for the second — the microphone
+is still going to say `tie` until open-vocabulary relabeling lands, and
+saying that plainly, instead of implying both are solved, is the actual
+point of splitting them apart in the first place. The other hard part was
+architectural, again: the free, built-in browser speech-to-text API streams
+your voice to a cloud server to do the recognition. That's exactly the kind
+of hidden cloud call this project has refused since Day 1, so it was turned
+down on principle and a real local speech model was used instead, at real
+engineering cost (recording, resampling, a second permission prompt) that
+the free option would have skipped entirely.
+
+**Posts:**
+- **X:** "Day 6 of building YAP. It used to confidently call my bed a dining
+  table. Now it says 'bed, or maybe dining table — hard to say' and it's
+  right that it doesn't know. Also: you can talk to it now. Hold a key, ask
+  what it sees, it answers. Still zero cloud calls, even for your voice. 🧵"
+- **LinkedIn:** Frame it as a broader lesson about confidence calibration —
+  a system that reports its own uncertainty honestly is more trustworthy
+  and more useful than one that's always sure, even when the underlying
+  accuracy hasn't changed at all.
+- **Reel caption:** "It used to lie with total confidence. Now it says 'I'm
+  not sure' — and somehow that makes it feel smarter, not dumber."
+
+**Line:** "An AI that admits uncertainty reads as more intelligent, not less."
 
 ## Day 7 — "Trying to break it"
 > Demos work in one room with good light. Products work in the dark, on a
@@ -285,6 +340,22 @@ HUD shows the box's honest size as a percentage of the frame.
   by real elapsed time (frame-rate independent) and real track identity —
   the fade you see on a lost target is the HUD's own short memory of a
   track the detector has already fully forgotten (Day 5)
+- A tracked object's label is a real vote across roughly its last 30 frames,
+  not just whatever the model said this instant — and when that vote is
+  genuinely split, the HUD says `LABEL / RUNNER-UP ?` and narration hedges,
+  rather than confidently picking one (Day 6)
+- Speech recognition is local — a real Whisper model runs in the browser,
+  verified to load and transcribe in an actual production build, not just
+  the dev server (Day 6)
+- Audio recorded for a voice command never leaves the device and is never
+  saved to disk — it's held in memory only for the length of one
+  push-to-talk press, then discarded once transcribed (Day 6)
+- `stop`, `wake`, `sleep`, `describe_scene`, and `query_object` are
+  recognised by a fixed, deterministic pattern matcher, not the LLM — the
+  LLM never decides a control action (Day 6)
+- The spoken answer to "what do you see" is grounded in the exact same
+  track data the HUD draws from — it's the same honesty rule as narration,
+  applied to a direct question instead of an ambient comment (Day 6)
 
 ## What is NOT real yet (never overclaim)
 - ❌ "Runs entirely on the device" without the nuance — the model *weights*
@@ -328,6 +399,26 @@ HUD shows the box's honest size as a percentage of the frame.
   centered it is), recomputed every tick. It is not attention, salience
   understanding, or intent — it is one number picking the biggest,
   most-centered box.
+- ❌ "It understands what you say" — voice commands are matched against a
+  fixed list of patterns (`parseIntent.ts`). Off-script phrasing fails and
+  says so, honestly, rather than guessing at intent. This is pattern
+  matching, not language understanding.
+- ❌ "It has open-vocabulary vision" — it does not, as of Day 6. It can only
+  say "unidentified" when its fixed 80-word vocabulary can't settle on an
+  answer; it cannot yet supply a *better* word (that's the open-vocabulary
+  CLIP work, explicitly cut this session — see decisions.md D22). A
+  microphone still gets called a `tie`.
+- ❌ "It has a wake word" — not shipped. Push-to-talk only, as of Day 6. If
+  a wake word ships later, describe it accurately when it does:
+  transcribe-then-match against "yap"/"hey yap", not a trained,
+  low-power keyword-spotting model — it would cost real CPU continuously
+  and misfire, nothing like Siri/Alexa's always-on listener.
+- ❌ "It fixed the wrong-label problem" — it fixed *half* of it. The
+  in-vocabulary confusion (bed vs. dining table, both real COCO classes) is
+  fixed by label voting. The out-of-vocabulary problem (a microphone isn't
+  one of COCO's 80 classes at all) is not — the model is still forced to
+  guess the nearest of 80 wrong words for anything genuinely outside its
+  vocabulary, same as every prior day.
 
 ## Tone rules
 - Show the failures. Wrong labels are content, not shame.

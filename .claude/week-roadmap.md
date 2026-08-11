@@ -182,41 +182,98 @@ still owed, the same recurring caveat as Days 1–4.
 
 ---
 
-## Day 6 — "It gets fast" (latency)
+## Day 6 — "It stops guessing, and it answers back" (uncertainty + voice) ✅ SHIPPED
+**Reshuffled from the original plan:** the *old* Day 6 (WebGPU backend,
+adaptive frame skipping, resolution decoupling) moved to **Day 7**, where it
+joins mobile — a battery/latency budget genuinely matters most on a phone,
+and "WebGL is already fast enough" was already #1 on the roadmap's own
+cut-if-behind list. The **latency breakdown panel** stayed on Day 6, because
+adding two more models (Whisper, and the LLM/TTS pair already shipped Day 4)
+to a page that loads three models needed proof the frame budget survived.
+
 **Ships:**
-- **WebGPU backend** with WebGL fallback — measured, not assumed
-- **Adaptive frame skipping** — detect less often when the scene is static
-- **Input resolution tuning** (detect at 640px, display at 1280px)
-- A latency **breakdown panel**: capture → inference → draw
-- Before/after benchmark numbers
+- **Per-track label voting** (`src/vision/tracker.ts`) — a track's label is
+  now a decayed vote across ~30 frames of the same tracked object, not
+  whichever detection matched last. A **cross-label match gate** (IoU ≥ 0.5)
+  fixes the real bug: the model flipping `bed` ↔ `dining table` used to mint
+  a brand-new track id every flip; now the id survives and the vote settles.
+- **`UNIDENTIFIED` / hedged labels** — below a `labelConfidence` threshold,
+  the HUD shows `BED / DINING TABLE ?` instead of committing to one word,
+  and narration hedges with a dedicated line bank. The LLM may restyle the
+  hedge, never resolve it — enforced mechanically, not just prompted.
+- **Push-to-talk local voice input** — hold `T` or the mic button, local
+  Whisper (`Xenova/whisper-tiny.en` via `@huggingface/transformers`)
+  transcribes on-device, a deterministic `parseIntent` (never the LLM)
+  turns it into `wake`/`sleep`/`stop`/`describe_scene`/`query_object`/`help`,
+  and a revived `describeScene` answers grounded in the same tracks the HUD
+  draws from.
+- **Voice answers preempt ambient narration** and land in the same subtitle
+  track, with the user's own transcript shown separately (dim, italic, `>`
+  prefix) so a silent screen recording reads as an actual exchange.
+- **Latency breakdown panel** — inference/track/draw/ASR/LLM/TTS, each a
+  real measured number, no fabricated capture timestamp.
 
-**Concept:** Real-time is a **budget**. 30 FPS = 33ms per frame for everything.
-Optimisation is deciding where those milliseconds go.
+**Concept:** Two complaints, one root cause: the system was **asserting**
+instead of **communicating**. It said a bed was a dining table with total
+confidence, and it could only talk at you. Today it learns to say "I'm not
+sure," and it learns to be asked. The genuinely interesting finding: an AI
+that admits uncertainty reads as *more* intelligent, not less — a torn
+`BED / DINING TABLE ?` reads as more trustworthy than a smug wrong `TIE`.
 
-**Demo:** The FPS counter climbing. Real numbers on screen.
+**Demo:** The `BED / DINING TABLE ?` hedge rendering live in amber with a
+real `LBL nn%` confidence readout; holding `T`, asking "what do you see,"
+and getting a spoken, subtitled, grounded answer; saying "stop" mid-line and
+watching it actually stop.
 
-**Hook:** *"33 milliseconds. That's the entire budget for seeing, thinking, and
-drawing. Here's where every one of them went."*
+**Hook:** *"Yesterday it looked smarter. Today it got more honest — and
+somehow that reads as smarter too."*
 
-**Risk:** WebGPU may not be a win on all hardware. If so, report that honestly —
-a negative result is still content.
+**Risk, resolved and unresolved:** Local ASR is the day's real bundler-risk
+bet — Whisper via `@huggingface/transformers` was the same dependency
+family D13 warned had a known Rollup-production-build bug (Kokoro's
+phonemizer). Verified in an actual production build this time, not just
+dev: Whisper loaded and transcribed cleanly with zero console errors.
+Whether it transcribes a *real spoken command* correctly was **not**
+verified — the fake-camera device used for all headless verification this
+week provides no real microphone input, the same shape of gap as "no audio
+confirmed audible" since Day 4. Open-vocabulary relabeling (the actual fix
+for a genuinely out-of-vocabulary object like a microphone) was not
+attempted this session — cut cleanly per the day's own explicit
+prioritization, carried to Day 7+. See day6-poc.md.
 
 ---
 
-## Day 7 — "It survives reality" (robustness + mobile)
+## Day 7 — "It survives reality" (robustness + mobile + the moved performance work)
 **Ships:**
 - **Phone camera** support — rear camera, portrait, touch controls
 - Graceful handling: permission denied, no camera, tab backgrounded, model fail
 - **Low light / motion blur** behaviour, honestly demonstrated
-- Unit tests for `describeScene` (the pure logic)
 - Backgrounded-tab **pause** to stop cooking the battery
+- **WebGPU backend** with WebGL fallback — measured, not assumed (moved
+  from the original Day 6 plan; a mobile battery budget is where this
+  actually matters most, per the Day 6 reshuffle)
+- **Adaptive frame skipping** — detect less often when the scene is static
+  (moved from Day 6)
+- **Input resolution tuning** (detect at 640px, display at 1280px) (moved
+  from Day 6)
+- (Stretch, carried from Day 6) **Open-vocabulary relabeling** — crop a
+  track's box, classify it with CLIP against a user-editable candidate
+  list, replace a confidently-wrong COCO word (`tie` for a microphone) with
+  either the right word or an honest `UNIDENTIFIED` — the actual fix for
+  the out-of-vocabulary half of Day 6's label problem
+- (Stretch, carried from Day 6) **Wake word** — voice-activity detection +
+  continuous transcription + string match, described honestly as
+  transcribe-then-match, not a trained keyword spotter
 
 **Concept:** Demos work in one room with good light. Products work everywhere.
-The gap between them is entirely edge cases.
+The gap between them is entirely edge cases — and, per this reshuffle, entirely
+the performance budget a phone actually has to live inside.
 
-**Demo:** YAP running on a phone, walking around a real space.
+**Demo:** YAP running on a phone, walking around a real space, WebGPU vs
+WebGL numbers on screen.
 
-**Hook:** *"Every demo works on the demo machine. Today I tried to break it."*
+**Hook:** *"Every demo works on the demo machine. Today I tried to break it —
+and I tried to make it fit in a pocket."*
 
 ---
 
@@ -238,10 +295,12 @@ laptop starts seeing."*
 ---
 
 ## Cut-if-behind list (in cut order)
-1. Day 6 WebGPU (WebGL is already fast enough)
+1. Day 7 WebGPU, moved from the original Day 6 plan (WebGL is already fast enough)
 2. Day 5 animation polish
 3. Day 7 unit tests
 4. Day 4 optional rich-description mode
+5. Day 6 open-vocabulary CLIP relabeling and wake word — already cut once,
+   see decisions.md D22/D24 and tasks.md's Day 6 cut list
 
 ## Never cut
 Day 3 tracking — it's the single biggest quality jump in the week.

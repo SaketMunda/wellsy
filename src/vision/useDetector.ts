@@ -24,7 +24,7 @@ export function useDetector(
 ) {
   const [status, setStatus] = useState<ModelStatus>('idle');
   const [error, setError] = useState<string | null>(null);
-  const [stats, setStats] = useState({ fps: 0, inferenceMs: 0, count: 0 });
+  const [stats, setStats] = useState({ fps: 0, inferenceMs: 0, trackMs: 0, count: 0 });
   const frameRef = useRef<Frame>({ detections: [], tracks: [], inferenceMs: 0, fps: 0 });
   const modelRef = useRef<cocoSsd.ObjectDetection | null>(null);
   const tracksRef = useRef<Frame['tracks']>([]);
@@ -42,6 +42,10 @@ export function useDetector(
         await tf.ready();
         // lite_mobilenet_v2 is the smallest/fastest COCO-SSD variant — the
         // right trade for a live HUD where latency beats a few accuracy points.
+        // Day 6 A/B'd `mobilenet_v2` against this — measured ~50% higher
+        // inference (11ms -> 16-17ms) for accuracy this environment couldn't
+        // verify (no real webcam scene to test bed/table confusion against).
+        // Reverted; see decisions.md.
         const model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
         if (cancelled) return;
         modelRef.current = model;
@@ -96,7 +100,9 @@ export function useDetector(
           ? instantFps
           : smoothedFps + (instantFps - smoothedFps) * FPS_SMOOTHING;
 
+        const t2 = performance.now();
         tracksRef.current = updateTracks(tracksRef.current, detections, dt, () => nextTrackIdRef.current++);
+        const trackMs = performance.now() - t2;
 
         frameRef.current = {
           detections,
@@ -110,6 +116,7 @@ export function useDetector(
           setStats({
             fps: smoothedFps,
             inferenceMs: t1 - t0,
+            trackMs,
             count: detections.length,
           });
         }

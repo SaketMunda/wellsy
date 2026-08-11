@@ -14,6 +14,16 @@
  */
 import type { Track } from '../vision/types';
 
+/**
+ * Below this vote share (`Track.labelConfidence`), the tracker itself is torn
+ * between two labels — the event must hedge rather than assert one. Mirrors
+ * `drawHud.ts`'s `UNCERTAIN_CONFIDENCE`, duplicated deliberately (same reason
+ * as `generateLine.ts`'s `PLURALS`): the HUD and the voice are separate
+ * consumers of the same tracker fact and shouldn't share an import just to
+ * agree on a threshold.
+ */
+const UNCERTAIN_CONFIDENCE = 0.6;
+
 export type NarrationEventType = 'appear' | 'disappear' | 'count_change' | 'still_present';
 
 export interface NarrationEvent {
@@ -38,6 +48,10 @@ export interface NarrationEvent {
    * an hour-old tableau, so this is not the same as `duration_in_frame`.
    */
   idle_ms?: number;
+  /** True when the tracker itself can't settle on this object's label — see `UNCERTAIN_CONFIDENCE`. */
+  uncertain: boolean;
+  /** The runner-up label, when `uncertain` — the voice's "or maybe {alt}". */
+  alternativeObject: string | null;
 }
 
 /** Which event wins when several land inside one rate-limit window. */
@@ -58,15 +72,18 @@ export function byInterest(a: NarrationEvent, b: NarrationEvent): number {
  * proof that the detection under the jokes is real.
  */
 export function literalLine(event: NarrationEvent): string {
+  const object = event.uncertain && event.alternativeObject
+    ? `${event.object}/${event.alternativeObject}?`
+    : event.object;
   switch (event.type) {
     case 'appear':
-      return `${event.count} ${event.object} in view.`;
+      return `${event.count} ${object} in view.`;
     case 'disappear':
-      return `${event.object} gone.`;
+      return `${object} gone.`;
     case 'count_change':
-      return `Now ${event.count} ${event.object}.`;
+      return `Now ${event.count} ${object}.`;
     case 'still_present':
-      return `${event.object} still in frame (${Math.round(event.duration_in_frame / 60000)}m).`;
+      return `${object} still in frame (${Math.round(event.duration_in_frame / 60000)}m).`;
   }
 }
 
@@ -96,6 +113,22 @@ function countByLabel(tracks: Track[]): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const t of tracks) counts[t.label] = (counts[t.label] ?? 0) + 1;
   return counts;
+}
+
+/**
+ * An event about several tracks (two things appearing in one settle) is
+ * uncertain if *any* of them is — hedging about the least-confident one is
+ * more honest than averaging it away.
+ */
+function uncertaintyOf(tracks: Track[]): { uncertain: boolean; alternativeObject: string | null } {
+  let worst: Track | null = null;
+  for (const t of tracks) {
+    if (!worst || t.labelConfidence < worst.labelConfidence) worst = t;
+  }
+  if (!worst || worst.labelConfidence >= UNCERTAIN_CONFIDENCE || !worst.runnerUpLabel) {
+    return { uncertain: false, alternativeObject: null };
+  }
+  return { uncertain: true, alternativeObject: worst.runnerUpLabel };
 }
 
 export function createEventTracker(): EventTracker {
@@ -131,6 +164,7 @@ export function createEventTracker(): EventTracker {
           confidence: Math.max(...arrived.map((t) => t.score)),
           timestamp: now,
           duration_in_frame: Math.max(...arrived.map((t) => t.ageMs)),
+          ...uncertaintyOf(arrived),
         });
       }
 
@@ -152,6 +186,7 @@ export function createEventTracker(): EventTracker {
           confidence: Math.max(...left.map((t) => t.score)),
           timestamp: now,
           duration_in_frame: Math.max(...left.map((t) => t.ageMs)),
+          ...uncertaintyOf(left),
         });
       }
 
@@ -170,6 +205,7 @@ export function createEventTracker(): EventTracker {
               timestamp: now,
               duration_in_frame: Math.max(...ofLabel.map((t) => t.ageMs)),
               idle_ms: now - (lastChange[label] ?? now),
+              ...uncertaintyOf(ofLabel),
             });
           }
         }

@@ -21,6 +21,8 @@ function event(over: Partial<NarrationEvent> = {}): NarrationEvent {
     duration_in_frame: 0,
     count: 1,
     previous_count: 0,
+    uncertain: false,
+    alternativeObject: null,
     ...over,
   };
 }
@@ -233,6 +235,27 @@ describe('generateLine', () => {
     for (let i = 0; i < 1000; i++) g.generateLine(event({ object: 'cup' }));
     expect((performance.now() - start) / 1000).toBeLessThan(10);
   });
+
+  it('hedges an uncertain event instead of asserting a single label', () => {
+    const g = gen();
+    const hedgeCue = /\bor\b|maybe|provisionally|unclear|unsure|hard to say|not sure|genuinely|theory/;
+    for (let i = 0; i < 20; i++) {
+      const line = g.generateLine(event({ object: 'bed', uncertain: true, alternativeObject: 'dining table' }));
+      expect(line).toContain('bed');
+      // Never a plain, confident "the bed remains" — either the alternative
+      // is named, or the line carries an explicit hedge cue.
+      expect(line.includes('dining table') || hedgeCue.test(line)).toBe(true);
+    }
+  });
+
+  it('never reuses a normal (non-hedging) template for an uncertain event', () => {
+    const g = gen();
+    const normalLines = new Set(TEMPLATES.appear.map((t) => t.text));
+    for (let i = 0; i < 30; i++) {
+      const line = g.generateLine(event({ object: 'bed', uncertain: true, alternativeObject: 'dining table' }));
+      expect(normalLines.has(line)).toBe(false);
+    }
+  });
 });
 
 describe('event tracker', () => {
@@ -243,6 +266,9 @@ describe('event tracker', () => {
     bbox: [0, 0, 1, 1],
     ageMs,
     missedFrames: 0,
+    labelConfidence: 1,
+    runnerUpLabel: null,
+    labelVotes: { [label]: score },
   });
   const IDLE = 2 * 60_000;
 
@@ -303,5 +329,20 @@ describe('event tracker', () => {
     const t = createEventTracker();
     const [e] = t.update([track(1, 'chair', 0, 0.42)], 0, IDLE);
     expect(e.confidence).toBeCloseTo(0.42);
+  });
+
+  it('marks an appear event uncertain when the track itself is torn between two labels', () => {
+    const t = createEventTracker();
+    const torn: Track = { ...track(1, 'bed'), labelConfidence: 0.5, runnerUpLabel: 'dining table' };
+    const [e] = t.update([torn], 0, IDLE);
+    expect(e.uncertain).toBe(true);
+    expect(e.alternativeObject).toBe('dining table');
+  });
+
+  it('does not mark an event uncertain when the track is confident', () => {
+    const t = createEventTracker();
+    const [e] = t.update([track(1, 'laptop')], 0, IDLE);
+    expect(e.uncertain).toBe(false);
+    expect(e.alternativeObject).toBeNull();
   });
 });

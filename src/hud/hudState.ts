@@ -37,6 +37,10 @@ export interface TargetState {
   id: number;
   label: string;
   score: number;
+  /** Winning label's vote share, 0..1 (`Track.labelConfidence` — see tracker.ts). */
+  labelConfidence: number;
+  /** Second-place label by vote share, if the track has one. */
+  runnerUpLabel: string | null;
   /** Interpolated display box, video-pixel space. */
   bbox: [number, number, number, number];
   ageMs: number;
@@ -115,6 +119,8 @@ export function updateHudState(
       id: track.id,
       label: track.label,
       score: track.score,
+      labelConfidence: track.labelConfidence,
+      runnerUpLabel: track.runnerUpLabel,
       bbox: existing ? lerpBox(existing.bbox, track.bbox, lerpFactor) : track.bbox,
       ageMs: track.ageMs,
       acquireMs: Math.min(ACQUIRE_MS, (existing?.acquireMs ?? 0) + dtMs),

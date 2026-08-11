@@ -160,6 +160,36 @@ export function useNarrator(frameRef: React.RefObject<Frame>, enabled: boolean) 
     return () => clearInterval(id);
   }, [enabled, frameRef]);
 
+  /**
+   * A voice answer (Day 6) must preempt ambient narration, not queue behind
+   * it or get immediately talked over by it: drop anything queued, reset
+   * the rate-limit clock so the next ambient line waits the full
+   * `min_seconds_between_lines` from *now*, and route through the same log
+   * + speak path so it shows up in the subtitle track like any other line.
+   * Works regardless of `enabled` — a direct question gets a direct answer
+   * even if ambient narration happens to be asleep.
+   */
+  const speakAnswer = useCallback((text: string) => {
+    stopSpeaking();
+    queueRef.current = [];
+    lastSpokeAtRef.current = performance.now();
+    const entry: LogEntry = {
+      id: nextLogId(),
+      text,
+      boring: text,
+      debug: 'voice answer',
+      at: Date.now(),
+    };
+    if (configRef.current.voice_enabled) speak(text);
+    setLog((prev) => [entry, ...prev].slice(0, 8));
+  }, []);
+
+  /** `stop` must cut off speech immediately, even mid-inference-prefetch — see parseIntent.ts. */
+  const stopAll = useCallback(() => {
+    stopSpeaking();
+    queueRef.current = [];
+  }, []);
+
   // Reset the narrator's memory when it's switched off, so re-enabling it
   // reintroduces the scene instead of silently assuming you heard it already.
   useEffect(() => {
@@ -172,5 +202,5 @@ export function useNarrator(frameRef: React.RefObject<Frame>, enabled: boolean) 
     queueRef.current = [];
   }, [enabled]);
 
-  return { log, config, setConfig, llmStatus, ttsStatus };
+  return { log, config, setConfig, llmStatus, ttsStatus, speakAnswer, stopAll };
 }

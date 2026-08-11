@@ -18,6 +18,19 @@ const SECONDARY_ALPHA = 0.45;
  * only rather than paying it per-bracket, per-target, every frame. See
  * decisions.md / day5-poc.md for the measured before/after. */
 const PRIMARY_GLOW = 12;
+/**
+ * Below this vote share (`Track.labelConfidence`), the tracker itself isn't
+ * sure which label is right — render the hedge instead of committing to one.
+ * See decisions.md Day 6. Matched to `generateLine.ts`'s narration hedge so
+ * the HUD and the voice agree on when to say "I don't know".
+ */
+const UNCERTAIN_CONFIDENCE = 0.6;
+
+/** `BED` or, when the tracker itself is torn, `BED / DINING TABLE ?`. Never a lie about which the model is sure of. */
+function labelText(label: string, labelConfidence: number, runnerUpLabel: string | null): string {
+  if (labelConfidence >= UNCERTAIN_CONFIDENCE || !runnerUpLabel) return label.toUpperCase();
+  return `${label.toUpperCase()} / ${runnerUpLabel.toUpperCase()} ?`;
+}
 
 function formatAge(ageMs: number): string {
   return `${(ageMs / 1000).toFixed(1)}s`;
@@ -261,10 +274,10 @@ function drawDataCard(
 function drawLabel(
   ctx: CanvasRenderingContext2D,
   x: number, y: number,
-  label: string, id: number, ageMs: number,
+  labelStr: string, id: number, ageMs: number,
   color: string, alpha: number,
 ) {
-  const text = `${label.toUpperCase()} #${id}`;
+  const text = `${labelStr} #${id}`;
   const sub = formatAge(ageMs);
   font(ctx, 700, 11, '1.2px');
   const width = ctx.measureText(text).width;
@@ -471,13 +484,15 @@ function drawPrimaryTelemetry(
   const posX = frameW > 0 ? Math.round(((target.bbox[0] + target.bbox[2] / 2) / frameW) * 100) : 0;
   const posY = frameH > 0 ? Math.round(((target.bbox[1] + target.bbox[3] / 2) / frameH) * 100) : 0;
 
+  const uncertain = target.labelConfidence < UNCERTAIN_CONFIDENCE && target.runnerUpLabel;
   const side: 'left' | 'right' = cx > canvasW / 2 ? 'left' : 'right';
   const anchorX = side === 'right' ? x + w : x;
   drawDataCard(
     ctx, anchorX, y + 6, side,
-    `${target.label.toUpperCase()} · LOCK`,
+    `${target.label.toUpperCase()} · ${uncertain ? 'UNSURE' : 'LOCK'}`,
     [
       { k: 'CONF', v: `${Math.round(target.score * 100)}%`, bar: target.score },
+      { k: 'LBL', v: `${Math.round(target.labelConfidence * 100)}%`, bar: target.labelConfidence },
       { k: 'AREA', v: `${areaPct.toFixed(1)}% FRAME` },
       { k: 'POS', v: `${posX} / ${posY}` },
       { k: 'AGE', v: formatAge(target.ageMs) },
@@ -536,7 +551,11 @@ export function drawHud(opts: DrawHudOptions): void {
     const h = tbh * scaleY;
     const x = flipX(tbx * scaleX, w);
     const y = tby * scaleY;
-    const color = target.label === 'person' ? THEME.amber : accentFor(target.label);
+    const uncertain = target.labelConfidence < UNCERTAIN_CONFIDENCE && target.runnerUpLabel;
+    // Amber is this HUD's one warn color (see StatusPanel's `data-warn`) —
+    // an uncertain label reuses it rather than inventing a new signal.
+    const color = uncertain || target.label === 'person' ? THEME.amber : accentFor(target.label);
+    const labelStr = labelText(target.label, target.labelConfidence, target.runnerUpLabel);
     const isPrimary = target.id === hudState.primaryId;
 
     const acquireProgress = Math.min(1, target.acquireMs / ACQUIRE_MS);
@@ -553,7 +572,7 @@ export function drawHud(opts: DrawHudOptions): void {
     const glow = isPrimary ? PRIMARY_GLOW * (reducedMotion ? 1 : 0.6 + breathe * 0.4) : 0;
 
     drawBrackets(ctx, x, y, w, h, color, alpha, outset, glow, isPrimary ? 2 : 1.25);
-    drawLabel(ctx, x, y, target.label, target.id, target.ageMs, color, alpha * (0.4 + acquireProgress * 0.6));
+    drawLabel(ctx, x, y, labelStr, target.id, target.ageMs, color, alpha * (0.4 + acquireProgress * 0.6));
 
     if (isPrimary && exitProgress === 0) {
       drawPrimaryTelemetry(
