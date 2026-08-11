@@ -168,12 +168,80 @@ the last one first," and none of the three were reached. Carried to Day 5+.
       machine yet (headless dev environment) — first real-speaker check is
       still owed, same as every prior day
 
-## Day 5 — HUD polish
-- [ ] Lock-on acquire animation
-- [ ] Confidence ring / distance estimate
-- [ ] Primary-target treatment
-- [ ] On-frame subtitle track
-- [ ] Keyboard shortcuts
+## Day 5 — HUD polish — COMPLETE ✅
+- [x] `src/hud/hudState.ts` — HUD render-state layer, `updateHudState(prev,
+      frame, dtMs, frameW, frameH) -> next`, pure, same shape as
+      `tracker.ts`. Per-target acquire progress, exit/fade window (memory
+      the tracker itself doesn't keep — see decisions.md D14), stable
+      per-id phase, render-time box interpolation (τ = 70ms, D15), primary
+      selection (area × centrality, D16) with an eased `primaryProgress`
+      for focus transfer
+- [x] `src/hud/hudState.test.ts` — 7 unit tests: acquire progress advances
+      with dt and caps; a dropped track enters exit and is released after
+      `EXIT_MS`; a re-appearing id isn't treated as exiting; interpolation
+      converges toward the latest box over ticks; primary picks the larger
+      more-central box; `primaryProgress` eases correctly; phase is stable
+      across ticks for the same id
+- [x] `src/hud/theme.ts` — shared color tokens (cyan/amber/bg/panel/etc.),
+      replacing the stray `CYAN`/`AMBER` hex literals and the dead
+      `void CYAN;` in `drawHud.ts`. `App.css`'s `:root` mirrors it by hand
+      (no CSS-from-TS build step — no new dependency, see decisions.md D14)
+- [x] `drawHud.ts` rewritten: single `DrawHudOptions` object instead of an
+      8-parameter positional list; consumes `HudState` instead of a raw
+      `Frame`; lock-on acquire (brackets converge inward over ~300ms, label
+      fades in), lose (brackets release outward + fade over ~300ms),
+      per-target breathing motion (phased, not synced), primary-target
+      treatment (brighter, glow reserved for primary only — see decisions.md
+      D18 — leader-line callout), confidence ring (`Detection.score`, real),
+      honest relative-size readout (`SIZE n% OF FRAME`, no fabricated
+      distance — decisions.md D17), `prefers-reduced-motion` freezes sweeps/
+      pulses/rotation but keeps state-driven fades
+- [x] `HudCanvas.tsx` — owns `hudStateRef`, computes real `dtMs` per rAF
+      tick (clamped to 100ms against a backgrounded-tab reflow), calls
+      `updateHudState` then `drawHud`, measures and reports HUD draw-time to
+      the panel at ~4Hz (same throttling pattern as `useDetector`'s stats)
+- [x] `StatusPanel.tsx` — new `HUD draw` telemetry stat, warns above 8ms
+- [x] `src/hud/SubtitleTrack.tsx` — DOM, not canvas (anchored to the frame,
+      not a moving box); shows the latest `LogEntry`, boring-mode aware,
+      auto-hides after 4.5s if nothing replaces it
+- [x] `src/hud/BootSequence.tsx` — replaces the flat "Loading vision
+      model…" curtain; four lines (camera/vision model/tracker/narrator),
+      every line's state read from a real prop (`cameraStatus`,
+      `modelStatus`, whether the narrator is actually enabled) — no fake
+      progress bar, staggered CSS entrance only
+- [x] `src/hud/ShortcutOverlay.tsx` + `App.tsx` keydown handler — `Space`
+      start/stop, `N` narration, `B` boring mode, `V` voice, `?` overlay;
+      ignores typing targets and modifier-key chords
+- [x] `App.css` — subtitle/boot/shortcut styles, `prefers-reduced-motion`
+      media query freezing the subtitle/boot entrance animations; existing
+      900px collapse re-checked with the new elements, still usable at 375px
+      (see `day5-poc.md`)
+- [x] `npx tsc -b`, `npm run build`, `npx oxlint src/`, `npm run test` (55
+      tests, up from 48) all clean; main chunk unchanged at ~1.31MB
+- [x] Verified live: headless Chrome + fake camera device (Puppeteer,
+      `--enable-unsafe-webgpu`) — see `day5-poc.md` for the full run,
+      including the exit-fade caught live on camera stop/restart and the
+      narrow-viewport screenshot
+
+### What to film for Day 5
+- [ ] Cold open on the boot sequence — start the camera, let each line
+      (camera → vision model → tracker → narrator) report in
+- [ ] Side-by-side: Day 1 HUD (`label score%`, plain rectangle) vs Day 5 HUD
+      (converging brackets, confidence ring, honest size readout) on the
+      same object — same model underneath, stated plainly on camera
+- [ ] One target acquiring (brackets converge, ~300ms), holding (subtle
+      breathing), and being lost (release + fade) — needs a real object
+      entering and leaving frame; the fake-camera device's churn showed the
+      lose-fade but not a clean single-object acquire/hold/lose arc (see
+      `day5-poc.md`)
+- [ ] Primary-target focus transferring between two objects — put two
+      similarly sized objects in frame and move one closer/more central
+- [ ] The subtitle track carrying a narration line with the sound off —
+      the actual point of building it (no audio confirmed audible from any
+      machine yet, D13)
+- [ ] `?` shortcut overlay, then close it and demonstrate each shortcut live
+- [ ] Close on the telemetry panel: FPS + HUD draw ms both on screen,
+      proving the polish didn't cost the frame budget
 
 ## Day 6 — performance
 - [ ] WebGPU backend + fallback, **measured**

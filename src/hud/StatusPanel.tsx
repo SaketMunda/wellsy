@@ -6,6 +6,7 @@ import type { TtsStatus } from '../narration/speech';
 interface Props {
   fps: number;
   inferenceMs: number;
+  hudDrawMs: number;
   count: number;
   modelStatus: string;
   cameraStatus: string;
@@ -35,6 +36,7 @@ function Stat({ label, value, warn }: { label: string; value: string; warn?: boo
 export function StatusPanel({
   fps,
   inferenceMs,
+  hudDrawMs,
   count,
   modelStatus,
   cameraStatus,
@@ -52,6 +54,7 @@ export function StatusPanel({
         <h2>Telemetry</h2>
         <Stat label="FPS" value={fps.toFixed(1)} warn={fps > 0 && fps < 10} />
         <Stat label="Inference" value={`${inferenceMs.toFixed(0)} ms`} warn={inferenceMs > 100} />
+        <Stat label="HUD draw" value={`${hudDrawMs.toFixed(1)} ms`} warn={hudDrawMs > 8} />
         <Stat label="Targets" value={String(count)} />
       </div>
 

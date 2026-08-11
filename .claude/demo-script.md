@@ -217,6 +217,82 @@ Point at the console warning and the fact that speech still comes out (via
 
 ---
 
+---
+
+## Day 5 demo flow (90–120 seconds) — "Same brain, better face"
+
+### 0:00 — Cold open on the boot sequence
+Screen dark. Click **Start camera**.
+
+> "Watch the boot."
+
+Let each line report in for real — camera online, vision model booting,
+tracker, narrator.
+
+> "None of that's fake progress. Those four lines are the app's actual
+> status, in order, as it actually happens."
+
+### 0:15 — The same scene, two HUDs
+Cut to (or narrate over) a Day 1 screenshot/clip: bare rectangle, `label
+score%`. Then the live Day 5 HUD on the same kind of object.
+
+> "Same model. Byte-identical. I didn't touch it today. Everything different
+> here is drawing code."
+
+### 0:30 — Acquire, hold, lose
+Bring an object into frame. Point at the brackets converging inward.
+
+> "Watch it lock on — that's not instant, it converges over about a third of
+> a second. And when it leaves—" *(pull the object out of frame)* "—it
+> doesn't just vanish. It releases and fades. That fade is the HUD's own
+> memory — the detector's already forgotten this object exists; the screen
+> hasn't, for about another third of a second."
+
+### 0:50 — Primary target and the honest numbers
+Point at the brighter, ringed target vs a dimmer secondary one.
+
+> "This is the target it's focused on — biggest, most centered box, picked
+> fresh every frame. That ring is real confidence, not decoration. And
+> this—" *(point at the size readout)* "—is deliberately not a distance in
+> metres. I don't have the data to say how far away anything is. I have the
+> data to say how much of the frame it fills. So that's what it says."
+
+Bring a second, similarly sized object into frame; let focus visibly
+transfer between the two rather than cut.
+
+> "Focus transfers. It doesn't jump."
+
+### 1:15 — The subtitle track
+Mute the audio. Point at the bottom of the frame.
+
+> "Nobody's confirmed hearing this thing talk yet, across five days now.
+> This is why that's survivable — the line's right there, readable, sound
+> off, exactly how most people are about to watch this video."
+
+### 1:35 — The number that proves it wasn't free
+Point at the telemetry panel's `HUD draw` figure.
+
+> "All of that, and the draw cost is a tenth of a millisecond. The polish
+> didn't eat the frame budget — that's the number Day 6 is about to hold me
+> to."
+
+### 1:50 — Honest close
+> "I didn't make it smarter today. I made it look like it already was. That
+> gap — between what it looks like it understands and what it actually
+> does — is the whole point of today, not something to paper over."
+
+---
+
+### Why this demo leans on screenshots and the fake-camera device for some beats
+Real-webcam verification of a clean single-object acquire→hold→lose arc
+under natural motion (not the fake camera's synthetic churn, and not a
+manual stop/restart) is still owed — same caveat this project has flagged
+every day so far. If shooting before that's confirmed, say so on camera
+rather than implying it's been tested end to end; `day5-poc.md` records
+exactly what was and wasn't verified.
+
+---
+
 ### Why this demo leans on the network tab, not the speakers
 Every verification session for this project, across all four days, has run
 headless with no audio output — nobody has yet confirmed YAP is *audible*,

@@ -189,7 +189,56 @@ video, not around it.
 **Line:** "A better voice usually means a cloud bill. Ours doesn't."
 
 ## Day 5 — "Same brain, better face"
-> I didn't touch the model today. It feels twice as smart. That gap is design.
+
+**Concept:** Perceived intelligence is mostly interface design. The model
+didn't change today — nothing in detection or narration got smarter. Every
+pixel of difference on screen comes from *presentation*.
+
+**Simple explanation (2–4 lines):**
+> Yesterday's boxes were plain rectangles with a label. Today the same
+> detections get a reticle that converges on lock, a target that fades out
+> instead of vanishing when it's lost, a "primary target" the HUD visibly
+> focuses on, and a real confidence ring instead of a bare number. None of
+> that required the model to get better at seeing — it required teaching the
+> drawing code to remember things across frames it used to forget instantly.
+
+**What viewers should notice:**
+- Brackets visibly converge inward when something new is detected, and
+  release outward and fade when it's lost — not an instant snap either way
+- One target reads as "the subject" — brighter, with a confidence ring and
+  a size readout — while everything else quietly dims
+- A subtitle line at the bottom of the frame carries the narration even
+  with the sound off
+- The telemetry panel now shows a `HUD draw` number, not just FPS and
+  inference — proof the polish is being measured, not assumed free
+
+**What was hard:**
+The actual hard problem wasn't any single animation — it was that the
+existing drawing code physically couldn't animate anything. It was a pure
+function that took the current frame and painted it, with no memory of what
+happened a moment ago. A lock-on animation needs to know *when* a target
+first appeared; a lose-animation needs to keep drawing a target the tracker
+has already completely forgotten about. The fix was a new, separate layer of
+state sitting between detection and drawing — its own short memory, kept
+deliberately apart from the tracker's, because "how long should an object
+keep its identity" and "how long should its bracket linger on screen after
+it's gone" are different questions with different right answers. The other
+real decision was refusing a number: a bigger box only means "closer" if you
+know how big the real object is and how the camera lens works, and this
+project knows neither — so instead of guessing a distance in metres, the
+HUD shows the box's honest size as a percentage of the frame.
+
+**Posts:**
+- **X:** "Day 5 of building YAP. Didn't touch the model. Added a reticle
+  that locks on, a target that fades out instead of vanishing, a real
+  confidence ring. Same 80-class detector as day one — just drawn like it
+  knows what it's doing. 🧵"
+- **LinkedIn:** Frame it as a UX lesson that generalizes: a lot of "this
+  product feels smart" moments are interface state and animation timing,
+  not model quality — and it's worth being honest with yourself about which
+  one you're actually shipping.
+- **Reel caption:** "I didn't touch the AI today. It looks twice as smart.
+  That gap is entirely design."
 
 **Line:** "Perceived intelligence is mostly interface."
 
@@ -226,6 +275,16 @@ video, not around it.
   itself runs with zero network calls after that, verified by cutting the
   network entirely mid-session and watching new narration lines keep
   appearing (Day 4)
+- The confidence ring around the primary target is real `Detection.score`,
+  drawn as an arc, not decoration (Day 5)
+- The relative-size readout (`SIZE n% OF FRAME`) is real division — box
+  area over frame area, both real numbers (Day 5)
+- The boot sequence's four status lines are read directly off the app's own
+  real state (camera/model/tracker/narrator) — no scripted timing (Day 5)
+- The lock-on, lose-fade, and primary-focus-transfer animations are driven
+  by real elapsed time (frame-rate independent) and real track identity —
+  the fade you see on a lost target is the HUD's own short memory of a
+  track the detector has already fully forgotten (Day 5)
 
 ## What is NOT real yet (never overclaim)
 - ❌ "Runs entirely on the device" without the nuance — the model *weights*
@@ -252,6 +311,23 @@ video, not around it.
 - ❌ Don't imply a custom-trained model. It's an off-the-shelf model, well
   integrated. **The engineering is the pipeline, not the network** — say that,
   it's a more honest and more interesting claim anyway.
+- ❌ "It understands the room" / "it knows what it's looking at" — Day 5's
+  reticles, confidence rings, and boot sequence make the HUD *look* like it
+  has scene understanding, identity recognition, memory, or threat
+  assessment. It has **none** of that. It's the same 80-class detector as
+  Day 1, drawn better — that gap between look and capability is the actual
+  finding of Day 5, not a caveat to bury. Say it on camera: *"This looks
+  like it understands the room. It does not."*
+- ❌ "It knows how far away things are" — no distance estimate is shown or
+  computed. The Day 5 confidence ring is the object's detection score; the
+  size readout is the box's share of the frame, not a real-world distance —
+  a bigger box is not "closer" without knowing the object's real size and
+  the camera's focal length, neither of which this project has (D17).
+- ❌ "The HUD is intelligent" / "it's paying attention to the primary
+  target" — the "primary target" is a fixed formula (box area × how
+  centered it is), recomputed every tick. It is not attention, salience
+  understanding, or intent — it is one number picking the biggest,
+  most-centered box.
 
 ## Tone rules
 - Show the failures. Wrong labels are content, not shame.

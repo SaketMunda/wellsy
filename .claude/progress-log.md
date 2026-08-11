@@ -346,3 +346,108 @@ treatment, subtitle track, keyboard shortcuts). Carried in from Day 4's cut
 list: narration timing tuning, spatial language, salience ranking. Open from
 Day 4: the Kokoro phonemizer bug, and the still-outstanding "has anyone
 actually heard this thing" check on real hardware.
+
+---
+
+## Day 5 — 2026-08-11
+
+**Goal:** Make it *look* like the future without changing the model at all.
+The thesis: perceived intelligence is mostly interface design. Reference
+points were generic sci-fi HUD grammar (reticles, converging brackets, leader
+lines, boot sequences), explicitly not Marvel branding.
+
+### Researched
+- Read `decisions.md` (D1–D13), `week-roadmap.md`/`tasks.md` Day 5 sections,
+  `architecture.md`, `public-notes.md`, and the whole of `src/hud/`,
+  `src/App.tsx`, `src/App.css`, `src/vision/types.ts`,
+  `src/narration/useNarrator.ts` before writing anything, per the session
+  brief.
+- Confirmed the actual blocker before writing any visual code: `drawHud` was
+  a pure, stateless function of a `Frame`, which structurally cannot animate
+  acquire/lose/breathing — none of that state has anywhere to live. This
+  reframed "build the HUD polish" into "build a state layer first, then the
+  polish."
+- Checked `LlmStatus`/`TtsStatus`/`CameraStatus`/`ModelStatus` shapes in
+  `llmLineGenerator.ts`, `speech.ts`, `useCamera.ts`, `useDetector.ts` before
+  designing the boot sequence, so every boot line binds to a real enum value
+  instead of an invented one.
+
+### Decided
+Five new entries in [decisions.md](decisions.md) (D14–D18): a separate HUD
+render-state layer rather than extending the tracker or widening `drawHud`
+(state layer's memory is a rendering concern, tracker's is a vision concern
+— keep the seam); render-time box interpolation at τ=70ms (smoothness for a
+few frames of lag, stated as a tradeoff, not tuned against real fast
+motion); primary-target selection as box-area × frame-centrality (extends
+the existing "pick the largest" tracking-line logic); the distance readout
+as a labelled relative-size percentage, not fabricated metres (the day's
+sharpest honesty-rule risk); and reserving `ctx.shadowBlur` glow for the
+primary target only, as the standard fix for a flagged perf cost center.
+
+### Built
+```
+src/hud/hudState.ts        HUD render-state layer (new) — updateHudState()
+src/hud/hudState.test.ts   7 unit tests (new)
+src/hud/theme.ts           shared color tokens (new) — kills the dead CYAN
+src/hud/drawHud.ts         rewritten: single options object, HudState input,
+                            acquire/track/lose, primary treatment, confidence
+                            ring, honest size readout, reduced-motion aware
+src/hud/HudCanvas.tsx      drives hudState + real dtMs + draw-time telemetry
+src/hud/StatusPanel.tsx    new "HUD draw" telemetry stat
+src/hud/SubtitleTrack.tsx  on-frame narration subtitle (new, DOM)
+src/hud/BootSequence.tsx   staged power-on, every line real state (new)
+src/hud/ShortcutOverlay.tsx  Space/N/B/V/? overlay (new)
+src/App.tsx                keyboard shortcuts, reduced-motion hook, wiring
+src/App.css                subtitle/boot/shortcut styles + reduced-motion query
+```
+
+### Verified
+- `npx tsc -b`, `npm run build`, `npx oxlint src/`, `npm run test` (55
+  tests, up from 48) all clean. Main bundle chunk unchanged at 1,313.88 kB.
+- **Live, headless Chrome + fake camera device (Puppeteer,
+  `--enable-unsafe-webgpu`):** full run in `day5-poc.md`. Boot sequence
+  screenshotted mid-boot showing real per-system state; live HUD showing a
+  converging reticle, real confidence-ring arc, and `SIZE 15% OF FRAME`;
+  telemetry read directly off the DOM (`FPS 60.5`, `Inference 11ms`, **`HUD
+  draw 0.1ms`**); the subtitle track showed the exact styled narration line
+  from the log; stopping/restarting the camera caught the exit-fade
+  animation live — a bracket the tracker had already fully dropped, still
+  visibly fading on screen, which is `hudState.ts`'s exit window doing its
+  job; the shortcut overlay opened/closed correctly over a still-animating
+  HUD; a 375×800 screenshot confirmed the existing 900px collapse still
+  holds with the new elements; `prefers-reduced-motion` emulated live froze
+  ambient sweep/breathing while keeping state-driven fades. Zero console
+  errors across the entire run.
+
+### Still missing
+- **HUD draw cost at 5+ simultaneous targets** — only ever measured against
+  1 tracked object this session (the fake-camera device's ceiling), not the
+  multi-target budget check the brief asked for.
+- **A real single-object acquire→hold→lose arc under real motion** — what
+  was verified live was the exit-fade triggered by stopping the camera, not
+  a target walking out of frame on its own. Needs a real webcam.
+- **Strobing on a flickering/marginal track** — the brief's flagged most-
+  likely ugly failure mode, not specifically stress-tested this session.
+- **Real audio timed against the subtitle track** — still no audio confirmed
+  audible from any machine across all five days now (D13).
+- τ=70ms interpolation and the area×centrality primary rule are first-guess
+  defaults, not tuned against real fast motion or a real two-object scene.
+
+### Can be shown publicly
+Everything in this session is independently checkable, not just claimed: the
+boot lines are literally the app's own status props, the confidence ring is
+a real arc from `Detection.score`, the size readout is real division with no
+fabricated distance, the HUD draw-time number came straight off the live
+panel, and the exit-fade was caught happening on camera rather than staged.
+The still-open gaps (multi-target perf, real-motion feel) are this project's
+recurring, honest kind of cliffhanger.
+
+**Hook:** *"Same AI as yesterday. Feels ten times smarter. That gap is
+design."*
+
+### Next
+Day 6 — performance: WebGPU backend + fallback (measured), adaptive frame
+skipping, decoupled detect/display resolution, a latency breakdown panel.
+Day 5's HUD draw-time telemetry (~0.1ms at 1 target) is the number Day 6
+inherits and needs to hold at 5+ targets — that verification gap carries
+forward as Day 6's first thing to check, not a fresh unknown.

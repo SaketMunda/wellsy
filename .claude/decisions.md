@@ -324,3 +324,150 @@ unbundled files served from `public/`, imported via a runtime
 `import()` Vite is told to ignore, so Rollup never reorganizes them. Also
 revisit the 0.5B tone quality if a smaller-but-better-tuned instruct model
 lands in WebLLM's catalog.
+
+---
+
+### D14 — A separate HUD render-state layer (`src/hud/hudState.ts`), not an extension of the tracker or `drawHud`
+**Decided:** Day 5
+**Why:** `drawHud` was a pure, stateless function of a `Frame` — correct for
+Days 1–4, but it structurally cannot animate: it has no way to know *when*
+a track id first appeared (for a lock-on convergence), no way to draw a
+track the tracker has already dropped (for a lose-fade), and no per-target
+phase (so every pulse/rotation would beat in unison and read as a
+screensaver). The fix is a third pure function, `updateHudState(prev,
+frame, dtMs, frameW, frameH) -> next`, in the same shape as `tracker.ts`'s
+`updateTracks` — keyed by track id, holding acquire progress, an exit
+window, a stable per-id phase (golden-angle spaced, no shared clock), and
+the primary-target id. `drawHud` now takes this state instead of a raw
+`Frame` and stays pure and stateless itself — it just paints a richer input.
+**The seam is deliberate, not incidental:** detection-side track lifetime
+(`tracker.ts`'s `MAX_MISSED_FRAMES` grace window, D11) is a vision concern
+with constants tuned against real webcam jitter. How long a bracket lingers
+on screen after the tracker drops it is a rendering concern with a
+completely different tuning goal (looks good, not survives-occlusion). Two
+separate memories, two separate reasons to change either one.
+**Cost:** A second per-tick state object (a `Map`) alongside the tracker's
+own array, and `HudCanvas` now owns two pieces of ref state instead of one.
+**Frame-rate independence:** every timed transition (acquire, exit, primary
+transfer, box interpolation) is driven by real elapsed `dtMs`, computed in
+`HudCanvas` from `t - lastT` on the rAF callback and clamped to 100ms to
+stop a backgrounded-tab reflow from making a lock-on animation visibly
+teleport through its whole arc in one tick. A 120Hz display advances these
+by wall-clock time, not by tick count, so it does not animate twice as fast
+as a 60Hz one.
+
+---
+
+### D15 — Render-time box interpolation, τ = 70ms
+**Decided:** Day 5
+**Why:** Detection delivers a new box every ~12–80ms (D2's measured
+inference latency); the display redraws every ~16ms. Without interpolation
+the drawn box holds its last position and then jumps on the next detection
+tick — visible even at 60 FPS. `hudState.ts` eases the drawn box toward the
+latest tracked box every render tick using an exponential time constant
+(`BOX_LERP_TAU_MS = 70`): the box closes ~63% of the remaining gap every
+70ms. This is the same *shape* of smoothing as the tracker's own α = 0.4
+detection-rate smoothing (D11), applied a second time at display rate,
+because the two operate on different clocks and neither alone removes both
+kinds of visible discontinuity.
+**Cost, stated plainly:** interpolation trades a few frames of visual lag
+for smoothness — a fast real-world move will visibly lag the box by roughly
+one interpolation time-constant before it catches up. 70ms was chosen by
+feel (screenshotted against the fake-camera device's churn, see
+`day5-poc.md`) as the smallest value that still visibly removed the jump; it
+has not been tuned against real, fast hand motion.
+**Revisit if:** real-webcam footage shows the lag is more noticeable than
+the jump it replaced — lower τ, or drop interpolation for very fast-moving
+targets specifically.
+
+---
+
+### D16 — Primary-target selection: box area × frame-centrality
+**Decided:** Day 5
+**Why:** The existing tracking-line code (Days 1–4) already picked "the
+largest track" as a proxy for "the subject" — Day 5's primary-target
+treatment needed the same idea, refined so a huge object jammed in a corner
+doesn't out-rank a moderately sized, centered one. Score = `bbox area ×
+centrality`, where centrality falls linearly from 1 at the frame's center to
+0 at its corners (half-diagonal normalized). Whichever live (non-exiting)
+target scores highest each tick is primary; `primaryProgress` per target
+eases toward 1 (primary) or 0 (not) over `PRIMARY_TRANSFER_MS = 250` so
+focus *transfers* between two targets rather than cutting.
+**Cost:** No temporal hysteresis — if two targets have near-identical
+scores, primary can flicker between them tick to tick. Not observed in
+headless verification (the fake-camera scene rarely holds two similarly
+salient targets at once) but a plausible real-footage failure mode; not
+fixed this session.
+**Revisit if:** real footage shows primary flicker between near-tied
+targets — add a score-margin/dwell-time requirement before transferring.
+
+---
+
+### D17 — Confidence ring is real; distance is a labelled relative-size readout, not metres
+**Decided:** Day 5
+**Why:** `Detection.score` is a real number that Day 3 stopped displaying
+(it replaced `label score%` with `LABEL #id · age`) — Day 5's confidence
+ring puts it back on screen, honestly: the ring's arc length is literally
+`score`. The "how far away" instinct a HUD like this invites is not
+answerable honestly: a bigger box only means "nearer" for a known object at
+a known focal length, and this project has neither (D2's `lite_mobilenet_v2`
+gives no depth or camera-intrinsics data). Printing a fabricated "2.4 m"
+would have been the first untrue number this project ever put on screen.
+Shipped instead: a **relative size readout** — `SIZE 12% OF FRAME`, the
+box's real area divided by the real frame area — true, derivable from data
+that actually exists, and still gives the HUD-reading-a-scale feeling the
+prompt asked for.
+**Cost:** Less immediately legible than "2.4 m" would have been — "18% of
+frame" needs a beat of interpretation a fake distance wouldn't. Accepted;
+see the honesty rule in `day5-hud-prompt.md` and `public-notes.md`'s
+NOT-real list.
+
+---
+
+### D18 — Glow (`shadowBlur`) reserved for the primary target only
+**Decided:** Day 5
+**Why:** `ctx.shadowBlur` was already flagged as the likely perf cost center
+before writing any Day 5 code (`day5-hud-prompt.md`'s performance-budget
+section) — Days 1–4 paid it per-bracket, per-target, every frame. Rather
+than pre-render an offscreen glow sprite (more machinery than a 7-day
+timebox justifies for the numbers actually measured), Day 5 narrows where
+the cost is paid: `SECONDARY_GLOW = 0`, only the primary target's bracket
+gets `shadowBlur`. Non-primary targets are also visually dimmed
+(`SECONDARY_ALPHA`), which was already needed for the primary-target
+treatment (D16) — the perf win rides along with a visual decision already
+being made, not a separate optimization pass.
+**Measured (see `day5-poc.md`):** HUD draw time in headless verification
+stayed at ~0.1ms with a single target on screen. The fake-camera scene
+never produced 5+ objects at once, so target scaling was benchmarked
+directly against the real module instead (synthetic `HudState`, 300 timed
+frames per count, headless Chrome, 1280×720): **0.050 / 0.047 / 0.049 /
+0.058 / 0.070 ms at 1 / 3 / 5 / 8 / 12 targets.** Essentially flat — cost
+is dominated by the constant-price frame chrome and the single primary
+instrument, so extra targets are nearly free. The bet holds; the
+offscreen-sprite approach stays unbuilt.
+**Revisit if:** the primary instrument ever gets a second glowing element,
+or secondary targets are promoted past bracket + centre pip — both would
+move cost from constant to per-target, which is the shape of the problem
+this decision was avoiding.
+
+---
+
+### D19 — HUD density is the deliverable, not the animation
+**Decided:** Day 5 (second pass)
+**Why:** The first Day 5 build had the whole state layer working —
+acquire/exit animation, interpolation, primary transfer — and still looked
+like a rectangle with a circle around it. The lesson is that the perceived
+jump comes from **instrument density**, not from motion: graduated tick
+rings, chamfered corners, elbow leader lines into data cards, labelled
+frame-edge rulers, registration marks. Animation without that vocabulary
+just moves a plain box around smoothly.
+**What this rules out:** density for its own sake. Every readout added in
+this pass is a real measurement (`CONF` = `Detection.score`, `AREA` = box
+area / frame area, `POS` = box centre as % of frame, `AGE` = tracker track
+age, `TRK` = live target count), and the rulers are a scale of the frame
+itself. The temptation to fill empty edges with decorative bar-graphs and
+scrolling hex was refused — that is exactly the fabricated-telemetry line
+D17 already drew for distance in metres.
+**Cost:** free, measured — see D18's target-count table.
+**Revisit if:** a readout is ever added that can't be traced to a real
+number, at which point the honesty rule outranks the look.

@@ -134,21 +134,51 @@ could not be checked (mobile, peak memory, actual heard audio).
 
 ---
 
-## Day 5 — "It looks like the future" (HUD/UX polish)
+## Day 5 — "It looks like the future" (HUD/UX polish) ✅ SHIPPED
 **Ships:**
-- Target lock-on **animations** (brackets converge on acquire)
-- **Confidence rings**, distance-ish estimate from box size
-- A **primary target** treatment — the thing YAP is focused on
-- Live **subtitle track** at the bottom of the frame
-- Keyboard shortcuts, cleaner controls
+- A **HUD render-state layer** (`src/hud/hudState.ts`) sitting between the
+  detection frame and the painter — the thing that makes everything below
+  possible, since `drawHud` alone had no way to hold state across frames
+- Target lock-on **animations**: brackets converge inward over ~300ms on
+  acquire, release outward and fade over ~300ms on loss, subtle per-target
+  breathing motion while tracking (phased per id, not synced)
+- **Render-time box interpolation** (τ = 70ms exponential) — the drawn box
+  eases toward the latest detection instead of holding still and jumping
+- A **primary target** treatment — area × centrality picks the subject;
+  the rest dim; focus **transfers** with an eased 250ms ramp, not a cut
+- A real **confidence ring** (`Detection.score`, not decoration) and an
+  honest **relative-size readout** (`SIZE n% OF FRAME`) — no fabricated
+  distance in metres, see decisions.md D17
+- Live **subtitle track** (DOM, not canvas) at the bottom of the frame,
+  carrying the actual narration line — the only place most viewers will see
+  it, since no audio has been confirmed audible from any machine yet (D13)
+- A **boot sequence** replacing the flat loading curtain — four lines
+  (camera/model/tracker/narrator), each bound to a real state value
+- **Keyboard shortcuts** (`Space`/`N`/`B`/`V`/`?`) + a shortcut overlay
+- **HUD draw-time telemetry** in the panel, for Day 6 to benchmark against
 
 **Concept:** Perceived intelligence is mostly **interface design**. The model
 didn't change today — the way it presents itself did.
 
-**Demo:** Day 1 HUD vs Day 4 HUD, same model underneath. Deliberately makes the
-point that polish is a lever, not a distraction.
+**Demo:** Day 1's bare `label score%` rectangle vs Day 5's converging
+reticle + confidence ring + honest size readout, same model underneath —
+verified live in headless Chrome (fake-camera device), see `day5-poc.md`.
 
 **Hook:** *"Same AI as yesterday. Feels ten times smarter. That gap is design."*
+
+**Risk, resolved and unresolved:** The stateless-painter problem was the real
+architectural risk and is fully resolved — `drawHud` is still pure, all new
+memory lives in `hudState.ts`, frame-rate independence verified by driving
+real elapsed `dtMs`. The real risk turned out to be visual, not
+architectural: the first pass animated correctly and still looked like a
+rectangle with a circle around it, so `drawHud.ts` was rewritten around a
+much denser instrument vocabulary (D19) — graduated tick rings, chamfered
+brackets, elbow leader lines into real data cards, labelled frame-edge
+rulers — with the model and state layer untouched. Draw cost measured
+across target counts: **0.050 / 0.049 / 0.070 ms at 1 / 5 / 12 targets**,
+essentially flat. Real-webcam verification of a clean single-object
+acquire→hold→lose arc and real movement (not the fake camera's churn) is
+still owed, the same recurring caveat as Days 1–4.
 
 ---
 
