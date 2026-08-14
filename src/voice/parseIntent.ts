@@ -67,4 +67,4 @@ export function parseIntent(transcript: string): Intent {
 
 /** The literal help text spoken for `help` — kept next to the parser so the list can't drift from what's actually handled. */
 export const HELP_TEXT =
-  'i handle a few things: wake up, sleep, stop, what do you see, do you see a -- something, and help. anything else, i will say so.';
+  'i handle a few things: wake up, sleep, stop -- which silences me until you wake me again -- what do you see, do you see a -- something, and help. anything else, i will say so. press escape for an instant stop, no voice needed.';

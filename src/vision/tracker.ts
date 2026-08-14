@@ -135,31 +135,35 @@ export function updateTracks(
   const unmatchedDetections = new Set(detections);
   const unmatchedTracks = new Set(previousTracks);
 
-  // Greedy best-match-first pairing. Same-label pairs stay permissive (IoU
-  // *or* center closeness, per D11). A *different*-label pair is only
-  // eligible when overlap alone clears the much stricter
-  // `CROSS_LABEL_IOU_THRESHOLD` — this is what lets a track survive the
-  // model flipping its word (bed <-> dining table) without also letting a
-  // chair casually inherit a person's id off a weak overlap.
-  const candidates: { track: Track; detection: Detection; score: number }[] = [];
+  // Two SEPARATE passes, deliberately not one shared ranked list. Same-label
+  // matching (permissive: IoU *or* center closeness, per D11) always runs
+  // and consumes first — a track's own real detection, if present this
+  // frame, must always win it. Cross-label matching (D21) only ever gets a
+  // shot at whatever's left over *after* that: a track with no same-label
+  // detection this frame, geometrically explained by a different-label
+  // detection with no same-label track of its own. Putting both kinds of
+  // candidate in one score-sorted list (the original D21 cut) let a big
+  // track's high *raw IoU* against a nearby, genuinely different, smaller
+  // object outscore and steal that object's own lower-scoring same-label
+  // match — observed live as a bed track absorbing every nearby chair/mic
+  // detection and everything else going silent. Two passes make that
+  // structurally impossible: a detection can only be stolen cross-label if
+  // its own track already failed to claim it on same-label terms alone.
+  const sameLabelCandidates: { track: Track; detection: Detection; score: number }[] = [];
   for (const track of previousTracks) {
     for (const detection of detections) {
+      if (track.label !== detection.label) continue;
       const overlap = iou(track.bbox, detection.bbox);
-      if (track.label === detection.label) {
-        const centered = centerDistanceRatio(track.bbox, detection.bbox) <= CENTER_MATCH_RATIO;
-        if (overlap >= IOU_MATCH_THRESHOLD || centered) {
-          candidates.push({ track, detection, score: matchScore(track.bbox, detection.bbox) });
-        }
-      } else if (overlap >= CROSS_LABEL_IOU_THRESHOLD) {
-        candidates.push({ track, detection, score: overlap });
+      const centered = centerDistanceRatio(track.bbox, detection.bbox) <= CENTER_MATCH_RATIO;
+      if (overlap >= IOU_MATCH_THRESHOLD || centered) {
+        sameLabelCandidates.push({ track, detection, score: matchScore(track.bbox, detection.bbox) });
       }
     }
   }
-  candidates.sort((a, b) => b.score - a.score);
+  sameLabelCandidates.sort((a, b) => b.score - a.score);
 
   const matched: Track[] = [];
-  for (const { track, detection } of candidates) {
-    if (!unmatchedTracks.has(track) || !unmatchedDetections.has(detection)) continue;
+  const applyMatch = (track: Track, detection: Detection) => {
     unmatchedTracks.delete(track);
     unmatchedDetections.delete(detection);
     const labelVotes = castVote(track.labelVotes, detection.label, detection.score);
@@ -175,6 +179,30 @@ export function updateTracks(
       labelConfidence,
       runnerUpLabel,
     });
+  };
+
+  for (const { track, detection } of sameLabelCandidates) {
+    if (!unmatchedTracks.has(track) || !unmatchedDetections.has(detection)) continue;
+    applyMatch(track, detection);
+  }
+
+  // Cross-label pass: only tracks and detections same-label matching left
+  // unclaimed, only above the much stricter `CROSS_LABEL_IOU_THRESHOLD`.
+  const crossLabelCandidates: { track: Track; detection: Detection; score: number }[] = [];
+  for (const track of unmatchedTracks) {
+    for (const detection of unmatchedDetections) {
+      if (track.label === detection.label) continue;
+      const overlap = iou(track.bbox, detection.bbox);
+      if (overlap >= CROSS_LABEL_IOU_THRESHOLD) {
+        crossLabelCandidates.push({ track, detection, score: overlap });
+      }
+    }
+  }
+  crossLabelCandidates.sort((a, b) => b.score - a.score);
+
+  for (const { track, detection } of crossLabelCandidates) {
+    if (!unmatchedTracks.has(track) || !unmatchedDetections.has(detection)) continue;
+    applyMatch(track, detection);
   }
 
   const missed: Track[] = [];

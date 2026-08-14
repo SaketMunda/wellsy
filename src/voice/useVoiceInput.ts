@@ -5,6 +5,13 @@ export type MicStatus = 'idle' | 'starting' | 'ready' | 'denied' | 'error';
 export type RecordingState = 'idle' | 'recording' | 'transcribing';
 
 /**
+ * Hard ceiling on one push-to-talk press. A held key that never gets a
+ * matching keyup (alt-tab, focus loss, a stuck key event) must not record
+ * forever — this guarantees the mic releases itself even if nothing else does.
+ */
+const MAX_RECORDING_MS = 12_000;
+
+/**
  * Push-to-talk: hold to record, release to transcribe. Owns its own audio
  * `MediaStream` — a second `getUserMedia` prompt, separate from
  * `useCamera`'s video-only one (D6). Mic permission denial is handled the
@@ -27,6 +34,17 @@ export function useVoiceInput(onResult: (transcript: string) => void) {
   const chunksRef = useRef<Blob[]>([]);
   const onResultRef = useRef(onResult);
   onResultRef.current = onResult;
+  /**
+   * Set the instant `stop()` is called. `start()` is async (it awaits mic
+   * permission), so a fast press-release can call `stop()` before the
+   * `MediaRecorder` even exists — without this flag, `stop()` would find
+   * nothing to stop, and the recorder that starts moments later would keep
+   * recording with no keyup left to end it. Checked at both points `start()`
+   * could otherwise win the race: right after `ensureStream()` resolves, and
+   * right after the recorder starts.
+   */
+  const stopRequestedRef = useRef(false);
+  const maxDurationTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const ensureStream = useCallback(async (): Promise<MediaStream | null> => {
     if (streamRef.current) return streamRef.current;
@@ -45,6 +63,7 @@ export function useVoiceInput(onResult: (transcript: string) => void) {
   }, []);
 
   const handleStop = useCallback(async () => {
+    clearTimeout(maxDurationTimerRef.current);
     setRecording('transcribing');
     try {
       const mimeType = recorderRef.current?.mimeType;
@@ -69,10 +88,23 @@ export function useVoiceInput(onResult: (transcript: string) => void) {
     }
   }, []);
 
+  /** Shared by `stop()` and the max-duration safety timer — defined once so neither can drift out of sync with the other. */
+  const stopRecorder = useCallback(() => {
+    stopRequestedRef.current = true;
+    clearTimeout(maxDurationTimerRef.current);
+    const recorder = recorderRef.current;
+    if (!recorder || recorder.state === 'inactive') return;
+    recorder.stop();
+  }, []);
+
   const start = useCallback(async () => {
     if (recording !== 'idle') return;
+    stopRequestedRef.current = false;
     const stream = await ensureStream();
     if (!stream) return;
+    // The user already released the key while we were waiting on mic
+    // permission/the stream — don't start recording at all.
+    if (stopRequestedRef.current) return;
     try {
       const recorder = new MediaRecorder(stream);
       chunksRef.current = [];
@@ -85,17 +117,24 @@ export function useVoiceInput(onResult: (transcript: string) => void) {
       recorder.start();
       recorderRef.current = recorder;
       setRecording('recording');
+      // The user released between the check above and here — stop immediately.
+      if (stopRequestedRef.current) {
+        recorder.stop();
+      } else {
+        maxDurationTimerRef.current = setTimeout(() => {
+          console.warn('push-to-talk exceeded the max recording duration — auto-stopping.');
+          stopRecorder();
+        }, MAX_RECORDING_MS);
+      }
     } catch (err) {
       setMicError(err instanceof Error ? err.message : String(err));
       setMicStatus('error');
     }
-  }, [recording, ensureStream, handleStop]);
+  }, [recording, ensureStream, handleStop, stopRecorder]);
 
   const stop = useCallback(() => {
-    const recorder = recorderRef.current;
-    if (!recorder || recorder.state === 'inactive') return;
-    recorder.stop();
-  }, []);
+    stopRecorder();
+  }, [stopRecorder]);
 
   // Release the mic stream on unmount only — held across pushes so a second
   // press doesn't re-prompt for permission.

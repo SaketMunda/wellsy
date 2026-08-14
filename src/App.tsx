@@ -61,7 +61,12 @@ export default function App() {
       const intent = parseIntent(text);
       switch (intent.type) {
         case 'stop':
+          // "stop" is a full stop, not just a cut-off of the current line —
+          // it also silences ambient narration, same as "sleep", so it
+          // doesn't start talking again a few seconds later. Say "wake up"
+          // to resume.
           stopAll();
+          setNarrating(false);
           break;
         case 'wake':
           setNarrating(true);
@@ -123,7 +128,11 @@ export default function App() {
           setShortcutsOpen((s) => !s);
           break;
         case 'Escape':
+          // A hard, instant stop — no voice, no ASR round-trip, nothing to
+          // mishear. Closes the shortcut overlay too if it's open.
           setShortcutsOpen(false);
+          stopAll();
+          setNarrating(false);
           break;
       }
     }
@@ -141,7 +150,7 @@ export default function App() {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [active, config.voice_enabled, setConfig, startListening, stopListening]);
+  }, [active, config.voice_enabled, setConfig, startListening, stopListening, stopAll]);
 
   return (
     <div className="app">
@@ -166,7 +175,7 @@ export default function App() {
             className="btn"
             aria-pressed={recording === 'recording'}
             data-warn={recording === 'transcribing' ? 'true' : undefined}
-            title="Hold to talk (or press and hold T). Audio is transcribed on-device and never leaves this browser."
+            title="Hold to talk (or press and hold T). Audio is transcribed on-device and never leaves this browser. Press Escape for an instant stop that doesn't need voice."
             onMouseDown={(e) => {
               e.preventDefault();
               void startListening();

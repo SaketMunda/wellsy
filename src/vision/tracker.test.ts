@@ -137,6 +137,52 @@ describe('updateTracks', () => {
     expect(tracks[0].labelConfidence).toBeLessThan(1);
   });
 
+  it('a dominant track never steals a neighbor\'s detection on the frame its own label briefly drops out', () => {
+    // Regression test for a real reported bug ("it always talks about the
+    // bed, never the chair or the mic"). The trigger isn't a chair sitting
+    // near a bed every frame — same-label matching always wins a track its
+    // own unchanged detection first (score 1.0 beats any cross-label
+    // score), so that alone can't cause a steal. The real trigger is more
+    // realistic and much easier to hit on real footage: `lite_mobilenet_v2`
+    // (D2) doesn't detect every object on every single frame, even a big
+    // stationary one — a `bed` detection can simply be *absent* for one
+    // tick. On exactly that tick, the bed track has no same-label candidate
+    // at all, so its only candidate is the cross-label one against whatever
+    // nearby object *is* detected. If that neighbor's own same-label score
+    // (against its own last known box, possibly a little jittered) happens
+    // to be lower than the bed's cross-label overlap — verified by direct
+    // computation for the geometry below (same-label chair score 0.333,
+    // cross-label bed-vs-chair overlap 0.75, both clearing their gates) —
+    // the original single-ranked-candidate-list code let the bed steal the
+    // chair's detection outright, even relabeling itself `chair` for a
+    // tick, while the real chair track was starved and marked missed. The
+    // two-phase fix (same-label pass fully first, cross-label only on what
+    // that pass left over) makes this structurally impossible: the chair's
+    // own same-label candidate is matched in phase 1 regardless of how it
+    // compares to any cross-label score, before phase 2 ever runs.
+    let counter = 1;
+    const nextId = () => counter++;
+    const bedBox: [number, number, number, number] = [0, 0, 400, 300];
+    const chairPrev: [number, number, number, number] = [100, 100, 300, 300];
+    const chairNow: [number, number, number, number] = [0, 0, 300, 300];
+
+    let tracks = updateTracks([], [det('bed', bedBox), det('chair', chairPrev)], 16, nextId);
+    expect(tracks).toHaveLength(2);
+    const bedId = tracks.find((t) => t.label === 'bed')!.id;
+    const chairId = tracks.find((t) => t.label === 'chair')!.id;
+
+    // The bed goes undetected for one tick; the chair is still there, jittered.
+    tracks = updateTracks(tracks, [det('chair', chairNow)], 16, nextId);
+
+    const bed = tracks.find((t) => t.id === bedId)!;
+    const chair = tracks.find((t) => t.id === chairId)!;
+    expect(chair.label).toBe('chair'); // not stolen, not relabeled
+    expect(chair.missedFrames).toBe(0); // matched this tick, not starved
+    expect(bed.label).toBe('bed'); // did not repaint itself as "chair"
+    expect(bed.missedFrames).toBe(1); // correctly just missed, not falsely matched
+    expect(counter).toBe(3); // no id churn from any of this
+  });
+
   it('a track with a single consistent label carries full label confidence and no runner-up', () => {
     let counter = 1;
     const nextId = () => counter++;

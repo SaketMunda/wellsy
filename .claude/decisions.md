@@ -722,3 +722,103 @@ consistent with D17's rule for the same situation.
 **Revisit if:** a real frame-capture timestamp becomes available (e.g. via
 `requestVideoFrameCallback`'s metadata) — add it for real then, don't
 approximate it now.
+
+---
+
+### D26 — Post-ship bug: push-to-talk could get stuck recording; "stop" now silences narration, not just the current line
+**Decided:** Day 6, post-verification (real usage caught what headless
+verification couldn't)
+**The bug:** `useVoiceInput.ts`'s `start()` is async — it awaits
+`ensureStream()` (the mic permission prompt/`getUserMedia`). A fast
+press-release of `T` could call `stop()` while `recorderRef.current` was
+still `null`, since the `MediaRecorder` hadn't been constructed yet.
+`stop()` found nothing to stop and did nothing; `start()` then finished
+moments later and began recording anyway, with the matching keyup already
+spent — nothing left to ever end that recording. Reported live as "I said
+stop and it just kept going" and "it started transcribing" out of nowhere.
+Headless verification never caught this because Puppeteer's synthetic
+mouse/keyboard events don't reproduce human press-release timing jitter.
+**Fix, `useVoiceInput.ts`:** a `stopRequestedRef` flag set the instant
+`stop()`/`stopRecorder()` is called, checked at both points `start()`
+could otherwise win the race — right after `ensureStream()` resolves, and
+right after the recorder actually starts — stopping immediately if the
+flag is already set instead of proceeding. A `MAX_RECORDING_MS` (12s) hard
+safety timer was also added so a lost keyup (alt-tab, focus loss) can never
+leave the mic recording indefinitely regardless of this or any future race.
+**The second, non-bug complaint, addressed anyway:** "the voice... still
+going on" after saying stop was working as originally specified (the
+day6-prompt.md table: `stop` → `stopSpeaking()` + clear the queue, nothing
+more) but not as a real user expected it: narration would resume speaking
+on its own a few seconds later since `stop` never touched the `enabled`
+state, only `sleep` did. Changed `stop`'s handler in `App.tsx` to also call
+`setNarrating(false)` — a full stop, not just a cut mid-line. Say "wake up"
+to resume, same as after `sleep`.
+**Also added: `Escape` as an instant, voice-free hard stop** — calls the
+same `stopAll()` + `setNarrating(false)` with zero ASR round-trip, for the
+moment a working mic isn't reliable enough. This is the actually-reliable
+panic button; voice `stop` still has Whisper's transcription latency
+(seconds, not instant) baked in by nature of the pipeline, which is a
+property of local ASR, not a bug — `Escape` exists specifically so waiting
+on that latency is never the only option.
+**Cost:** none — `stopRecorder` is now the single source of truth `stop()`
+and the safety timer both call, so they can't drift out of sync with each
+other.
+**Revisit if:** real usage shows 12s is too short for a genuine longer
+question, or too long as a safety ceiling — no data yet either way.
+
+---
+
+### D27 — Post-ship bug: a dominant track (bed) could steal a neighbor's detection (chair/mic) and go silent about everything else
+**Decided:** Day 6, post-verification (a second real-usage bug report)
+**The bug:** `tracker.ts`'s D21 cross-label matching put same-label and
+cross-label candidates into **one shared, score-sorted list**. A same-label
+match against an *unchanged* detection scores 1.0 (the highest possible),
+so a track never loses its own detection to a thief *as long as that
+detection is present*. The actual trigger is one step subtler and far more
+common on real footage: `lite_mobilenet_v2` doesn't re-detect every object
+on every single frame, even a large stationary one — a `bed` detection can
+simply be **absent** for one tick, a completely normal confidence-threshold
+flicker. On exactly that tick, the bed track has *no* same-label candidate
+at all, so its only option is the cross-label one against whatever nearby
+object is detected instead. If that neighbor's own same-label score
+(against its own last-known, possibly slightly jittered box) happened to
+be *lower* than the bed's cross-label overlap with it — proven by direct
+computation and a hand-rolled standalone repro of the old algorithm before
+touching test code (chair same-label score 0.333 vs. bed cross-label
+overlap 0.75, both clearing their respective gates) — the bed **won the
+chair's detection outright and relabeled itself `chair` for that tick**,
+while the real chair track was marked `missed`. Repeated over many ticks
+of a real cluttered scene (bed near a chair, a mic on a nightstand, etc.),
+every nearby object's track kept intermittently starving into the bed's,
+which is exactly the reported symptom: narration only ever talks about the
+bed.
+**Fix:** split matching into **two separate passes**, not one shared
+ranked list — `updateTracks` now runs same-label matching to completion
+first (exactly D11's original algorithm, untouched), and only *then* runs
+cross-label matching on whatever tracks and detections that first pass left
+unclaimed. A detection can only be taken cross-label if its own track
+already failed to claim it under same-label terms alone — this makes the
+steal structurally impossible rather than merely unlikely at a given
+threshold value. `CROSS_LABEL_IOU_THRESHOLD` (0.5) is unchanged; the bug
+was in candidate *ranking*, not the threshold itself.
+**Caught by:** a hand-built standalone JS reproduction of the *old*
+algorithm (not the test suite) run against the exact reported symptom
+first, to find real trigger geometry before writing a test — an earlier
+attempted regression test (`bed`/`chair` boxes overlapping every frame with
+no gap in bed's own detection) **passed against the buggy code**, because a
+track's own perfect same-label match always wins its detection when that
+detection exists every frame; only once the "bed's own detection is
+missing for a tick" condition was found did the bug reproduce. The
+surviving test in `tracker.test.ts` was verified both ways: confirmed
+failing against the pre-fix code (`chair.missedFrames` came back `1`
+instead of `0`) via `git stash`, then confirmed passing against the fix —
+neither the failure nor the fix was assumed.
+**Cost:** none — same-label-first is strictly a more conservative ordering
+than the original shared list; every existing D11/D21 test still passes
+unmodified.
+**Revisit if:** real footage shows a *genuine* same-object relabel (the bed
+↔ dining table case D21 was built for) failing to recover because the old
+label's detection is present-but-wrong on the same tick a correct relabel
+would otherwise happen — not expected, since the model only ever emits one
+label per real detection, but worth checking against real footage rather
+than assuming.

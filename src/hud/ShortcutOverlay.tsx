@@ -8,6 +8,7 @@ const SHORTCUTS: [string, string][] = [
   ['B', 'Toggle boring mode'],
   ['V', 'Toggle voice'],
   ['Hold T', 'Push-to-talk (ask a question, say "stop")'],
+  ['Esc', 'Instant stop — silences YAP immediately, no voice needed'],
   ['?', 'Show / hide this list'],
 ];
 
