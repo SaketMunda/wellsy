@@ -340,31 +340,86 @@ complaint: wrong labels, and no way to talk back.
       microphone input, same shape of caveat as "no audio confirmed
       audible" from Day 4
 
-## Day 7 — robustness + mobile + performance
-**Scope note (Day 6 reshuffle):** this day now also carries the *original*
-Day 6 scope — WebGPU backend + fallback, adaptive frame skipping on static
-scenes, and decoupling detection resolution from display resolution — moved
-here because it's genuinely a mobile-battery concern first and a desktop
-nice-to-have second (see week-roadmap.md). Open-vocabulary CLIP relabeling
-(Day 6 item 6, not shipped) and wake word (Day 6 item 8, not shipped) are
-also candidates here if there's room, but robustness/mobile takes priority.
-- [ ] Rear camera + portrait + touch controls
-- [ ] Handle: permission denied, no camera, model load failure
-- [ ] Pause detection when tab is backgrounded
-- [ ] WebGPU backend + WebGL fallback, **measured** (moved from Day 6)
-- [ ] Adaptive frame skipping on static scenes (moved from Day 6)
-- [ ] Decouple detection resolution from display resolution (moved from Day 6)
-- [ ] Unit tests for `tracker` cross-label edge cases against real footage
-- [ ] Low-light behaviour documented honestly
-- [ ] (Stretch) Open-vocabulary relabeling via CLIP crop classification —
-      carried from Day 6, see decisions.md D22 and tasks.md's Day 6 cut list
-- [ ] (Stretch) Wake word — carried from Day 6, see decisions.md D24
+## Day 7 (superseded scope) — robustness + mobile + performance
+**Superseded by the V2 pivot — see below.** This was Day 7's plan before
+`v2-architecture-research.md` and `v2-roadmap.md` existed. None of it
+shipped as written; most of it is subsumed by the V2 plan rather than
+simply dropped:
+- Rear camera + portrait + touch controls, WebGPU backend + WebGL fallback,
+  adaptive frame skipping, decoupling detection/display resolution — all of
+  this was aimed at making the *browser build* faster and more mobile-ready.
+  V2's tier scheduler (T0–T3, `v2-architecture-research.md` §2a) replaces
+  "skip frames on a static scene" with a structural always-on-but-cheap /
+  on-demand-but-expensive design, and mobile is now Day 14 territory with a
+  different engine underneath. Not done as originally scoped; superseded by
+  a better version of the same goal.
+- Permission-denied / no-camera / model-load-failure handling and low-light
+  behavior — genuinely still open, still real V1 (browser build) gaps,
+  worth doing if the browser mode gets more filming use, but not part of
+  the V2 critical path Days 7–15.
+- Open-vocabulary CLIP relabeling and wake word — explicitly still on the
+  table, now as Day 8 (open-vocab, via YOLOE) and Day 10 (wake word,
+  §10.2 open decision) in `v2-roadmap.md`, with a real fix instead of a
+  browser-side CLIP crop classifier.
+
+## Day 7 — "I built the wrong thing" — the autopsy + the foundation — COMPLETE ✅
+**Supersedes the scope above.** See `v2-roadmap.md` and
+`v2-architecture-research.md` for why. Full results: `day7-baseline.md`.
+- [x] `?bench=1` instrumentation (`src/bench/frameRecorder.ts`) — rAF-delta
+      ring buffer + `PerformanceObserver('longtask')`, gated entirely behind
+      the query flag, zero effect on the normal path
+- [x] `scripts/bench.mjs` + `scripts/generate-bench-assets.sh` — headless
+      Chrome/Puppeteer harness driving scenarios A–E against real fake-camera
+      video, not manual clicking
+- [x] **Methodology bug found and fixed before trusting a number**: a 15fps
+      fake-video source was silently throttling every rAF loop in the page
+      (detect, draw, the bench recorder itself) to 15Hz — not a real cost.
+      Fixed by regenerating source video at 30fps; documented in
+      day7-baseline.md and `generate-bench-assets.sh` so it isn't
+      rediscovered on Day 8.
+- [x] Scenarios A–E measured, `day7-baseline.md` written — all five held a
+      clean 60fps/zero-longtask result; the local-llm/local-tts/ASR stack
+      never finished loading this session (network conditions, not a code
+      bug — D13's fallback path handled it correctly throughout), so the
+      genuine compute stall the day was built to capture is a carried
+      item for Day 8, not something papered over as measured
+- [x] `public-notes.md` — "no backend", "runs entirely in your browser",
+      "video never leaves your device" struck through and dated; "no API
+      keys" confirmed as the surviving claim; NOT-real list extended with
+      depth, face recognition, open-vocabulary detection, "runs on my phone"
+- [x] `engine/` — Python skeleton: `capture.py` (camera in its own
+      `multiprocessing.Process`, `cv2.CAP_AVFOUNDATION`), `motion.py` (pure
+      frame-differencing gate), `main.py` (JSON lines on stdout). `--synthetic`
+      mode exercises the full process-boundary/queue path without a camera.
+- [x] Real camera capture verified working end-to-end this session
+      (1920×1080@30 reported), after an initial permission failure from a
+      colder process context — both outcomes recorded honestly, see
+      day7-baseline.md
+- [x] Motion gate cost measured: synthetic ~0.25ms p50; real camera (native
+      res downscaled for the gate) ~1.31ms p50 — over the ~1ms target,
+      by a knowable, explained amount
+- [x] Latest-wins depth-1 queue (decisions.md D29) verified — no buffering
+      observed in either run
+- [x] Gated fraction on a still scene: 100% over 65s, both synthetic and
+      real camera — flagged as needing a real-motion comparison before being
+      treated as the tier scheduler's settled headline number
+- [ ] *(Optional, cut)* detection in a Web Worker, comparing scenario C —
+      no detection loop exists yet in this build to move; not applicable
+      until Day 8's Python vision core exists. Not the same experiment as
+      originally scoped (moving the *browser's* TF.js loop off-thread) —
+      that specific bonus experiment is now moot since V2 doesn't keep the
+      browser as the detection host. Not missed; superseded.
 
 ## Day 8 — ship
 - [ ] Deploy static build to a public URL
 - [ ] README with GIF + honest capability/limitation list
 - [ ] Final 60–90s demo recording
 - [ ] Series wrap-up write-up
+
+**Note:** the above is the *original* Day 8 (browser-build-era) plan.
+`v2-roadmap.md` now owns Days 8–15 with a different shape — see that file.
+This entry stays as a record of what was originally planned, same as the
+superseded Day 7 block above.
 
 ## Known issues
 - Narration timing values (`STABLE_MS`, `min_seconds_between_lines`) still need

@@ -243,7 +243,19 @@ prioritization, carried to Day 7+. See day6-poc.md.
 
 ---
 
-## Day 7 — "It survives reality" (robustness + mobile + the moved performance work)
+## ⚠️ Days 7–8 below are SUPERSEDED — see `v2-roadmap.md`
+
+After Day 6 shipped, the project pivoted: the browser runtime and the
+always-on narration design were both replaced (reasoning in
+`v2-architecture-research.md`). Days 7–15 are now planned in
+**`v2-roadmap.md`**. The two days below are kept as the record of what was
+planned before the pivot — several items survive inside V2 (mobile lands on
+Day 14, open-vocabulary relabelling is superseded by YOLOE on Day 8, and the
+performance work is superseded entirely by the tier scheduler).
+
+---
+
+## Day 7 — "It survives reality" (robustness + mobile + the moved performance work) ❌ SUPERSEDED
 **Ships:**
 - **Phone camera** support — rear camera, portrait, touch controls
 - Graceful handling: permission denied, no camera, tab backgrounded, model fail
@@ -277,7 +289,7 @@ and I tried to make it fit in a pocket."*
 
 ---
 
-## Day 8 — "Ship it" (polish + final demo)
+## Day 8 — "Ship it" (polish + final demo) ❌ SUPERSEDED — became Day 15 in `v2-roadmap.md`
 **Ships:**
 - Deploy to a public URL (static host — it's a static app)
 - README with GIF, honest capability/limitation list

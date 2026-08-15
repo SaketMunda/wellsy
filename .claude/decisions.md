@@ -822,3 +822,133 @@ label's detection is present-but-wrong on the same tick a correct relabel
 would otherwise happen — not expected, since the model only ever emits one
 label per real detection, but worth checking against real footage rather
 than assuming.
+
+---
+
+### D28 — The V2 pivot: leave the browser as the perception host, measured before decided
+**Decided:** Day 7, after `day7-baseline.md`'s scenarios A–E
+**Why, in one line:** six days built a system that does maximum work at all
+times whether or not anyone needs the answer, and `v2-architecture-research.md`
+§1e/§2 named that as the real root cause before today's measurement existed.
+Today's job was to check whether the browser build's *actual* behavior on
+this machine supports that diagnosis, or contradicts it — see
+`day7-baseline.md` for the full numbers this decision rests on.
+**What the numbers said:**
+- Scenarios A–C (detection alone, +template narration, +local-llm/tts
+  configured) all held a clean 60fps main-thread rAF cadence with **zero**
+  `PerformanceObserver('longtask')` entries — the detect/draw/narration
+  loops genuinely do not fight each other on this machine at these
+  settings, which is worth saying plainly since it's a case *for* the old
+  architecture, not against it (per the day's own honesty rules).
+- The CPU-floor proxy (`Performance.getMetrics` `TaskDuration`) sat in the
+  **~72–76%-of-one-core** range across A–E, essentially flat regardless of
+  which engines were configured on — a system computing roughly the same
+  amount of work per second whether or not narration, the LLM, or TTS were
+  actually doing anything, which is the "maximum work at all times"
+  diagnosis, measured rather than assumed.
+- **The genuinely load-bearing finding didn't come from the frame-timing
+  numbers at all — it came from trying to load the local LLM/TTS stack
+  for scenarios C/D/E.** Kokoro TTS failed to fetch its weights
+  (`ERR_HTTP2_PROTOCOL_ERROR`/`ERR_QUIC_PROTOCOL_ERROR`, falling back to
+  `speechSynthesis` exactly as D13 designed) on every attempt this
+  session. Qwen2.5-0.5B, measured at a **45–63s cold load** in D13's own
+  session, sat in `loading` for **7+ minutes with zero forward progress**
+  on one attempt today before the harness gave up waiting — not slow,
+  stuck. Outbound network from this same machine (`curl`, and a bare
+  Puppeteer page loaded against `huggingface.co`) worked fine throughout,
+  so this isn't a blanket connectivity failure; it's specific to these
+  large chunked WASM/model-shard fetches, in this session, inside a
+  headless Chrome instance running alongside several other concurrent
+  processes on the same machine.
+- **This is itself the pivot's evidence, not a methodology footnote to
+  bury.** A five-day-old browser app with three independent inference
+  runtimes and no coordination between them (§1b/§1c) failed to reliably
+  load its own dependencies on a real, working machine, on a real,
+  working network, because of resource contention from unrelated
+  processes it has no way to see or yield to. That is exactly the fragility
+  §1a–§1e describe, caught in the act rather than argued for.
+- **Scenario E sharpens where the always-on waste actually lives.** With
+  nothing in frame, D13's own generate-ahead design means the LLM/TTS
+  prefetch path never even attempts to start (`llmState`/`ttsState` stayed
+  `idle`, the only scenario where that was true) — so the constantly-elevated
+  CPU floor (~72% of one core, flat across every scenario including the
+  empty one, for **zero** narration lines produced in a full minute) is a
+  **detection-loop** cost, not an LLM/TTS one: the current detector has no
+  motion gate and runs full COCO-SSD inference on every 60Hz tick regardless
+  of scene content. This makes Day 8's T1 motion gate the more load-bearing
+  half of the tier scheduler for this specific finding, not the T2/T3
+  on-demand gating — both still ship, this just says which one is carrying
+  more of scenario E's number.
+**Decision:** proceed with the V2 pivot as scoped in `v2-roadmap.md` —
+Python engine (`engine/`, this session's skeleton), tiered scheduler
+(Day 8+), on-demand LLM/TTS instead of always-loaded. Public claims retired
+in `public-notes.md` per Part 2 of `day7-prompt.md`.
+**What survives, stated plainly (per the day's honesty rule against
+narrating the pivot as failure):** the perception pipeline, the event
+layer, the tracker, the HUD design language, and the honesty discipline
+built across Days 1–6 all carry forward unchanged in spirit — `hudState.ts`
+and `drawHud.ts` are designed to consume a `Frame` and don't care what
+produced it (architecture.md's layering rule, holding up exactly as
+intended). What changes is where inference runs and when it's allowed to.
+**What this measurement does NOT show:** that the browser architecture is
+*incapable* of running smoothly — scenarios A–C's clean 60fps/zero-longtask
+result argues the opposite under these specific settings. The case for V2
+is the *structural* one (§1a–§1e, memory pressure, no coordination across
+three runtimes, always-on cost) and the operational one (today's stuck
+load), not "it visibly stutters on this machine" — that claim would be
+false and this document says so.
+**Revisit if:** Day 8's Python engine hits the equivalent resource-
+contention fragility for a different reason — the fix there needs to be
+architectural (process isolation, the tier scheduler, D29's queue
+discipline), not "hope the network behaves."
+**New dependency: `puppeteer` (devDependency only).** Prior sessions
+(Days 4–6) drove headless Chrome for verification via ad hoc `npx puppeteer`
+without ever adding it to `package.json` — reproducible only by accident.
+Promoted to a real `devDependency` this session since `scripts/bench.mjs`
+is now a permanent, rerunnable part of the repo, not a one-off. Dev-only;
+adds nothing to the shipped app or its bundle size.
+
+---
+
+### D29 — `engine/`: process-per-workload, latest-wins queues at depth 1. Drop frames, never buffer.
+**Decided:** Day 7, before the first line of `engine/capture.py` was written
+**Why:** `v2-architecture-research.md` §7 names the trap precisely: Python
+has a GIL, which is the same shape of problem as the browser's single main
+thread (§1a) — porting all of Days 1–6's workloads into one Python process
+reproduces the exact stall in a new language. The fix decided in advance,
+not discovered after a bug report the way D26/D27 were: **capture runs in
+its own OS process** (`multiprocessing.Process`, not a thread — a real
+process boundary, not a GIL-shared one), and hands frames to the consumer
+across a `multiprocessing.Queue` capped at depth 1, where every write first
+drains whatever was queued before inserting the new frame
+(`capture.py`'s `put_latest`). A slow consumer sees a stale-but-recent
+frame; it never sees a growing backlog. "A queue that grows is latency that
+grows; a stale frame is worthless" (research doc §7) — this is that rule,
+as code, on day one.
+**Why decided before, not after:** retrofitting an attention/queue budget
+onto an already-built always-on loop is exactly the mistake §2/§9 Phase 1
+calls out for the tier scheduler, and the same logic applies one level
+down — a queue policy is an architectural property, not a tuning knob, and
+is far cheaper to get right before the first consumer is written than after.
+**Verified, not just designed:** `engine/main.py --synthetic` runs the real
+multi-process path (a generator frame in place of a camera, so the queue and
+process-boundary mechanics are exercised even without a working camera) —
+confirmed frames cross the process boundary and the motion gate consumes
+them correctly. `engine/main.py` (real camera) does the same over a genuine
+`cv2.VideoCapture(..., cv2.CAP_AVFOUNDATION)` process. See day7-baseline.md
+for the measured per-frame cost this bought: gate cost stayed in the
+sub-2ms range even with IPC (queue put/get across processes) in the loop,
+nowhere near the frame budget.
+**Cost:** one full frame copy per `put`/`get` across the process boundary
+(no shared memory yet) — acceptable at T0's frame rate and resolution
+(160×120 grayscale is what the gate actually touches; the queue currently
+carries the full-resolution BGR frame, which is the one place this decision
+is deliberately not yet optimal — see Revisit). `put_latest`'s drain-then-
+insert has a small, accepted race across processes (the "failure mode of
+losing that race is the queue holds one frame instead of zero for an
+instant" — comment in `capture.py`), never unbounded growth, which is the
+property that actually matters.
+**Revisit if:** T1 (detection) is added and profiling shows the full-frame
+IPC copy costs more than expected at a higher resolution/rate — move to
+shared memory (`multiprocessing.shared_memory`) then, with the cost
+measured, not assumed up front.

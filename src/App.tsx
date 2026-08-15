@@ -10,7 +10,17 @@ import { BootSequence } from './hud/BootSequence';
 import { ShortcutOverlay } from './hud/ShortcutOverlay';
 import { HELP_TEXT, parseIntent } from './voice/parseIntent';
 import { useVoiceInput } from './voice/useVoiceInput';
+import { createBenchRecorder, type BenchRecorder } from './bench/frameRecorder';
 import './App.css';
+
+declare global {
+  interface Window {
+    __yapBench?: BenchRecorder;
+    __yapStatus?: { live: boolean; llmState: string; ttsState: string; detectFps: number; lineCount: number };
+  }
+}
+
+const BENCH_MODE = new URLSearchParams(window.location.search).get('bench') === '1';
 
 /** True while the OS/browser asks for reduced motion — re-read live if the
  * user flips the setting mid-session, not just once on load. */
@@ -95,6 +105,34 @@ export default function App() {
 
   const { start: startListening, stop: stopListening, micStatus, recording, asrStatus } = useVoiceInput(handleTranscript);
   const listeningKeyDown = useRef(false);
+
+  // Day 7 instrumentation, ?bench=1 only — see src/bench/frameRecorder.ts.
+  // A harness (Puppeteer) reads/resets state via window.__yapBench; this
+  // effect is a no-op in every other mode.
+  useEffect(() => {
+    if (!BENCH_MODE) return;
+    const recorder = createBenchRecorder();
+    recorder.start();
+    window.__yapBench = recorder;
+    return () => {
+      recorder.stop();
+      delete window.__yapBench;
+    };
+  }, []);
+
+  // Bench-only: lets the harness poll readiness (camera+model live, LLM/TTS
+  // loaded) and scenario-E's "how much actually happened" numbers, without
+  // guessing at timings or scraping the DOM. No effect outside ?bench=1.
+  useEffect(() => {
+    if (!BENCH_MODE) return;
+    window.__yapStatus = {
+      live,
+      llmState: llmStatus.state,
+      ttsState: ttsStatus.state,
+      detectFps: stats.fps,
+      lineCount: log.length,
+    };
+  }, [live, llmStatus.state, ttsStatus.state, stats.fps, log.length]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {

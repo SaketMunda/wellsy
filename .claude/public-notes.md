@@ -315,10 +315,53 @@ the free option would have skipped entirely.
 
 ---
 
+## Claims retired Day 7
+
+Days 1–6 were sold on three sentences that stop being true starting with the
+V2 pivot (`v2-architecture-research.md`, `v2-roadmap.md`). They are struck
+through here, dated, with what replaces them — never quietly deleted. See
+decisions.md D28 for the measured reasoning behind the pivot itself.
+
+> ~~"No backend"~~ — **retired Day 7.** V2 runs a local Python engine
+> (`engine/`) as a separate process from the browser UI, and Day 14 adds an
+> optional private server for the heavy, on-demand work (LLM, depth,
+> segmentation, face recognition). The honest replacement: *"the backend is
+> a process on your machine, not someone else's server."*
+
+> ~~"Runs entirely in your browser"~~ — **retired Day 7.** The browser stays
+> as the HUD/UI layer, but perception moves to a local Python engine talking
+> to it over a local connection. Replacement: *"the interface is a browser
+> tab; the eyes are a local process."*
+
+> ~~"Video never leaves your device"~~ — **retired Day 7.** True through Day
+> 13. From Day 14, an optional private server (hardware the user owns) can
+> run the on-demand heavy models over the LAN or WAN. The honest
+> replacement: *"your data goes to hardware you own, and nowhere else."*
+> Still a strong claim. A different one.
+
+**"No API keys" survives, and is now the strongest remaining claim.** No
+third-party service — cloud vision, cloud LLM, cloud TTS/STT — has been
+called at any point in this project, Day 1 through the V2 pivot and beyond.
+That does not change.
+
+## Claims added Day 7 (live, replacing the above)
+- "The backend is a process on your machine, not someone else's server."
+- "The interface is a browser tab; the eyes are a local process."
+- "Your data goes to hardware you own, and nowhere else." (from Day 14 on,
+  when the private-server option ships — until then, "your data never
+  leaves this machine" remains literally true)
+- "No API keys, no cloud account, no third-party service ever sees a frame,
+  a transcript, or a line of narration." — unchanged since Day 1, and now
+  the load-bearing privacy claim in place of "runs in the browser."
+
+---
+
 ## What is REAL (claim freely)
 - Live object detection on real camera frames, on-device
-- ~12ms inference, real-time framerate
-- Video genuinely never leaves the device
+- ~12ms inference, real-time framerate (Day 1–6, browser build; see
+  day7-baseline.md for measured V2-era numbers)
+- Video genuinely never leaves the device — true through the browser build
+  and Days 7–13 of V2; see the retirement block above for what changes Day 14
 - Narration is generated from actual detections
 - Everything on screen comes from a real model
 - Objects get a persistent ID and age, matched frame to frame by IoU overlap,
@@ -419,6 +462,19 @@ the free option would have skipped entirely.
   one of COCO's 80 classes at all) is not — the model is still forced to
   guess the nearest of 80 wrong words for anything genuinely outside its
   vocabulary, same as every prior day.
+- ❌ "It measures real depth" — not built yet. Planned Day 13
+  (`v2-roadmap.md`, Depth Anything V2). Until then the Day 5 rule stands:
+  size-as-percent-of-frame, never a fabricated distance (D17).
+- ❌ "It recognises faces" / "it knows who you are" — not built yet. Planned
+  Day 12. Until then YAP has no memory of people across sessions and no
+  concept of "known" vs "unknown."
+- ❌ "It has open-vocabulary detection" — still COCO's fixed 80 classes as of
+  Day 7. Planned Day 8 (YOLOE via MLX, text-promptable). Until it ships, a
+  microphone is still a `tie`.
+- ❌ "It runs on my phone" — desktop/laptop only through Day 13. Mobile
+  on-device export is planned Day 14 and is explicitly the day most likely
+  to be cut (see v2-roadmap.md's "if it slips" list) — say "planned, not
+  shipped" if asked before then, not "coming soon."
 
 ## Tone rules
 - Show the failures. Wrong labels are content, not shame.

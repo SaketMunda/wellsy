@@ -22,3 +22,12 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Day 7 bench harness — regenerate with scripts/generate-bench-assets.sh
+scripts/bench-assets/*.y4m
+scripts/bench-output/
+
+# Python (engine/)
+__pycache__/
+*.pyc
+.venv/
