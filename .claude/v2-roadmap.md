@@ -110,38 +110,64 @@ numbers are the deliverable, the skeleton is the head start.
 
 ---
 
-## Day 8 — "It stops being wrong" (Phase 1)
+## Day 8 — "It stops being wrong" (Phase 1) — SHIPPED
 
-**Ships:**
-- **YOLOE via MLX at 8 Hz**, open-vocabulary and text-promptable. This is the
-  actual fix for `microphone → tie`: you tell it the words. COCO's 80 fixed
-  classes stop being the ceiling.
-- **ByteTrack / BoT-SORT** replaces the hand-rolled IoU tracker. Day 3 and
-  Day 6's voting work retires with honours — the new tracker has re-ID built
-  in and does not need to be taught that a bed isn't a dining table.
-- **The tier scheduler, built on day one — not retrofitted.** T0 motion gate
-  always on and nearly free; T1 detection only on motion; T2/T3 stubs that
-  exist and are wired but do nothing yet. Retrofitting an attention budget
-  onto an always-on loop is precisely the mistake being corrected.
-- Measured answers to: real FPS on this machine, real *idle* CPU, and — on
-  camera — is the bed a bed and the microphone a microphone.
+**Shipped:**
+- **YOLOE via Ultralytics on PyTorch/MPS at 8 Hz**, open-vocabulary and
+  text-promptable — not MLX (see below). `engine/prompts.txt` drives
+  `model.set_classes()`; open vocabulary works exactly as planned, only the
+  runtime differs from the original spec.
+- **ByteTrack** (`supervision`) replaces the hand-rolled IoU tracker.
+  D11/D21/D27 retired — `decisions.md` D31 explains why each was right for
+  the old detector and what makes it unnecessary now.
+- **The tier scheduler, built on day one.** T0 always-on motion gate with
+  ~1s hysteresis (a paused gesture doesn't freeze mid-frame); T1
+  detect+track at 8Hz max, rate-limited and gate-controlled; T2/T3 exist as
+  real wired stub functions (`engine/tiers.py`) plus a `PreemptionSeam`
+  class, doing nothing yet.
+- Measured: 76.4 FPS unthrottled, ~6-8% idle CPU with the gate vs ~18-23%
+  with it forced off, 5-minute memory stability, kill-capture-doesn't-hang.
+  See `.claude/day8-results.md` for the full table.
 
-**Concept:** Switching to Python does not fix detection quality. Changing
-models fixes detection quality. Today does both, and only one of them is the
-reason it works.
+**What changed from the plan — MLX:** checked directly (not assumed after a
+failed attempt) that no PyPI package implements an open-vocabulary detector
+on MLX — `mlx`/`mlx-metal`/`mlx-vlm`/`mlx-image` all exist and install, but
+none of them are YOLOE. Building YOLOE's text-prompt head from scratch in
+raw MLX ops is a multi-day project, not an afternoon's conversion fight —
+so there was nothing to timebox; the gap was structural, found in under an
+hour. Took the PyTorch/MPS path instead, which is strictly closer to the
+original intent than the plan's own named fallback (YOLO26, non-open-vocab)
+since it keeps text-prompting. Full reasoning: `decisions.md` D30.
 
-**Demo:** The same corner of the same room, side by side. Yesterday: `TIE
-88%`. Today: `MICROPHONE`. Then type a new word into the prompt list and
-watch it start finding a thing it has never been trained to name.
+**What didn't get real evidence:** no camera access this session (sandboxed,
+no display/hardware) — the intermittent-motion test ran against a staged
+synthetic clip, not a real room. `MOTION_THRESHOLD` stays at 4.0,
+unchanged, explicitly *not* tuned (D32) — the gate's open/close logic was
+confirmed correct, but a synthetic high-contrast bar doesn't stand in for
+real lighting/noise, so tuning against it would be tuning by feel with
+extra steps. The bed/microphone shot wasn't taken for the same reason —
+`engine/debug_window.py` is written but untested against real hardware.
 
-**Hook:** *"Yesterday it thought my microphone was a tie. Today I just told
-it the word 'microphone' and it found it. No retraining, no dataset."*
-
-**Risk:** MLX + YOLOE integration is the single biggest unknown in the whole
-plan and it sits on Day 8 deliberately — early, where there's room to
-recover. **Fallback if MLX fights back: YOLO26 via PyTorch MPS or CoreML.**
-Slower, still enormously better than `lite_mobilenet_v2`, and the day still
-ships. Decide by mid-afternoon, don't spend the evening on it.
+**What Day 9 should know before starting:**
+- **JSONL shape is settled** (`engine/README.md`): `detections`, `tracks`
+  (id/label/score/bbox/ageMs/missedFrames/labelConfidence/runnerUpLabel/
+  labelVotes — matches `src/vision/types.ts`'s `Track` closely enough that
+  the bridge should be plumbing), `inferenceMs` (null = T1 didn't run this
+  frame, tracks/detections are a carried-forward repeat, not empty).
+- **End-to-end capture→track latency is ~75-85ms** (p50/p95, synthetic) —
+  this is Day 9's floor before any network/render latency stacks on top.
+  D15's τ=70ms interpolation (browser build) was designed for exactly this
+  kind of gap between real updates.
+- **A still scene never goes empty** — T1's last output is held and
+  re-emitted on gated/rate-limited frames on purpose. If Day 9's bridge (or
+  the HUD) ever shows an empty room while the JSONL still has non-empty
+  `tracks`, that's a bridge bug, not an engine one.
+- **Camera hardware is needed** for the first real validation of
+  `MOTION_THRESHOLD`, the bed/microphone shot, and `debug_window.py` — none
+  of those got real evidence this session; flag this early if Day 9 also
+  runs sandboxed.
+- **No WebSocket/HUD work happened today** — `src/` has zero diff, exactly
+  as required.
 
 ---
 

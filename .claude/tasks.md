@@ -421,6 +421,28 @@ simply dropped:
 This entry stays as a record of what was originally planned, same as the
 superseded Day 7 block above.
 
+## Day 8 (V2) — carried forward
+No camera access this session (sandboxed, no display/hardware) — everything
+below needs a real machine with a camera before it can close. See
+`day8-results.md` and `decisions.md` D30-D32 for what *did* ship without one.
+- [ ] Run the intermittent-motion test against a **real** clip (enter, hold
+      still 20s, move again) — this session only had a staged synthetic
+      stand-in (`--synthetic-intermittent`). Confirms/changes `MOTION_THRESHOLD`
+      (currently 4.0, unchanged, explicitly not tuned — D32).
+- [ ] Shoot the bed/microphone comparison and the live `prompts.txt`-edit
+      demo through `engine/debug_window.py` — written, untested against real
+      hardware.
+- [ ] Re-measure motion-gate cost on real camera frames (Day 7's 1.31ms p50)
+      once/if the camera capture resolution changes (build-order item 8, cut
+      for time this session).
+- [ ] `prompts.txt` hot-reload is implemented (mtime check in `main.py`'s
+      loop) but only exercised against synthetic frames — confirm it behaves
+      the same mid-session on a real camera run.
+- [ ] Day 3's track-id-persistence clip (walk out of frame and back, confirm
+      id persists) — still not shot; still needs a real webcam. Not
+      attempted this session either (no camera access), so this stays open,
+      not closed.
+
 ## Known issues
 - Narration timing values (`STABLE_MS`, `min_seconds_between_lines`) still need
   tuning against real footage → Day 4

@@ -1,0 +1,17 @@
+# One term per line. Edited by hand, read by detector.py's load_prompts().
+# This is the actual fix for the old detector's fixed-80-class ceiling
+# (decisions.md D2/D30) — add a word here, the model can now name it.
+microphone
+bed
+monitor
+keyboard
+chair
+person
+headphones
+plant
+lamp
+pen
+blanket
+shorts
+glasses
+cell phone

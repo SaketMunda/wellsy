@@ -1,0 +1,6 @@
+# Model weights are large and cached outside the repo (see README.md) —
+# this is defense in depth in case a download ever lands here anyway.
+*.pt
+*.ts
+weights/
+runs/

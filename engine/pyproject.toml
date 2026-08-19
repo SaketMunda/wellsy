@@ -4,6 +4,12 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.13"
 dependencies = [
+    "clip",
     "numpy>=2.5.2",
     "opencv-python>=5.0.0.93",
+    "supervision>=0.30.0",
+    "ultralytics>=8.4.120",
 ]
+
+[tool.uv.sources]
+clip = { git = "https://github.com/ultralytics/CLIP.git" }

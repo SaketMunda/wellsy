@@ -952,3 +952,210 @@ property that actually matters.
 IPC copy costs more than expected at a higher resolution/rate — move to
 shared memory (`multiprocessing.shared_memory`) then, with the cost
 measured, not assumed up front.
+
+---
+
+### D30 — T1 detector: YOLOE via Ultralytics on PyTorch/MPS, not MLX
+**Decided:** Day 8
+**What the plan asked for:** `v2-architecture-research.md` §4 named "YOLOE
+via MLX" — open-vocabulary, text-promptable detection on Apple's MLX
+runtime, replacing `lite_mobilenet_v2`'s fixed 80 COCO classes (D2), which
+is the literal reason a bed reads as `dining table` and a microphone reads
+as `tie` in the browser build — no confidence threshold, voting scheme, or
+tracker fix (D11/D20/D21/D27) could ever produce a label that isn't in the
+model's vocabulary.
+**What's actually shipping:** the same model family and the same
+capability — YOLOE (`yoloe-11s-seg.pt`, the smallest variant), loaded via
+`ultralytics==8.4.120`, running on `device="mps"` (PyTorch's Apple GPU
+backend) instead of MLX. Open-vocabulary text-prompting is fully intact —
+`engine/prompts.txt` still drives `model.set_classes()` — only the runtime
+named in the plan changed.
+**What specifically decided it (not "MLX didn't work" — the actual finding):**
+Checked directly, not assumed: `mlx`/`mlx-metal` (Apple's base array
+framework) installs cleanly, and so do `mlx-vlm` (vision-language models)
+and `mlx-image` (classification) — but no PyPI package implements an
+open-vocabulary *object detector* on MLX. `uv pip install --dry-run` on
+`ultralytics-mlx`, `yoloe-mlx`, and `mlx-yolo` all came back "not found in
+the package registry." YOLOE's actual architecture-critical piece — a
+CLIP-style text-prompt encoder head fused with a YOLO detection head — has
+no existing MLX port to convert *from*; building one from raw MLX ops
+would mean re-implementing that fusion from a paper, not converting a
+checkpoint, which is a multi-day project on its own. That's a different
+and harder problem than "the conversion is fighting me," which is the
+scenario the plan's mid-afternoon-timebox was written for. There was
+nothing to spend the afternoon fighting — the gap was structural, found in
+under an hour of dependency probing, before any conversion was attempted.
+**A real cost paid for this choice, found while integrating:** the
+TorchScript-serialized MobileCLIP text encoder YOLOE downloads
+(`mobileclip_blt.ts`, ~570MB) fails to load under `map_location="mps"` —
+`torch.jit.load` raises `TypeError: Cannot convert a MPS Tensor to float64
+dtype` — because MPS doesn't support float64 and the checkpoint carries
+some in float64. `engine/detector.py`'s `set_prompts()` works around this
+by running text-prompt embedding on CPU (a one-off cost per prompt-list
+change, not per-frame) and moving only the image model back to MPS for the
+per-frame forward pass. This is a second, smaller instance of the same
+category of finding as the MLX gap: Apple's ML runtimes have real, checkable
+holes, not universal support — worth stating plainly rather than glossing
+over now that it's fixed.
+**Measured, not borrowed:** unthrottled inference on this machine (M-series,
+640×480 input, warm model) is ~76 FPS (mean 13.1ms/frame, p50 12.8ms, p95
+16.3ms) — see day8-results.md. This is lower than
+`v2-architecture-research.md`'s borrowed 124.9 FPS figure, which was never
+measured against this model variant, input size, or machine; the borrowed
+number is now superseded by a real one, not confirmed by it.
+**New dependencies (house rule: justify each):** `ultralytics` (YOLOE
+model + inference, native MPS device support, no MLX equivalent exists —
+see above), `supervision` (ByteTrack implementation — see D31),
+`git+https://github.com/ultralytics/CLIP.git` (Ultralytics' own CLIP fork,
+a hard runtime requirement of YOLOE's text-prompt path — `ultralytics`
+attempts to auto-install it via `pip`, which isn't on this project's PATH
+since `uv` manages the venv, so it had to be added explicitly).
+**Cost:** ~1.5GB across the model weights and the MobileCLIP text encoder,
+cached at `~/.cache/yap-engine/weights` — outside the repo, on purpose (see
+the boundary in day8-prompt.md and `engine/README.md`'s Weights section).
+First run on a fresh machine pays a one-time ~600MB download.
+**Revisit if:** an MLX-native open-vocabulary detector ships on PyPI later
+(worth a periodic check — this gap may close), or if PyTorch/MPS proves
+insufficiently fast at higher resolutions/frame rates than 8Hz demands.
+
+---
+
+### D31 — Tracker: ByteTrack via `supervision`, superseding D11/D21/D27
+**Decided:** Day 8
+**What's shipping:** `supervision.tracker.byte_tracker.core.ByteTrack`
+(imported directly rather than via `supervision`'s top-level `ByteTrack`
+alias, which is soft-deprecated as of `supervision==0.30.0` in favor of a
+replacement class not yet published — the underlying implementation is the
+same code either name points at; revisit when the replacement ships).
+`supervision` was chosen over pulling ByteTrack out of `ultralytics`
+directly because it's detector-agnostic — it takes plain boxes/scores, not
+a specific model's output format, which keeps `engine/tracker.py` decoupled
+from `detector.py`'s internals the way `capture.py`/`motion.py` are
+decoupled from each other.
+**Why D11, D21, and D27 are superseded, and why each was still right for
+what it fixed:**
+- **D11** (IoU tracker: same-label matching, α=0.4 smoothing, missed-frame
+  grace) was the only option available with no re-ID model and a 30-line
+  budget — it kept boxes from jittering frame to frame on a fixed-class
+  detector. ByteTrack does the same job with a real motion model (Kalman
+  filter) and confidence-tiered association, which is strictly more robust,
+  but D11 was the correct call for what existed on Day 3.
+- **D21** (per-track label voting + cross-label match gate, fixing the
+  bed/dining-table flicker) existed because `lite_mobilenet_v2` itself
+  flickered between two plausible labels for the same physical object —
+  that's a *detector* problem, not a tracker problem, and D30 fixes it at
+  the root: an open-vocabulary model doesn't have two fixed, competing
+  COCO classes to flicker between in the first place. `tracker.py` keeps a
+  lightweight version of the same idea (`labelConfidence`, `runnerUpLabel`,
+  a short vote window) because `src/vision/types.ts`'s `Track` shape
+  expects it and an open-vocab model can still occasionally waver between
+  two prompt words — but the window is short (15 frames, vs D21's tuning
+  for a noisier signal) since it's now smoothing a rare wobble, not
+  compensating for a structurally confused model.
+- **D27** (two-pass same-label-first matching, fixing a dominant track
+  stealing a neighbor's detection) was a hand-rolled fix for the hand-rolled
+  tracker's greedy matching order. ByteTrack's association algorithm
+  (IoU + confidence tiers, not greedy nearest-first) doesn't have this
+  failure mode by construction — there's no matching-order bug to patch
+  around, so there's nothing to port.
+**UNIDENTIFIED discipline survives (D22):** `detector.py`'s
+`UNCERTAIN_CONFIDENCE = 0.6` floor is applied per-detection before the
+tracker ever sees a label — an open-vocab model can still be confidently
+wrong about an unfamiliar object, so the floor stays regardless of which
+tracker sits downstream.
+**Cost:** one dependency (`supervision`, ~15 transitive packages, mostly
+already pulled in by `ultralytics`/`torch`). No GPU cost — ByteTrack runs
+on CPU, box coordinates only.
+**Revisit if:** `supervision` ships its ByteTrack replacement class before
+v0.31.0 removes the deprecated alias — swap the import, no behavior change
+expected. Also revisit if re-ID (appearance embedding, not just motion)
+becomes necessary — BoT-SORT was the plan's other named option and adds
+that; ByteTrack was preferred here because it shipped in the
+detector-agnostic package already in use and D31's failure modes (D11/D27)
+don't require appearance matching to fix.
+
+---
+
+### D32 — `MOTION_THRESHOLD` stays at 4.0 — real-scene tuning deferred, not skipped
+**Decided:** Day 8
+**What the plan asked for:** tune `MOTION_THRESHOLD` (`engine/motion.py`,
+untuned first guess since Day 7) against a real or staged intermittent-
+motion clip (enter → hold still 20s → move again), and write down the
+chosen value and what it was tuned on.
+**What happened:** this session has no camera access (sandboxed, no
+display/hardware), so the intermittent-motion test ran against a *staged
+synthetic* clip (`engine/capture.py`'s `make_intermittent_synthetic_frame`,
+`--synthetic-intermittent`) — a large high-contrast bar that enters for 3s,
+freezes pixel-identical for 20s, then moves again — not the real room
+footage the plan asked for. Against that clip, at the existing threshold of
+4.0: gate closed correctly and immediately during the frozen phase (raw
+mean-diff reads exactly 0.0, ~24x below threshold), and reopened within one
+frame of motion resuming. There was no evidence in this run that 4.0 is
+wrong — but there's also no real-scene evidence that it's *right*, since a
+synthetic high-contrast bar and a real room's lighting/noise/shadow-motion
+profile are not the same distribution. Tuning a number against a clip that
+doesn't represent the real failure mode (sensor noise, small far-away
+motion, lighting flicker) would be tuning by feel with extra steps.
+**Decision:** leave `MOTION_THRESHOLD` at 4.0. This is explicitly not the
+same as "tuned" — it's the same untuned first guess from Day 7, now with
+one piece of new evidence (the gate's open/close *logic* is correct) but
+still no real-scene calibration. Recorded here as unfinished, not silently
+carried forward.
+**Revisit:** first session with camera access — record a real enter/hold-
+still-20s/move-again clip, replay `engine/motion.py`'s two functions
+against it exactly as `day8-prompt.md` originally specified, and only then
+change the constant, with the clip and the number written down together.
+
+---
+
+### D33 — T2's on-demand detector will be Grounding DINO, not a bigger T1 model
+**Decided:** Day 8, post-ship, after real-camera testing exposed small/worn-
+object misses (spectacles, a held phone) that YOLOE's small variant
+(D30, `yoloe-11s-seg.pt`, chosen for 8Hz) structurally can't fix without
+giving up the framerate T1 exists for.
+**The reframe:** the question raised wasn't "is YOLOE good enough," it was
+answered wrong the first time by treating T1 and T2 as one detector choice.
+They're not — `v2-roadmap.md`'s tier scheduler already split them by
+latency budget: T1 (`engine/detector.py`, this file's D30) runs constantly
+at 8Hz and has to stay cheap; T2 (`engine/tiers.py`'s `deep_look` stub,
+Day 13) and T3 (`respond` stub, Day 10) run once, on demand, when a human
+is already waiting for an answer — the "JARVIS, what am I looking at?"
+query path can afford 300ms+ that ambient sensing cannot.
+**Decision:** T2/T3's query-time detection pass uses **Grounding DINO**,
+not YOLOE at a larger size. Zero-shot open-vocab AP on COCO: ~52.5%
+(Grounding DINO) vs the YOLO-World-family's ~35%, with the larger gap
+specifically on small/worn objects (mean IoU 0.629 vs 0.408 in third-party
+benchmarks) — exactly the spectacles/phone failure mode. T1 keeps YOLOE
+unchanged; nothing about D30 is reopened.
+**Why not just size up YOLOE/YOLO-World instead:** same architecture
+family (CNN, single-stage, speed-over-accuracy by design) — a larger
+variant buys some accuracy but doesn't close the small-object gap the way
+a transformer-based detector (Grounding DINO, DINO-DETR) does; the
+benchmark gap is architectural, not a parameter-count problem.
+**Why not RF-DETR:** current SOTA on COCO (60+ mAP) but a fine-tuned
+specialist architecture — needs training data per class, not a zero-shot
+text-prompt path. Wrong fit for "ask about anything in the room" with no
+training set. Revisit once there's a corpus of the project's own footage
+worth fine-tuning against — real future upgrade for T2 accuracy, not a
+Day 8/10/13 blocker.
+**Where this connects to Day 14's private-server split:** Grounding DINO's
+per-query cost (~300ms+ on a capable GPU, worse on this Mac's MPS) is the
+concrete reason Day 14's "server runs T2/T3 on demand" design exists —
+this decision is what that server will actually run. A dedicated GPU
+(Jetson AGX Orin over an eGPU — Mac has no real CUDA/eGPU path, Jetson has
+full CUDA+TensorRT and is the standard 2026 edge-AI target) executes that
+phase early; it is not a scope change to the roadmap.
+**Not implemented yet, and deliberately not today:** `tiers.py`'s
+`deep_look`/`respond` stay empty stubs. Wiring Grounding DINO in now would
+front-run Day 10 (T3, the query loop itself doesn't exist yet) and Day 13
+(T2, depth/seg/pose come first in priority order) — `v2-roadmap.md`'s own
+rule against silently merging days applies here. This entry exists so the
+choice is made and written down before it blocks either day, same pattern
+as D28/D29.
+**Cost:** a second model (~a few hundred MB–1GB+ depending on Grounding
+DINO variant) loaded only when T2/T3 actually fire, not at startup or on
+the hot path — no cost to T1's 8Hz budget.
+**Revisit if:** Day 10/13 implementation finds Grounding DINO's real
+on-device latency (once measured, not benchmarked-elsewhere) unworkable
+even for on-demand use, or the Jetson purchase lands and changes what's
+affordable to run per query.

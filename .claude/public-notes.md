@@ -446,11 +446,18 @@ That does not change.
   fixed list of patterns (`parseIntent.ts`). Off-script phrasing fails and
   says so, honestly, rather than guessing at intent. This is pattern
   matching, not language understanding.
-- ❌ "It has open-vocabulary vision" — it does not, as of Day 6. It can only
-  say "unidentified" when its fixed 80-word vocabulary can't settle on an
-  answer; it cannot yet supply a *better* word (that's the open-vocabulary
-  CLIP work, explicitly cut this session — see decisions.md D22). A
-  microphone still gets called a `tie`.
+- ✅ "It has open-vocabulary vision" — true as of Day 8, **in the new Python
+  engine (`engine/`) only**. YOLOE, text-promptable via `engine/prompts.txt`
+  — add a word, it can find the thing. But: (1) this is not yet wired to
+  the HUD or the microphone/tie demo shown on camera through Day 7 — that's
+  the *browser build* (`src/`), which is untouched and still the fixed
+  80-class detector as of Day 8 (decisions.md D28 explains why the two
+  builds coexist). Don't imply the shipped demo changed; the engine did.
+  (2) **finding a word is not understanding a scene** — text-prompting
+  means the model can *localize and name* whatever's in `prompts.txt`, not
+  that it knows what a microphone is, what it's for, or that a bed implies
+  a bedroom. Same caution as the Day 5 "this looks like it understands the
+  room, it does not" line — a better vocabulary is still not comprehension.
 - ❌ "It has a wake word" — not shipped. Push-to-talk only, as of Day 6. If
   a wake word ships later, describe it accurately when it does:
   transcribe-then-match against "yap"/"hey yap", not a trained,
@@ -468,9 +475,15 @@ That does not change.
 - ❌ "It recognises faces" / "it knows who you are" — not built yet. Planned
   Day 12. Until then YAP has no memory of people across sessions and no
   concept of "known" vs "unknown."
-- ❌ "It has open-vocabulary detection" — still COCO's fixed 80 classes as of
-  Day 7. Planned Day 8 (YOLOE via MLX, text-promptable). Until it ships, a
-  microphone is still a `tie`.
+- ✅ "It has open-vocabulary detection" — shipped Day 8, in `engine/` — but
+  not via MLX as originally planned. No PyPI package implements an
+  open-vocabulary detector on MLX (checked, decisions.md D30); it runs on
+  PyTorch/MPS instead, same open-vocabulary capability, different runtime.
+  Not camera-verified yet (no hardware access the session it shipped) — the
+  actual "microphone stops being a tie" moment is confirmed on synthetic
+  test input, not yet on a real microphone. Say "the engine can now be told
+  new words" accurately; don't claim the bed/microphone shot exists until
+  it's actually been filmed.
 - ❌ "It runs on my phone" — desktop/laptop only through Day 13. Mobile
   on-device export is planned Day 14 and is explicitly the day most likely
   to be cut (see v2-roadmap.md's "if it slips" list) — say "planned, not

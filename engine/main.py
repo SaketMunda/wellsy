@@ -1,12 +1,6 @@
-"""Day 7 Python skeleton: camera -> motion gate -> JSON lines on stdout.
-
-No model, no tracker, no HUD, no WebSocket — see .claude/day7-prompt.md.
-This exists to prove three things before anything expensive is built on top:
-1. Camera access works from Python on this machine (macOS permission dialog
-   included).
-2. The motion gate is genuinely cheap (~1ms/frame, measured below).
-3. Process boundaries hold: capture runs in its own process, handing frames
-   to this one across a latest-wins queue of depth 1 (decisions.md D29).
+"""Day 8 engine loop: camera -> motion gate (T0) -> detect+track (T1) ->
+JSON lines on stdout. T2/T3 exist as wired stubs (tiers.py) — see
+.claude/day8-prompt.md and decisions.md D28-D32.
 
 Usage:
     uv run main.py                 # real camera, runs until Ctrl+C
@@ -15,6 +9,8 @@ Usage:
                                     # same pipeline against a generated
                                     # moving frame, for machines/sessions
                                     # where the camera isn't available
+    uv run main.py --no-detect     # T0 only, Day 7 behavior — for isolating
+                                    # motion-gate cost from detection cost
 """
 
 from __future__ import annotations
@@ -25,12 +21,28 @@ import sys
 import time
 from collections import deque
 from multiprocessing import Event, Process, Queue
+from pathlib import Path
 
 from capture import capture_worker
 from motion import motion_gate, to_gate_gray
 
 # How much history the gated-fraction readout (stderr) is computed over.
 STATS_WINDOW_SECONDS = 60
+
+# T1 rate cap — 8Hz, not 60Hz: detection is the expensive tier, and D15's
+# render-time interpolation (browser build, hudState.ts) already proves
+# 8Hz *looks* smooth once boxes are interpolated on Day 9. Running faster
+# would burn CPU nothing downstream benefits from.
+DETECT_HZ = 8.0
+DETECT_INTERVAL_S = 1.0 / DETECT_HZ
+
+# Hysteresis: keep T1 warm for this long after the last real motion before
+# letting it go idle. Without this, someone pausing mid-gesture freezes
+# mid-gesture the instant T0 gates the frame — see day8-prompt.md's
+# explicit correctness trap.
+MOTION_HOLD_SECONDS = 1.0
+
+PROMPTS_PATH = Path(__file__).parent / "prompts.txt"
 
 
 def emit(
@@ -39,6 +51,9 @@ def emit(
     gated: bool,
     capture_ms: float,
     gate_ms: float,
+    tracks: list[dict],
+    detections: list[dict],
+    inference_ms: float | None,
     stats: deque[tuple[float, bool]],
 ) -> None:
     record = {
@@ -47,6 +62,9 @@ def emit(
         "gated": gated,
         "captureMs": round(capture_ms, 2),
         "gateMs": round(gate_ms, 2),
+        "detections": detections,
+        "tracks": tracks,
+        "inferenceMs": round(inference_ms, 2) if inference_ms is not None else None,
     }
     print(json.dumps(record), flush=True)
 
@@ -59,14 +77,45 @@ def emit(
         print(f"[gated-fraction] {fraction:.1%} over last {window_s:.0f}s ({len(stats)} frames)", file=sys.stderr, flush=True)
 
 
-def run_camera(seconds: float | None, camera_index: int, synthetic: bool) -> None:
+def run_camera(seconds: float | None, camera_index: int, synthetic: bool, detect: bool, synthetic_intermittent: bool = False) -> None:
     frame_queue: Queue = Queue(maxsize=1)
     stop_event = Event()
-    proc = Process(target=capture_worker, args=(frame_queue, stop_event, camera_index, synthetic), daemon=True)
+    proc = Process(
+        target=capture_worker,
+        args=(frame_queue, stop_event, camera_index, synthetic, synthetic_intermittent),
+        daemon=True,
+    )
     proc.start()
+
+    model = None
+    tracker = None
+    prompts: list[str] = []
+    prompts_mtime = None
+    if detect:
+        import detector
+        from tracker import Tracker
+
+        print("[setup] loading detector...", file=sys.stderr, flush=True)
+        t0 = time.monotonic()
+        model = detector.load_model()
+        prompts = detector.load_prompts(PROMPTS_PATH)
+        prompts_mtime = PROMPTS_PATH.stat().st_mtime if PROMPTS_PATH.exists() else None
+        detector.set_prompts(model, prompts)
+        tracker = Tracker(frame_rate=int(DETECT_HZ))
+        print(f"[setup] detector ready in {time.monotonic() - t0:.1f}s, prompts={prompts}", file=sys.stderr, flush=True)
 
     prev_gray = None
     stats: deque[tuple[float, bool]] = deque()
+    last_motion_time = None  # None = no real motion observed yet
+    last_detect_time = 0.0
+    last_tracks: list[dict] = []  # T1's last output — held across gated/rate-limited frames
+    last_detections: list[dict] = []
+    bootstrapped = False  # forces exactly one T1 run on the first frame, gate or no gate,
+    # so a scene with zero motion since startup still gets an initial look —
+    # after that, only real motion (+ hysteresis) reopens T1. Without this
+    # distinct flag, "no motion observed yet" is indistinguishable from
+    # "motion observed, currently still", and T1 either never runs on a
+    # static-from-the-start scene or runs forever on one — see decisions.md D31.
     start = time.monotonic()
     try:
         while seconds is None or (time.monotonic() - start) < seconds:
@@ -81,13 +130,44 @@ def run_camera(seconds: float | None, camera_index: int, synthetic: bool) -> Non
                 break
 
             t_wall, frame, capture_ms = item
+            now = time.monotonic()
+
             t1 = time.monotonic()
             gray = to_gate_gray(frame)
             motion, gated = motion_gate(prev_gray, gray)
             gate_ms = (time.monotonic() - t1) * 1000
             prev_gray = gray
 
-            emit(t_wall, motion, gated, capture_ms, gate_ms, stats)
+            if not gated:
+                last_motion_time = now
+
+            inference_ms = None
+            if detect:
+                held_open = last_motion_time is not None and (now - last_motion_time) < MOTION_HOLD_SECONDS
+                t1_active = (not gated) or held_open or not bootstrapped
+                due = (now - last_detect_time) >= DETECT_INTERVAL_S
+
+                if t1_active and due:
+                    bootstrapped = True
+                    if prompts_mtime is not None and PROMPTS_PATH.exists():
+                        mtime = PROMPTS_PATH.stat().st_mtime
+                        if mtime != prompts_mtime:
+                            prompts = detector.load_prompts(PROMPTS_PATH)
+                            detector.set_prompts(model, prompts)
+                            prompts_mtime = mtime
+                            print(f"[prompts] reloaded: {prompts}", file=sys.stderr, flush=True)
+
+                    ti = time.monotonic()
+                    last_detections = detector.predict(model, frame)
+                    last_tracks = tracker.update(last_detections, now=t_wall)
+                    inference_ms = (time.monotonic() - ti) * 1000
+                    last_detect_time = now
+                # else: T1 didn't run this frame — last_tracks/last_detections
+                # from the previous run are re-emitted below, on purpose. A
+                # still room must keep showing what was last seen, not go
+                # empty (day8-prompt.md's explicit correctness trap).
+
+            emit(t_wall, motion, gated, capture_ms, gate_ms, last_tracks, last_detections, inference_ms, stats)
     except KeyboardInterrupt:
         pass
     finally:
@@ -102,8 +182,20 @@ def main() -> None:
     parser.add_argument("--seconds", type=float, default=None, help="stop after N seconds (default: run until Ctrl+C)")
     parser.add_argument("--camera-index", type=int, default=0)
     parser.add_argument("--synthetic", action="store_true", help="skip the real camera, use a generated moving frame")
+    parser.add_argument("--no-detect", action="store_true", help="T0 only (Day 7 behavior) — isolates motion-gate cost")
+    parser.add_argument(
+        "--synthetic-intermittent",
+        action="store_true",
+        help="staged enter/hold-still-20s/move-again clip, for the intermittent-motion test (day8-prompt.md) when a real camera clip isn't available",
+    )
     args = parser.parse_args()
-    run_camera(args.seconds, args.camera_index, args.synthetic)
+    run_camera(
+        args.seconds,
+        args.camera_index,
+        args.synthetic or args.synthetic_intermittent,
+        detect=not args.no_detect,
+        synthetic_intermittent=args.synthetic_intermittent,
+    )
 
 
 if __name__ == "__main__":
