@@ -19,9 +19,13 @@ GATE_WIDTH = 160
 GATE_HEIGHT = 120
 
 # Mean per-pixel absolute difference (0..255) below this is "nothing moved".
-# First-guess constant, like D11's alpha=0.4 or D15's tau=70ms — not tuned
-# against real footage yet. Revisit once a real still room is measured.
-MOTION_THRESHOLD = 4.0
+# Tuned Day 9 against two real clips (engine/clips/real_clip.mp4 + a passive
+# ambient sample), not synthetic — see decisions.md D34. Real ambient noise
+# floor: p50 ~1.0-1.3, occasional spikes to ~4.2 with nothing deliberately
+# moving. Real motion (a hand moved in frame): spiked to ~6.2. 5.0 sits above
+# the measured noise ceiling with margin, comfortably below the one measured
+# motion sample.
+MOTION_THRESHOLD = 5.0
 
 
 def to_gate_gray(frame_bgr: np.ndarray) -> np.ndarray:

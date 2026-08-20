@@ -23,6 +23,7 @@ from collections import deque
 from multiprocessing import Event, Process, Queue
 from pathlib import Path
 
+from bridge import Bridge
 from capture import capture_worker
 from motion import motion_gate, to_gate_gray
 
@@ -77,7 +78,14 @@ def emit(
         print(f"[gated-fraction] {fraction:.1%} over last {window_s:.0f}s ({len(stats)} frames)", file=sys.stderr, flush=True)
 
 
-def run_camera(seconds: float | None, camera_index: int, synthetic: bool, detect: bool, synthetic_intermittent: bool = False) -> None:
+def run_camera(
+    seconds: float | None,
+    camera_index: int,
+    synthetic: bool,
+    detect: bool,
+    synthetic_intermittent: bool = False,
+    ws_port: int | None = 8765,
+) -> None:
     frame_queue: Queue = Queue(maxsize=1)
     stop_event = Event()
     proc = Process(
@@ -86,6 +94,11 @@ def run_camera(seconds: float | None, camera_index: int, synthetic: bool, detect
         daemon=True,
     )
     proc.start()
+
+    bridge = None
+    if ws_port is not None:
+        bridge = Bridge(ws_port)
+        bridge.start()
 
     model = None
     tracker = None
@@ -110,6 +123,11 @@ def run_camera(seconds: float | None, camera_index: int, synthetic: bool, detect
     last_detect_time = 0.0
     last_tracks: list[dict] = []  # T1's last output — held across gated/rate-limited frames
     last_detections: list[dict] = []
+    last_broadcast_time = 0.0  # throttles the bridge to ~DETECT_HZ independent of capture
+    # rate — day9-prompt.md is explicit that the client should see ~8Hz of
+    # messages, not however fast the camera captures (up to 60Hz on a real
+    # camera, ~30Hz synthetic). stdout's emit() stays per-capture-frame,
+    # unchanged from Day 8; only the bridge is throttled.
     bootstrapped = False  # forces exactly one T1 run on the first frame, gate or no gate,
     # so a scene with zero motion since startup still gets an initial look —
     # after that, only real motion (+ hysteresis) reopens T1. Without this
@@ -168,6 +186,27 @@ def run_camera(seconds: float | None, camera_index: int, synthetic: bool, detect
                 # empty (day8-prompt.md's explicit correctness trap).
 
             emit(t_wall, motion, gated, capture_ms, gate_ms, last_tracks, last_detections, inference_ms, stats)
+
+            if bridge is not None and (now - last_broadcast_time) >= DETECT_INTERVAL_S:
+                last_broadcast_time = now
+                # Separate payload from emit()'s stdout record on purpose —
+                # stdout stays byte-compatible with Day 8 (day9-prompt.md's
+                # verification rule), and the bridge is free to carry the
+                # extra fields (sourceWidth/sourceHeight) the client needs
+                # for the coordinate contract (day9-prompt.md Part 1)
+                # without the two wire formats needing to agree.
+                bridge.broadcast({
+                    "t": round(t_wall, 3),
+                    "motion": round(motion, 4),
+                    "gated": gated,
+                    "captureMs": round(capture_ms, 2),
+                    "gateMs": round(gate_ms, 2),
+                    "detections": last_detections,
+                    "tracks": last_tracks,
+                    "inferenceMs": round(inference_ms, 2) if inference_ms is not None else None,
+                    "sourceWidth": frame.shape[1],
+                    "sourceHeight": frame.shape[0],
+                })
     except KeyboardInterrupt:
         pass
     finally:
@@ -175,6 +214,8 @@ def run_camera(seconds: float | None, camera_index: int, synthetic: bool, detect
         proc.join(timeout=2.0)
         if proc.is_alive():
             proc.terminate()
+        if bridge is not None:
+            bridge.close()
 
 
 def main() -> None:
@@ -188,6 +229,8 @@ def main() -> None:
         action="store_true",
         help="staged enter/hold-still-20s/move-again clip, for the intermittent-motion test (day8-prompt.md) when a real camera clip isn't available",
     )
+    parser.add_argument("--ws-port", type=int, default=8765, help="WebSocket bridge port, localhost only (day9-prompt.md)")
+    parser.add_argument("--no-ws", action="store_true", help="disable the WebSocket bridge — stdout JSONL only, Day 8 behavior")
     args = parser.parse_args()
     run_camera(
         args.seconds,
@@ -195,6 +238,7 @@ def main() -> None:
         args.synthetic or args.synthetic_intermittent,
         detect=not args.no_detect,
         synthetic_intermittent=args.synthetic_intermittent,
+        ws_port=None if args.no_ws else args.ws_port,
     )
 
 

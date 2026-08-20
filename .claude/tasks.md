@@ -443,6 +443,54 @@ below needs a real machine with a camera before it can close. See
       attempted this session either (no camera access), so this stays open,
       not closed.
 
+## Day 9 (V2) — bridge shipped, camera work done for real
+Camera access confirmed working this session (a corrected mistake — see
+`decisions.md` D34/D35 for the story). Most of Part 0's camera debt closed
+with real hardware, not synthetic substitutes.
+- [x] `engine/bridge.py` — WebSocket bridge, `127.0.0.1` only, throttled to
+      8Hz independent of capture rate
+- [x] `src/vision/useEngineSocket.ts` + `?engine=1` flag — browser-only path
+      unaffected when absent
+- [x] Staleness handling + engine-death behaviour — verified via
+      `scripts/day9-bridge-test.mjs` **and** live against the real engine
+      (engine `--seconds` budget expiring mid-test caught the same banner
+      for real, unplanned)
+- [x] `src/hud/` line count reported: zero
+- [x] **Real clip recorded** — `engine/clips/real_clip.mp4` (20s, real
+      camera, real motion) — a second 25s ambient-only clip was recorded
+      first but overwritten by a path bug in the one-off script; its
+      distribution is preserved in `day9-results.md`/D34 even though the
+      file itself is gone
+- [x] **`MOTION_THRESHOLD` tuned from real evidence**: 4.0 → 5.0 (D34)
+- [x] **Camera architecture (A) verified directly** — two Python readers,
+      and Chrome `getUserMedia` + Python `cv2.VideoCapture` simultaneously,
+      both confirmed on real hardware
+- [x] **Real end-to-end camera→pixel latency measured**: p50 77.1ms
+      (matches Day 8's synthetic estimate)
+- [x] **Bed shot, real**: a real bed, correctly labeled `bed`, screenshotted
+      live through `?engine=1` with real camera on both sides
+      (`day9-results.md`)
+- [ ] **Microphone shot** — no microphone was in the room this session; not
+      an access problem, just nothing to point at. Two minutes whenever one
+      is nearby.
+- [ ] **`debug_window.py`'s on-screen window not confirmed** — ran clean
+      against real camera + real detection JSONL with no crash, but a
+      screenshot taken mid-run showed no visible `cv2.imshow` window on
+      screen, likely because a detached background process from this agent
+      doesn't attach to a window-server session the way an interactive
+      terminal launch would. Needs a genuine interactive-terminal run to
+      confirm the visual half.
+- [ ] **Film Day 3's track-id-persistence clip** — still owed since Day 3
+      (didn't fit in this session's remaining time)
+- [ ] **τ=70ms verdict against real fast motion** — three real attempts
+      this session found the motion gate doesn't clear for a seated
+      person's localized gestures, so T1 never re-ran and there was
+      nothing to interpolate toward. Needs full-body motion (standing,
+      walking across frame) specifically — see day9-results.md
+- [ ] Re-run `scripts/bench.mjs` (browser-only scenarios) to confirm no
+      regression from the `?engine=1` wiring — code-reviewed as a no-op when
+      the flag is absent, not re-run through the full harness this session
+
 ## Known issues
 - Narration timing values (`STABLE_MS`, `min_seconds_between_lines`) still need
   tuning against real footage → Day 4

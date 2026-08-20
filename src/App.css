@@ -145,6 +145,27 @@ body {
 .curtain-sub { margin: 0; max-width: 44ch; color: var(--muted); font-size: 13px; line-height: 1.6; }
 .curtain-error .curtain-title { color: var(--danger); }
 
+/* Engine staleness (day9-prompt.md): visible, not silent. Sits above the
+   video/HUD but doesn't block it — the last-known boxes stay on screen,
+   honestly labeled as old rather than hidden or held as if current. */
+.stale-banner {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  padding: 4px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--amber, #fbbf24);
+  background: rgba(4, 7, 13, 0.85);
+  border: 1px solid var(--amber, #fbbf24);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
 .panel {
   display: flex;
   flex-direction: column;

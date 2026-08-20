@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useCamera } from './vision/useCamera';
 import { useDetector } from './vision/useDetector';
+import { useEngineSocket } from './vision/useEngineSocket';
 import { useNarrator } from './narration/useNarrator';
 import { describeScene, queryObject } from './narration/describeScene';
 import { HudCanvas } from './hud/HudCanvas';
@@ -21,6 +22,11 @@ declare global {
 }
 
 const BENCH_MODE = new URLSearchParams(window.location.search).get('bench') === '1';
+// Day 9: the HUD gains a second frame source (the Python engine, over a
+// local WebSocket) without losing its first (in-browser TF.js, D28's
+// browser-only build stays alive behind this flag — day9-prompt.md's
+// explicit boundary, not the default).
+const ENGINE_MODE = new URLSearchParams(window.location.search).get('engine') === '1';
 
 /** True while the OS/browser asks for reduced motion — re-read live if the
  * user flips the setting mid-session, not just once on load. */
@@ -52,12 +58,26 @@ export default function App() {
   const reducedMotion = usePrefersReducedMotion();
 
   const { videoRef, status: cameraStatus, error: cameraError } = useCamera(active);
-  const { frameRef, status: modelStatus, error: modelError, stats } = useDetector(videoRef, active);
-  const narratorEnabled = active && narrating && modelStatus === 'ready';
+  // Two frame sources, one Frame shape (src/vision/types.ts) — HudCanvas,
+  // hudState.ts and drawHud.ts don't know which one is live. Both hooks are
+  // called unconditionally (rules of hooks); only the selected one's `active`
+  // flag actually does work, so the idle one is a no-op.
+  const detector = useDetector(videoRef, active && !ENGINE_MODE);
+  const engine = useEngineSocket(videoRef, active && ENGINE_MODE);
+  const { frameRef, stats } = ENGINE_MODE ? engine : detector;
+  const modelStatus = ENGINE_MODE ? engine.status : detector.status;
+  const modelError = ENGINE_MODE ? engine.error : detector.error;
+  // A stale engine (no message in ~1s, day9-prompt.md) still has a populated
+  // frameRef from its last message — narration and the HUD keep running on
+  // that held frame, same discipline as a still scene's re-emitted tracks.
+  // Only idle/loading/error actually block readiness.
+  const modelReady = modelStatus === 'ready' || modelStatus === 'stale';
+  const narratorEnabled = active && narrating && modelReady;
   const { log, config, setConfig, llmStatus, ttsStatus, speakAnswer, stopAll } = useNarrator(frameRef, narratorEnabled);
 
-  const live = cameraStatus === 'live' && modelStatus === 'ready';
+  const live = cameraStatus === 'live' && modelReady;
   const error = cameraError ?? modelError;
+  const engineStale = ENGINE_MODE && modelStatus === 'stale';
 
   const onDrawMs = useCallback((ms: number) => setHudDrawMs(ms), []);
 
@@ -251,6 +271,16 @@ export default function App() {
           />
           <SubtitleTrack log={log} boring={boring} visible={active} transcript={transcript} />
 
+          {/* Staleness must be visible, not silent (day9-prompt.md) — the HUD
+              never claims to know something it doesn't currently know, same
+              discipline as UNIDENTIFIED (D22). This lives in App.tsx, not
+              src/hud/, so drawHud.ts stays untouched by the engine path. */}
+          {engineStale && (
+            <div className="stale-banner" role="status">
+              engine signal lost — showing last known frame
+            </div>
+          )}
+
           {!active && (
             <div className="curtain">
               <p className="curtain-title">Perception offline</p>
@@ -261,7 +291,16 @@ export default function App() {
           )}
 
           {active && !live && !error && (
-            <BootSequence cameraStatus={cameraStatus} modelStatus={modelStatus} narratorEnabled={narratorEnabled} />
+            // BootSequence's ModelStatus type predates the engine's extra
+            // 'stale' state; 'stale' implies "was ready", and this only
+            // renders pre-`live` anyway, so the boot sequence never actually
+            // needs to represent it — coerced here rather than widening the
+            // type in src/hud/ for a state that can't reach this component.
+            <BootSequence
+              cameraStatus={cameraStatus}
+              modelStatus={modelStatus === 'stale' ? 'ready' : modelStatus}
+              narratorEnabled={narratorEnabled}
+            />
           )}
 
           {error && (

@@ -9,6 +9,7 @@ dependencies = [
     "opencv-python>=5.0.0.93",
     "supervision>=0.30.0",
     "ultralytics>=8.4.120",
+    "websockets>=17.0.1",
 ]
 
 [tool.uv.sources]

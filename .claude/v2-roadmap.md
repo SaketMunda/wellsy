@@ -171,34 +171,82 @@ extra steps. The bed/microphone shot wasn't taken for the same reason —
 
 ---
 
-## Day 9 — "Same face, new engine" (Phase 2)
+## Day 9 — "Same face, new engine" (Phase 2) — SHIPPED
 
-**Ships:**
-- **Local WebSocket bridge.** Python pushes `Frame` objects, the React HUD
-  renders them. `hudState.ts` and `drawHud.ts` should need almost no change —
-  they consume a `Frame` and we own that shape.
-- **Verify the 8 Hz / 60 Hz illusion holds.** Day 5's interpolation (τ=70ms,
-  D15) was built for frame-rate independence and has never been cashed in.
-  Today it pays for itself: detection at 8 Hz, motion at 60.
-- **Process-per-workload boundaries enforced**, with latest-wins queues of
-  depth 1. Drop frames, never buffer. This is the rule that stops the GIL
-  from reproducing the browser bug in a new language (§7).
-- Browser-only mode kept alive behind a flag as the honest before-picture.
+**Shipped:**
+- **Local WebSocket bridge**, `127.0.0.1` only (`engine/bridge.py`,
+  `websockets.sync.server` on a background thread). `engine/main.py`'s
+  stdout `emit()` is byte-identical to Day 8; the bridge is a separate
+  payload built alongside it, carrying two extra fields
+  (`sourceWidth`/`sourceHeight`) for the coordinate contract.
+- **`src/vision/useEngineSocket.ts`** — same `Frame` shape as
+  `useDetector.ts`. `hudState.ts`/`drawHud.ts`/`HudCanvas.tsx` needed **zero**
+  changes — `git diff --stat -- src/hud/` is empty. Every Day 9 change lives
+  in `App.tsx`, `App.css`, and this one new file.
+- **`?engine=1` flag**, default off — the browser-only build (Days 1–6) is
+  unaffected when the flag is absent; `useDetector` runs exactly as before.
+- **Latest-wins crossing the socket** (D29's rule, now a third layer: queue,
+  process boundary, WebSocket) — `onmessage` unconditionally overwrites
+  `frameRef.current`, no queue, no buffering.
+- **Staleness handling** — a 1s timeout, plus a disconnect-after-live
+  degrading to `stale` (not a hard `error`) so the last real frame stays on
+  screen, honestly marked old, per the same discipline as `UNIDENTIFIED`
+  (D22). Measured: banner visible 1005ms after the engine was killed.
+- Full writeup: `decisions.md` D35, `.claude/day9-results.md`.
 
-**Concept:** Five days of HUD design survives a total engine transplant,
-because the seam between "what is true" and "how it's drawn" was drawn in the
-right place on Day 2 and held.
+**Camera access: real, confirmed working this session — a correction.** An
+earlier pass of this document wrongly claimed "no camera access, sandboxed,
+same as Day 7/8," copied without re-testing. Actually tried, after the
+user pushed back on it: the real camera opens and reads real frames, both
+from Python (`cv2.VideoCapture`) and the browser (headless Chrome's
+`getUserMedia`), separately and **simultaneously** — confirmed directly,
+not assumed. What followed with real hardware: `MOTION_THRESHOLD` retuned
+from real footage (D34), a real bed correctly labeled `bed` through the
+live HUD (screenshot in day9-results.md), real end-to-end latency measured
+(p50 77ms, matching Day 8's synthetic estimate), and architecture (A)
+confirmed rather than assumed. The one item that stayed unresolved with a
+specific, real reason (not a blanket access excuse): τ — see
+`decisions.md` D35 and `day9-results.md` for the full account, including
+three real attempts.
 
-**Demo:** The HUD looks *identical* — and the frame graph underneath it is
-flat while three models run. Then the reveal: detection is running at 8 Hz.
-Nobody watching could tell.
+**What changed from the plan:** the bridge's broadcast rate needed its own
+throttle separate from `main.py`'s existing `DETECT_INTERVAL_S` gate — the
+first version broadcast at capture rate (~26-30Hz) whenever `--no-detect`
+bypassed the detection cadence check, which the plan's "8Hz not 60Hz" rule
+didn't anticipate as a distinct code path. Fixed with a bridge-only
+`last_broadcast_time` throttle; stdout stayed untouched either way.
 
-**Hook:** *"I replaced the entire engine and the interface didn't notice.
-That's what a good seam buys you."*
+**Concept, confirmed rather than just claimed:** the seam between "what is
+true" and "how it's drawn," drawn on Day 2, survived a total engine
+transplant with a measured zero-line diff in `src/hud/`.
 
-**Risk:** WebSocket serialisation overhead at 60 Hz. Push at detection rate
-(8 Hz), interpolate client-side — which is the design anyway, so this risk is
-mostly pre-paid.
+**Demo, shot for real:** a real bed, correctly labeled `bed` (not `dining
+table`) through the live HUD with a real person tracked, real narration
+reacting to real tracks — screenshotted this session (`day9-results.md`).
+The full "detection runs at 8Hz and nobody could tell" reveal (with a
+frame-graph recording) is still unfilmed, but the underlying claim is now
+demoed on real hardware, not just plumbing-verified on synthetic data.
+
+**What Day 10 should know before starting:**
+- **`?engine=1` works end-to-end on real hardware**, confirmed this
+  session: real camera, real bed detection, real end-to-end latency
+  (p50 77ms), real dual-camera-access (architecture (A) confirmed, not
+  assumed), real staleness/engine-death behavior.
+- **`MOTION_THRESHOLD` is now 5.0**, tuned against two real clips (D34) —
+  not carried forward untouched a third time.
+- **τ=70ms is unchanged, and the reason is now specific:** three real
+  burst-screenshot attempts found the motion gate (even at 5.0) doesn't
+  clear for a seated person's localized gestures — it averages motion over
+  the whole downscaled frame, so a hand near a face is too small a
+  fraction to register. T1 never re-ran during any of the three windows,
+  so there was nothing fresh to interpolate toward. **Needs full-body
+  motion** (standing, walking across frame) to actually test — not another
+  camera-access excuse, a specific next step. See day9-results.md.
+- **A process-management gotcha, worth knowing before Day 10 scripts
+  anything against `main.py`:** `uv run python main.py`'s wrapper process
+  does not exec-replace itself — killing the wrapper's PID orphans the real
+  Python process, which keeps holding the WebSocket port. Kill the process
+  group, not the PID `uv run` hands back.
 
 ---
 

@@ -1159,3 +1159,137 @@ the hot path — no cost to T1's 8Hz budget.
 on-device latency (once measured, not benchmarked-elsewhere) unworkable
 even for on-demand use, or the Jetson purchase lands and changes what's
 affordable to run per query.
+
+---
+
+### D34 — `MOTION_THRESHOLD` tuned against real footage, 4.0 → 5.0 (retires D32)
+**Decided:** Day 9, corrected mid-session
+**A mistake, recorded honestly:** the first pass of this entry claimed "no
+camera access this session," copied from Day 7/8's genuinely-true finding
+without re-testing it in this session. That was wrong — `cv2.VideoCapture(0,
+cv2.CAP_AVFOUNDATION)` opened the real camera and read real frames the
+moment it was actually tried. Caught after the user pushed back on it. The
+rest of this entry is the real, corrected work done afterward.
+**What was measured:** two real clips (`engine/clips/`, real camera, this
+machine's room). A 25s passive/ambient sample (nothing deliberately moved):
+raw mean-diff (0–255 scale) min=0.973, p50=1.268, p95=2.951, **max=4.220**,
+mean=1.472 — at the old threshold (4.0), pure sensor/lighting noise alone
+crossed the gate on 0.7% of frames. A 20s sample with real movement in
+frame: min=0.940, p50=1.045, p95=2.484, **max=6.195**, mean=1.345 — mostly
+ambient, with one real motion spike clearing 6. (The first clip file was
+overwritten by a path bug in the one-off recording script before it could
+be committed; the printed distribution from both runs is preserved here and
+in `day9-results.md`, which is the real evidence this decision rests on.)
+**Decision: `MOTION_THRESHOLD` 4.0 → 5.0** (`engine/motion.py`). 5.0 sits
+above the measured real noise ceiling (4.22) with margin, comfortably below
+the one measured real motion sample (6.195). This is a real number from
+real footage — not synthetic, not carried forward untouched a third time.
+**Honest caveat, stated the same way D11/D15/D21's first-guess constants
+were:** one real motion sample is a point, not a distribution — the
+noise-floor evidence here is stronger than the motion-side evidence.
+**Revisit if:** real use shows false-opens from ambient noise/lighting
+flicker even at 5.0, or shows real motion failing to open the gate — either
+direction is real signal this number should move on, not evidence the
+tuning method was wrong.
+
+---
+
+### D35 — Day 9 bridge: `websockets` sync server, thread-per-server not asyncio, throttled to 8Hz independent of capture rate, camera architecture (A) confirmed
+**Decided:** Day 9
+**Transport:** `engine/bridge.py` runs `websockets.sync.server.serve` in a
+background thread, bound to `127.0.0.1` only (checked with `lsof`, not
+assumed — a client `connect()` to `0.0.0.0` "succeeding" is a macOS loopback
+quirk on the *client* side, not evidence the server bound wide). Chosen over
+rewriting `main.py`'s frame loop onto asyncio because the loop is already a
+working synchronous design (D29) and there was no reason to touch it just to
+add a socket — the sync API lets the WebSocket server exist as a bolt-on
+thread instead of a rewrite.
+**Camera ownership: architecture (A), verified, not assumed.**
+day9-prompt.md asked for a first-ten-minutes check of whether this machine
+allows the browser and Python to hold the camera simultaneously — an
+earlier pass of this entry wrongly reported that check as blocked (see
+D34's correction note; same mistake, same fix). Actually run: two
+independent `cv2.VideoCapture` readers opened the same camera index at
+once and both read real frames, and separately, headless Chrome holding a
+live `getUserMedia` stream (`readyState: 'live'`) while a Python process
+read 196 real frames over an overlapping window
+(`scripts/camera-dual-test.mjs`). Both halves of the real question —
+Python-vs-Python and browser-vs-Python — checked directly. (A) is real and
+confirmed on this machine, not a default taken on faith. If a future
+session on different hardware finds macOS refuses simultaneous access, the
+fallback is (B): Python ships JPEG/H.264 frames over the same socket and
+owns the only camera read, at the cost of an encode on the hot path and the
+CPU number the episode depends on.
+**Coordinate contract:** the bridge payload carries `sourceWidth`/
+`sourceHeight` (the engine's own capture resolution) alongside every
+frame's tracks/detections; `useEngineSocket.ts` rescales every bbox into the
+*displayed* video element's resolution (`video.videoWidth`/`videoHeight`) on
+receipt. A resolution mismatch between the two independent camera readers —
+expected under (A), by construction — is absorbed here rather than becoming
+a coordinate bug. Mirroring needed no new logic: the engine's OpenCV capture
+is unmirrored, matching the same "raw video-pixel-space" convention the
+browser's own TF.js detections have always used (D5) — `drawHud.ts`'s
+existing `mirrored: true` flip (built for the browser's own CSS-mirrored
+`<video>`) applies to engine-sourced boxes unchanged, no new mirroring code
+anywhere.
+**Push rate: throttled to `DETECT_HZ` (8Hz), independent of capture rate —
+found broken, then fixed.** The first version broadcast once per captured
+frame, which is fine when detection is on (already gated near 8Hz by
+`main.py`'s existing `DETECT_INTERVAL_S` check) but was measured at
+~26–30Hz with `--no-detect` on, since that flag bypasses the detection
+cadence gate entirely and stdout's own `emit()` has always fired every
+captured frame (Day 7/8 behavior, unchanged). day9-prompt.md is explicit
+the bridge should push at "detection rate, not frame rate" — added a
+second, bridge-only throttle (`last_broadcast_time`) so the WS cadence is
+correct regardless of whether T1 detection is on, off, or bypassed by a
+flag. stdout's `emit()` itself is untouched, still per-capture-frame, so it
+stays byte-compatible with Day 8 (day9-prompt.md's own verification rule).
+**Latest-wins crossing the socket (D29's rule, third layer now — queue,
+then process boundary, now a WebSocket):** `useEngineSocket.ts`'s
+`onmessage` unconditionally overwrites `frameRef.current`. No queue, no
+array — the browser's own event loop delivers one message at a time and
+each one fully replaces the last. This required no additional buffering
+logic to get right; it falls out of a ref-write handler by construction, the
+same way `frameRef` has worked since Day 1 (D3).
+**Staleness: a disconnect after being live degrades to `stale`, not
+`error`.** The first version's `ws.onclose` jumped straight to `error` on
+any close, which meant killing the engine never surfaced the staleness
+banner day9-prompt.md asked for — caught live by
+`scripts/day9-bridge-test.mjs` (`staleVisible: false` on the first run),
+not assumed correct from the code. Fixed with an `everReady` flag: a close
+before the socket was ever `ready` is a real connection failure (`error`,
+the existing curtain-error UI); a close *after* being ready means the
+engine died mid-session, which the app treats as `stale` — the last real
+frame stays on screen, honestly marked old, per the same discipline as
+`UNIDENTIFIED` (D22). Measured: banner appeared 1005ms after a `SIGKILL`
+to the engine process group — inside the ~1s target.
+**A second D29-shaped process-management gotcha, found by the test
+harness, not designed around in advance:** `uv run python main.py`'s
+wrapper process does not exec-replace itself with the Python interpreter on
+this setup — SIGKILLing the wrapper's own PID left `main.py` running,
+still holding the WebSocket port. `scripts/day9-bridge-test.mjs` now spawns
+the engine detached and kills the whole process group
+(`process.kill(-pid, 'SIGKILL')`). Worth carrying into any future script
+that drives `main.py` through `uv run` rather than the bare interpreter.
+**`src/hud/` untouched — zero lines.** `hudState.ts`, `drawHud.ts`, and
+`HudCanvas.tsx` needed no changes; every Day 9 change lives in
+`src/App.tsx` (frame-source switching, staleness banner), `src/App.css`
+(banner styling, reusing the project's existing amber token per D19), and
+the new `src/vision/useEngineSocket.ts`. This is the measured version of
+the seam-held thesis day9-prompt.md names — `git diff --stat -- src/hud/`
+is empty, not asserted.
+**Cost:** one new Python dependency, `websockets` (`engine/pyproject.toml`)
+— chosen for its sync server API specifically to avoid an asyncio rewrite
+of `main.py`'s loop. No new browser dependency; `WebSocket` is a native API.
+**Revisit if:** a future session on different hardware finds (A) doesn't
+hold (simultaneous access denied) — switch to (B) per the note above,
+immediately rather than fighting it, per this project's own house rule
+(D30's MLX-gap precedent). Also revisit the τ value (D15): three real burst-screenshot attempts
+against the live `?engine=1` HUD (real camera, real person) found the
+motion gate — even retuned to 5.0 — doesn't clear for localized desk-
+distance gestures (hand to face, hand through hair), so T1 never re-ran
+during any of the three windows and there was nothing fresh to interpolate
+toward. Full account, including the first attempt's engine-timing miss, in
+day9-results.md. τ is still unchanged at 70ms and still genuinely untested
+— but the reason is now specific (need full-body motion, not a desk
+gesture) rather than "no camera."

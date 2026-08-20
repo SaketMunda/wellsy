@@ -354,6 +354,37 @@ That does not change.
   a transcript, or a line of narration." — unchanged since Day 1, and now
   the load-bearing privacy claim in place of "runs in the browser."
 
+## Claims added Day 9
+
+The retirement block above was written in advance, on Day 7, before the
+engine had a way to actually reach the HUD. Day 9 is where that claim
+stops being aspirational: `?engine=1` makes it real — the HUD renders
+tracks pushed live from `engine/main.py` over a local WebSocket, not from
+the in-browser TF.js model. **The browser-only build is a flag, not the
+default** — load the app with no query param and it's still exactly the
+Day 1–6 architecture, unchanged, for anyone without the Python engine
+running.
+
+- "The interface is a browser tab; the eyes are a local process" (Day 7's
+  claim) is now something a viewer can watch happen: open the network tab,
+  see a WebSocket connection to `127.0.0.1`, see boxes arrive with no
+  camera frame ever encoded or uploaded — the socket carries only numbers
+  (coordinates, labels, scores), never pixels.
+- Checked for drift, per day9-prompt.md's own instruction: no "runs in your
+  browser"-shaped claim crept back in anywhere in this file since Day 7's
+  retirement. The Day 1–6 REAL/NOT-real lists below describe the *browser
+  build specifically* and are labeled as such — they were not silently
+  promoted to describe the whole project.
+- **Now claimable, with a real screenshot to back it:** a real camera in a
+  real room, real detection, `bed` correctly labeled `bed` (not `dining
+  table`, the Day 1–6 confusion this whole arc chased) through the live
+  HUD, `?engine=1`, narration reacting to the real tracks. Real
+  end-to-end camera→pixel latency measured at p50 77ms. See
+  `day9-results.md` for the screenshot and the numbers. **Not yet
+  claimable:** the specific "interpolation looks smooth during fast real
+  motion" claim — the one item this session's real-hardware testing
+  didn't close out (see day9-results.md's τ section for exactly why).
+
 ---
 
 ## What is REAL (claim freely)
