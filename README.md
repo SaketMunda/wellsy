@@ -71,3 +71,24 @@ src/narration/  scene → English + speech timing
 
 This is a 7-day build. Progress, research notes, and the daily narrative live in
 [.claude/](.claude/) — see [week-roadmap.md](.claude/week-roadmap.md).
+
+
+Python engine (real detector, tracking, and the Day 10 query loop)
+
+cd /Users/saketmunda/Work/Startup/projects/yap-hud/engine
+uv run python main.py                    # real camera, runs until Ctrl+C
+Useful flags:
+
+--seconds N — stop after N seconds instead of running forever
+--t3 — turn on the Day 10 query loop (mic, wake phrases "hey yap"/"yappy"/"hey yo", push-to-talk via Enter, TTS through speakers)
+--enable-yo — also accept bare "yo" as a wake word (off by default, see decisions.md D39)
+--synthetic — no real camera needed, exercises the pipeline against a generated frame
+--no-ws — disable the WebSocket bridge, stdout JSONL only
+To see it in the browser HUD with the real engine driving detection:
+
+
+# terminal 1
+cd engine && uv run python main.py --t3
+
+# terminal 2
+cd /Users/saketmunda/Work/Startup/projects/yap-hud && npm run dev

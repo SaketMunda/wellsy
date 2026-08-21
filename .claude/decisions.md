@@ -1293,3 +1293,532 @@ toward. Full account, including the first attempt's engine-timing miss, in
 day9-results.md. τ is still unchanged at 70ms and still genuinely untested
 — but the reason is now specific (need full-body motion, not a desk
 gesture) rather than "no camera."
+
+---
+
+### D34 (amended, Day 10) — τ finally tested against real full-body motion: changed verdict, not yet a changed constant
+**Decided:** Day 10, Part 0.3
+**What Day 9 asked for:** stand up, step back, walk across frame while
+`?engine=1`/`main.py` runs — the one condition that reliably clears the
+motion gate and produces the repeated fresh T1 runs τ actually needs to be
+judged against. Two earlier attempts this session recorded near-zero motion
+(camera pointed away from the person — a real setup mistake, not a finding,
+see day10-results.md). The third attempt, with the person actually in
+frame and genuinely walking, is the real result: **27.7% of frames cleared
+the gate** (vs. Day 9's three desk-gesture attempts, all effectively 0%),
+producing **89 real T1 detection ticks** over 20s.
+**The finding:** consecutive-tick box movement (the same real detections
+τ's exponential lerp has to smooth between) had **mean 55.7px, p95 252.5px,
+max 707.2px**, against a **mean inter-tick gap of 225ms** (not the nominal
+125ms — the gate still closes between motion bursts, one outlier gap
+reached 6.8s while the walker paused). At τ=70ms, the mean-case jump is
+>95% resolved before the next tick arrives (225ms is ~3.2 time constants) —
+interpolation genuinely helps the common case. But the p95/max jumps
+(252–707px) occur *within* a single tick interval on a fast walk, and
+70ms of exponential decay cannot close a 700px gap before the next real
+update lands — the box will visibly lag behind a fast-moving subject for a
+real, non-trivial fraction of that gap.
+**Verdict: changed, with evidence — the assumption underlying τ=70ms (tuned
+against the fake-camera device's churn, D15) does not fully hold under real
+fast full-body motion.** Not retuned this session: the numbers above justify
+lowering τ for fast motion specifically, or adding velocity-aware
+interpolation, but doing that without also re-verifying the *slow*-motion
+case (where 70ms was already known to look right) risks trading one
+visible artifact for another on a session that didn't have time to check
+both. Flagged for Day 11+ with the real per-tick delta distribution now in
+hand instead of a guess.
+**Cost of the walk-test process itself, stated honestly:** two of three
+attempts this session wasted a full 20s recording each because the camera
+wasn't actually pointed at the person walking — not a code or hardware
+problem, purely a coordination miss between the remote session and the
+person physically walking. Worth naming since it's the same shape of
+mistake as Day 9's first τ attempt (engine budget expired before the
+burst), just a different cause.
+
+---
+
+### D36 — A query forces a fresh T1 look, synchronously, before `describeScene` reads anything
+**Decided:** Day 10, Part 0.1 (the blocker)
+**Why:** Day 9's τ investigation found the real bug that makes Day 10's
+demo impossible as originally scripted: the motion gate does not open for
+a seated person's localized gestures, so a person sitting still and asking
+a question hits a T1 that hasn't re-run in seconds — `describeScene` would
+confidently narrate a stale room. **The fix is not to retune
+`MOTION_THRESHOLD`** — lowering it to catch small gestures reopens the
+noise floor D34 measured and throws away the 6–13%-idle-CPU number the
+project is built on. **The fix is that asking a question is itself a
+reason to look**: `PreemptionSeam.request_fresh_look()` (`tiers.py`) blocks
+T3's calling thread until `main.py`'s capture loop runs one synchronous,
+on-demand T1 detection on the *current* frame — regardless of the gate —
+and hands the result back.
+**This is the tier model working exactly as designed, not a workaround:**
+ambient sensing (ongoing T1 on its own 8Hz schedule, gated by T0) stays
+cheap and lazy *because* the query path (T3) can pay for its own freshness
+on the rare occasions it actually needs it. T0 keeps computing every frame
+regardless — "do not gate the gate" — only T1's *own-schedule* detection
+pauses while a query is in flight (see D37 below).
+**Measured, real camera, real detector (`verify_preemption.py`,
+`engine/clips/preemption-verify.jsonl`):** one forced look cost **33.4ms**
+of real inference time (well inside D8/D9's ~30–45ms in-loop estimate),
+delivered to the requesting thread in **71.2ms wall-clock** round trip
+(includes the ~40ms polling granularity of `main.py`'s frame loop, not
+just the inference itself). During the ~2s the seam stayed active
+afterward (simulating TTS speaking the answer), **zero** further
+`inferenceMs` values were produced — ambient sensing genuinely paused, not
+just throttled. Full evidence in day10-results.md row 3/4.
+**Cost:** every describe_scene/query_object answer now pays ~33–70ms it
+didn't pay before, on top of STT/intent/TTS latency — reported plainly in
+the table, not hidden inside a "feels instant" claim. `wake`/`sleep`/`stop`/
+`help`/`unknown` intents skip this entirely (see `query_loop.py`'s
+`handle_command`) since they need no scene data.
+**Revisit if:** a future tier (T2 depth/segmentation, Day 13) needs the
+same forced-look pattern — `PreemptionSeam` already generalizes past the
+one caller Day 10 gives it.
+
+---
+
+### D37 — T3 lives in the engine; `parseIntent`/`describeScene` ported to Python behind one shared fixture
+**Decided:** Day 10, Part 1
+**Why the engine, not the browser:** audio has to be native (mic in,
+speakers out), and the preemption seam and the tracks T3 needs to read are
+already Python (D28's V2 pivot). Routing STT/intent/TTS through a
+WebSocket round trip to the browser and back would add latency to
+precisely the one path where latency is the entire point of the day.
+**`engine/intent.py`** is a direct, line-for-line-equivalent port of
+`src/voice/parseIntent.ts` — same regex patterns, same priority order
+(`stop` checked first, `unknown` never guesses). **`engine/scene.py`**
+likewise ports `describeScene`/`queryObject`, same honesty rule (an
+uncertain track reports as "unidentified," never resolved to a winner).
+**The drift-prevention mechanism asked for:** `spec/intent-cases.json` is
+the single source of truth for every `parseIntent` test case; both
+`src/voice/parseIntent.test.ts` (now just a `for` loop over the JSON) and
+`engine/test_intent.py` (pytest, `@pytest.mark.parametrize` over the same
+JSON) read it. All 20 cases pass in both languages — verified by actually
+running both suites this session (`npm run test`, `uv run pytest`), not
+assumed from the port being "obviously equivalent." `describeScene`'s
+cases were ported natively into `engine/test_scene.py` instead of a shared
+fixture — the brief only asked for intent cases to be shared, and
+`describeScene`'s test helper (`track(...)`) is TS-shaped enough that
+forcing it through JSON would cost more than it prevents.
+**The TS originals are frozen as legacy**, per the day's own instruction —
+they keep working for browser-only mode (`src/voice/`, `src/narration/`
+untouched otherwise) but are no longer where new intent/scene logic gets
+written.
+**Cost:** two implementations of the same logic to keep in sync by hand
+for anything that isn't a case in the shared spec (e.g. a new regex
+pattern needs editing in both `parseIntent.ts` and `intent.py`) — accepted,
+since the alternative (one canonical implementation called over a socket)
+was ruled out for the latency reason above.
+**Revisit if:** the two implementations are ever caught disagreeing on a
+transcript *not* in `spec/intent-cases.json` — add it as a new case
+immediately rather than patching one side.
+
+---
+
+### D38 — Silence is the default: ambient narration is now an explicit opt-in, not the product's baseline
+**Decided:** Day 10, Part 2
+**Why, stated as a product decision and not a config change:** Days 1–6
+built a system that narrates constantly, on the theory that a HUD should
+always be talking about what it sees. Six days of that work is what
+*taught* the project the opposite lesson — `day7-baseline.md`'s CPU-floor
+finding (D28) and the τ/motion-gate investigation both point at the same
+root cause: doing maximum work, including maximum *talking*, whether or
+not anyone needs the answer. Day 10 flips the default: **YAP speaks in
+exactly three cases — asked (T3), a rule fires (not built), or ambient mode
+is explicitly on** (`query_loop.py`'s `ambient_enabled`, `False` by
+default, set `True` only by the `wake` intent — mirroring the browser
+build's original D6/D26 wake/sleep semantics, now scoped to a mode instead
+of the entire narrator).
+**`engine/ambient.py`** is the new engine-side ambient narrator, and it is
+deliberately the smallest thing that could satisfy "ambient mode, when on,
+still narrates something real": track-id-diffing appear/disappear lines,
+rate-limited to one per 4s, gated on `ambient_enabled` and on the
+preemption seam being idle (ambient stays quiet while T3 has the floor).
+It is **not** a port of `events.ts`/`generateLine.ts`/`templates.ts`'s
+authored joke-line bank or salience ranking — out of scope for a day whose
+point is that this mode is off, not that it's eloquent. The bridge's
+broadcast payload now carries `ambientEnabled` so the HUD can show whether
+YAP could currently speak unprompted; **the actual browser-side visual
+indicator was cut for time this session** — see "what was cut" in
+day10-results.md.
+**Cost:** the honest one — six days of narration-engine work (D6, D12, D13,
+D21, D22's templates/events/LLM-line machinery) becomes a mode nobody turns
+on by default. That's not a regression; it's what "on-demand" actually
+costs, stated plainly rather than buried in a config default.
+
+---
+
+### D39 — Wake phrases: transcribe-then-match, not a trained keyword spotter; real numbers, real collision found live
+**Decided:** Day 10, Part 3
+**How it's built:** `query_loop.py`'s `_wake_thread` keeps a rolling
+~1.5s audio window (VAD-gated — never runs STT on silence, the audio-side
+mirror of `motion.py`'s vision-side T0), transcribes it with the same
+`Stt` instance T3 uses for commands, and fuzzy-matches (`difflib`,
+word-window sliding, threshold 0.72) against `engine/wake_phrases.txt` —
+hot-reloaded on mtime change, same pattern as `prompts.txt`. **This is not
+a trained keyword spotter and the report says so on camera**; a real one
+(openWakeWord) would need synthetic-speech data generation plus a training
+run for a custom phrase like "Yappy" — hours, not this session's budget —
+and stays the documented upgrade path.
+**VAD is an energy gate, not Silero.** `webrtcvad` (the other "small, CPU"
+option named in the brief) is unmaintained and its wheel imports
+`pkg_resources`, which current `setuptools` no longer ships on Python
+3.13 — confirmed broken in this environment before being ruled out, not
+assumed. `engine/vad.py`'s adaptive-noise-floor RMS gate is the same
+*shape* of solution as `motion.py` (a cheap statistic against a floor, no
+model, no extra weights) and needed no network fetch.
+**TTS deviates from the brief's Kokoro/Piper suggestion — macOS `say`,
+documented in `engine/tts.py`'s own module docstring.** Day 10's hardest,
+most-overdue requirement was "audio confirmed audible on real speakers by
+a human" (open since Day 1/D13). `say` cannot fail to produce audio the
+way a freshly-wired ONNX/PyTorch TTS stack still might — and **that risk
+is not hypothetical**: D13's own Kokoro-in-the-browser saga is exactly this
+kind of stack failing to ship working audio for an entire session. `say`
+also made "stop interrupts mid-word" trivial (SIGTERM on the subprocess).
+Piper (`pip install piper-tts`, real local neural voices) is the named
+upgrade path once voice quality matters more than the audibility gap it
+closed today.
+**Confirmed audible, by a human, for real** (day10-prompt.md's nine-day-old
+open item): `say -v Samantha` played through the room's default output
+(an HT-S20R soundbar, found powered off on the first attempt — a real,
+if mundane, part of the verification) and was confirmed heard on retry.
+This is the first time in the project's history this has been checked by
+a person listening rather than an exit code.
+**A real, live collision found and not tuned around:** during a live test
+session, "hey yap"/"yappy" repeatedly transcribed as "app"/"App." —
+Moonshine hears "yap" as the much more common word "app." One full success
+was also captured live: wake match on "hey yo" (0.77 ratio) correctly
+triggered a real query — `"What do you see?" -> describe_scene -> "two
+things: a person and a glasses."` in **119.1ms** end to end. The
+"yap"/"app" collision is a genuine finding, not a tuning failure — a
+short, low-information-content syllable colliding with a common English
+word is exactly the failure mode this file's own header warns bare "yo"
+would have, discovered for "yap" instead. **Decision: keep "hey yap" /
+"yappy" / "hey yo" as the current default phrase list** (they still work —
+"hey yo" succeeded live) **but flag the collision plainly and carry a
+wake-word rename as open, owner's call, for Day 11.** `wake_phrases.txt`
+being hot-reloadable, one-line-per-phrase means whatever replacement is
+chosen costs one line to ship, not a code change.
+**Bare "yo" ships behind `--enable-yo`, off by default** — see
+`wake_phrases.txt`'s header for the phonetic-collision reasoning
+(`day10-prompt.md`'s own argument, unchanged): a ~150ms single syllable
+inside "you"/"your"/"yeah"/"YouTube" can't be made both sensitive and
+precise. Not measured against the full 10-minute/20-utterance acceptance
+bar this session — see day10-results.md for what was and wasn't run to
+that bar, and why.
+**The feedback trap (day10-prompt.md Part 3):** wake matching is
+suppressed while `QueryLoop._speaking()` is true (YAP can't wake itself up
+hearing its own voice), but this only gates the wake-listener thread —
+push-to-talk (`_ptt_thread`) is a separate thread reading stdin and is
+never gated by TTS playback, so "stop" always works mid-word by design,
+not by accident.
+
+---
+
+### D39 (amended) — Three real bugs found from live usage, immediately post-ship
+**Decided:** Day 10, same session, after the project owner tried it live
+and reported it back as genuinely not good enough — correctly.
+**Bug 1, the big one: `_wake_thread` was transcribing on every ~30ms
+VAD-positive frame, not once per phrase.** While someone spoke even a
+short sentence, that's dozens of overlapping `moonshine.transcribe()`
+calls fighting the detector for CPU on every frame — not a tuning issue,
+a straightforward logic bug (there was no debounce at all). This is the
+actual root cause of "it responded so late the frame had changed": the
+STT thread was busy re-transcribing itself throughout the entire time
+someone was talking, not waiting on them once. **Fixed:** transcription
+now only fires on a phrase boundary (continuous speech, then
+`WAKE_PHRASE_PAUSE_SECONDS` of quiet) plus a hard
+`WAKE_TRANSCRIBE_COOLDOWN_SECONDS` backstop — one transcribe call per
+utterance, not per frame.
+**Bug 2, a likely contributor to bug 3: two simultaneous `sd.InputStream`s
+on the same input device.** The post-wake command recording
+(`_record_utterance`) opened its *own* `InputStream` while the wake
+thread's own `InputStream` (the one that had just detected the wake
+phrase) was still open around it — nested, nested, on the same default
+device. `_record_utterance` now accepts an already-open `stream` and reads
+from it directly for both the post-wake and in-conversation paths, so
+exactly one stream is open at a time for those call sites. (Push-to-talk's
+`_record_utterance()` still opens its own — it always runs concurrently
+with the wake thread's stream regardless, and narrowing that down wasn't
+this session's priority.)
+**Bug 3 (really a symptom of bugs 1/2, not separately fixed): "do you see
+a cellphone" got answered as if `describe_scene` had been asked.** Given
+bug 1's overlapping transcribe calls and bug 2's stream contention, a real
+question getting mangled into something that pattern-matches as
+`describe_scene` instead of `query_object` is exactly what garbled,
+partial STT output produces — `parseIntent` did its job correctly on
+whatever text it was actually given; the text itself was the problem.
+Also switched the STT model default from `moonshine/tiny` to
+`moonshine/base` (`engine/stt.py`) for real accuracy headroom — `tiny`
+consistently misheard "yap" as "app" and is simply too small a model for
+full sentences, not just short wake phrases.
+**Missing feature, not a bug, also raised live: no "stay awake" window.**
+Every question required repeating "hey yap." Added
+`QueryLoop.in_conversation` (a rolling `CONVERSATION_WINDOW_SECONDS = 10s`
+deadline, extended after every handled command except `stop`/`sleep`) —
+while active, the wake thread skips the wake-phrase match entirely and
+records a follow-up the moment speech starts, using
+`_record_utterance`'s own proper silence-tail logic rather than the fixed
+1.5s wake-detection window (a real question can run longer than that).
+**None of these three fixes were verified against real human speech by
+this agent** — the same mic-permission-per-process constraint from
+Part 0.2 still applies (this session's own process can't get clean mic
+audio; every real test has to run from Terminal.app). Verification is a
+live retest, not a claim made from code review alone.
+**Revisit if:** the fixes don't hold up under a real retest — if
+transcription is still slow/garbled, the next suspect is
+`WAKE_TRANSCRIBE_COOLDOWN_SECONDS`/`WAKE_PHRASE_PAUSE_SECONDS` (both
+first-guess constants, same caveat as every other timing constant in this
+project) or the `base` model still not being accurate enough, in which
+case `moonshine/small` (if Moonshine ships one) or a non-Moonshine STT
+becomes the next thing to try.
+
+**Bug 4, found from a crash report, not a description: `--t3` could
+SIGSEGV at shutdown.** A `--synthetic --t3` diagnostic run this session
+crashed with `EXC_BAD_ACCESS` inside `cffi`'s `ffi_call_SYSV`, on a thread
+whose stack showed a PortAudio-style real-time audio callback. Cause: the
+wake-listener thread held an open `sd.InputStream` and was a daemon
+thread — at process shutdown, Python kills daemon threads abruptly rather
+than letting them exit cleanly, so if `Py_Finalize` starts freeing Python
+objects while CoreAudio's callback thread is still mid-callback into one
+of them, that's a use-after-free, not a catchable Python exception.
+**Fixed:** the wake thread is no longer daemon; `QueryLoop.stop()` now
+joins it (3s timeout) so the process waits for its
+`with sd.InputStream(...)` block to actually exit and close the stream
+before the interpreter is allowed to proceed toward finalization.
+Push-to-talk's thread stays daemon (it blocks on `sys.stdin.readline()`,
+which can't be interrupted from another thread the way a frame-at-a-time
+read loop can) — this narrows the crash window to push-to-talk's brief
+active-recording periods rather than eliminating it, an honest remaining
+gap rather than a claimed-complete fix. Verified: a `--synthetic --t3`
+run through its full `--seconds` lifecycle now exits cleanly (exit code
+0, no crash) — not yet re-verified against a real, longer, real-camera
+`--t3` session.
+
+**Retest result (real mic, real speech, Terminal.app):** all four fixes
+held up. `wakeToAnswerMs`/`followUpMs` dropped from the pre-fix 2500ms+ to
+68-145ms once past the initial recording wait; "hey yo, what do you see"
+correctly found the cell phone once it entered frame
+(`'five things: a person, a cell phone, a chair, a glasses, and a bed.'`,
+92.4ms); the conversation window worked (multiple follow-ups answered with
+no repeated wake phrase); no crash on Ctrl+C. New gap found in the same
+retest: "are you there?" and "thanks" — real conversational phrases, not
+in `parse_intent`'s grammar — both fell to `unknown` ("i didn't understand
+that"), which reads as broken rather than as a deliberately narrow
+grammar. See D40.
+
+### D40 — Real local LLM in the engine, native (MLX), as the fallback for whatever `parse_intent` calls `unknown`
+
+**The question that forced this:** after the D39-amendment retest, the
+user asked directly why the engine was still hand-writing regex for every
+new conversational phrase ("are you there", "thanks") one at a time,
+pointing out this project already has a local LLM (D13: Qwen2.5-0.5B via
+WebLLM) and asking why it wasn't handling this. Fair question — the
+honest answer is that D13's LLM only ever existed in the **browser**
+(WebGPU), and D37 moved T3 into the **Python engine**, a separate process
+with no WebGPU. The engine had zero LLM. Every `unknown` was a hardcoded
+dead end, not a scoped decision to stay dumb forever.
+
+**What did NOT change:** `parse_intent`'s deterministic grammar
+(`stop`/`wake`/`sleep`/`describe_scene`/`query_object`/`help`, plus this
+session's new `presence`/`thanks` patterns) still owns every
+safety/reliability-critical command with zero model in the loop — D6/D25's
+original reasoning stands unchanged: "stop" not actually stopping is a
+correctness bug an LLM must never be allowed to introduce.
+
+**What's new:** `engine/llm.py` wraps `mlx-lm` (Apple's native MLX
+framework — Metal-accelerated, no browser, no Docker, the correct fit for
+running natively on this M4 Pro) loading
+`mlx-community/Qwen2.5-0.5B-Instruct-4bit` — same model family and size
+D13 already vetted for tone/safety, different runtime. Wired into
+`QueryLoop.handle_command`'s `unknown` branch only: whatever
+`parse_intent` doesn't recognize now gets a real generated reply instead
+of a canned "i didn't understand that" (which still exists as the
+fallback if `llm=None`, e.g. running without `--t3`'s full setup).
+
+**Real measured numbers, this session, this machine (no cloud, nothing
+estimated):**
+- Cold load (`mlx_lm.load`, model already cached locally): **3074.2ms**
+- Per-query, warm, via `Llm.respond()` directly: 196.8ms, 153.2ms, 153.5ms
+  across three different questions — one outlier at 1436.2ms on the very
+  first call after load (plausibly first-call Metal kernel compilation;
+  not re-measured in isolation this session)
+- Same three calls routed through `QueryLoop.handle_command`'s `unknown`
+  branch (includes `parse_intent` + `_speak` dispatch overhead, not just
+  raw generation): 262.0ms and 263.8ms — consistent with the warm
+  standalone numbers, confirming the wiring adds negligible overhead
+- Sample real answers: `"what should I have for lunch?"` →
+  *"I'm sorry, I don't have a meal plan or specific dietary requirements.
+  My camera feed can tell you what I'm wearing today."*; `"random
+  open-ended chatter"` → *"I'm here to listen, but I don't have the
+  ability to provide commentary on live streams."* — on-persona, not
+  hallucinating a command, exactly the intended behavior
+
+**Not yet done, an honest gap:** this was verified with a fake STT
+(canned transcripts fed directly to `handle_command`), not a real spoken
+question through the full wake-thread → STT → LLM → TTS path — that
+retest is still owed, same as every other audio-path claim in this
+project, because this agent's own process cannot get real mic audio
+(Part 0.2's permission-scoping finding, unchanged). The 0.5B model is
+also the *smallest* Qwen2.5 instruct size, same house rule as D13/stt.py's
+model picks — if answers come back too generic or occasionally off-tone
+in real use, `Qwen2.5-1.5B-Instruct-4bit` is the documented next step up,
+not a redesign.
+
+**Cost:** a new dependency (`mlx-lm`, pulled into `engine/pyproject.toml`)
+and a new model download (~300-400MB, cached under the same
+`~/.cache/yap-engine/weights` exception as STT/detector weights via
+`HF_HOME`) — the first real new weights added since D30's cache boundary
+was drawn, justified the same way D30 always allowed: a new capability,
+not scope creep.
+
+**Amendment — real retest found the LLM was ungrounded, fixed same
+session:** first real-speech retest (Terminal.app, real mic) confirmed no
+crash and the wake/conversation/routing fixes from the D39 amendment all
+held. But "can you describe the room?" got answered with fluent, entirely
+invented decor — *"a cozy and comfortable place with a modern and stylish
+decor... walls adorned with artwork"* — none of it real; the actual scene
+moments earlier was a person, cell phone, chair, glasses, bed.
+Root cause: `Llm.respond()` never received `tracks` — nothing grounded
+it in what the detector actually sees, so any scene-shaped question got a
+plausible hallucination instead. A related, not-yet-fixed gap the same
+retest surfaced: zero conversation memory (each call is a stateless
+single turn), so a follow-up reacting to a previous answer got a confused
+non-sequitur back.
+
+**Fixed the grounding gap:** `handle_command`'s `unknown` branch now runs
+the same forced-fresh-look (`preemption.request()` /
+`request_fresh_look()`) describe_scene/query_object already use, builds a
+`describe_scene(tracks)` string, and passes it into `Llm.respond(transcript,
+scene=...)` as system context — "unknown" gets the same freshness
+guarantee as an explicit command, not a stale or absent one.
+`SYSTEM_PROMPT` also now tells the model plainly it has no memory of
+earlier turns, so it says so instead of guessing at follow-ups
+(the memory gap itself is NOT fixed — a real fix needs turn history
+passed into every call, not attempted this session).
+
+**Verified (synthetic tracks, not yet real camera + real speech):** same
+transcript "can you describe the room?" against fake `[person, chair,
+bed]` tracks now answers *"The room appears to be a small, cozy space
+with a person sitting on a chair and a bed."* — grounded, matches the fed
+tracks, `freshLookMs` ~10ms (negligible added cost). Not yet re-verified
+against a real camera + real spoken question — same owed retest as
+everything else audio-path in this project.
+
+**Second amendment — grounding fixed wrong objects, not invented details,
+found on the very next real retest:** "Hey Yap, describe the room" (real
+mic, real camera) correctly named the real objects but added
+*"a person standing by it"* — the user was sitting. Root cause: `tracks`
+carries labels/counts only, never posture/action/color/decor — there is
+no pose signal anywhere in this pipeline (YOLOE gives boxes + labels,
+nothing else). The LLM wasn't wrong about grounding, it was doing what
+small instruct models do when asked to "describe": filling in plausible
+flavor text beyond the facts it was actually given.
+
+First fix attempt — a plain prose instruction added to `SYSTEM_PROMPT`
+("never invent details beyond that list") — **did not work**, tested
+against synthetic `[person, chair]` tracks: it kept inventing "a cozy
+living room," "a book in hand," "a laptop," "a couch," "a tall armchair."
+Qwen2.5-0.5B is too small to reliably obey a negative prohibition stated
+as prose — a known weakness of tiny instruct models, not a prompt-wording
+mistake to iterate on.
+
+**What worked:** a single worked few-shot example in the message list
+(`llm.py`'s `FEW_SHOT` — one user/assistant turn demonstrating exactly
+"see these objects, say only these objects") instead of a rule. Small
+models follow a demonstrated pattern far more reliably than a stated
+constraint. Retested against the same synthetic `[person, chair]` tracks
+across three phrasings — "describe the room" / "can you describe the
+room?" / "what do you think of this room?" — all three now stay grounded
+("I see a person and a chair -- that's all I can make out.", "I think
+this room has a person and a chair.") with no invented furniture or
+posture. A fourth, unrelated check ("tell me a joke") still comes back
+weak/degenerate ("Why not tell me a joke?") — an honest remaining
+limitation of a 0.5B model on genuinely open-ended non-scene chat, not
+something this fix targets or claims to fix.
+
+**Not yet done:** re-verified only against synthetic tracks, not yet a
+real camera + real spoken "describe the room" asking the user to check
+whether "standing" (or any other invented posture) is gone for real.
+
+**Third amendment — the 0.5B model itself was the ceiling; swapped MLX +
+Qwen2.5-0.5B for Ollama + qwen2.5:7b:** the very next real retest hit a
+different, worse failure: "what am I holding?" against a scene with only
+[person, chair] answered "I'm holding a person" — confidently wrong, and
+not fixable by more prompt engineering, because the facts given were
+already correct; the model just connected them incoherently. That's a
+genuine reasoning-capacity ceiling of a 0.5B model, not a grounding gap.
+
+User pushed back hard on relying on MLX for this, citing real prior
+experience: Ollama + a 7B-class Qwen model running "almost realtime" in
+another project on this same machine. Checked rather than assumed:
+`ollama list` showed `qwen2.5:7b` (4.7GB) already pulled, no download
+needed. User also proposed Docker — rejected and explained why, not just
+overridden: Docker Desktop on macOS runs Linux containers in a VM with no
+Metal/GPU passthrough (a 7B model would run on CPU-emulated Linux, not
+fast) and no clean camera/mic passthrough into a container (macOS
+AVFoundation/CoreAudio don't cross that boundary) — this project already
+committed to no-Docker, native-only for exactly these reasons (D13).
+Ollama itself is not Docker: it's a native macOS binary already using
+Metal via llama.cpp, so switching to it costs nothing this project needs.
+
+**Measured before switching (not assumed):** `qwen2.5:7b` via Ollama's
+local HTTP API, default temperature, answered the same "what am I
+holding?" question correctly once ("The camera doesn't show you holding
+anything") but wrongly on a third repeat ("You are holding a person") --
+same failure mode, just less frequent (2/3 vs 0/3 for the 0.5B/MLX path).
+Lowering `temperature` to 0.2 made answers consistent but consistently
+*wrong* ("You are holding a camera," invented, 5/5) -- confirming
+temperature alone doesn't fix grounding on this model either. Adding the
+same few-shot worked-example technique that fixed the 0.5B model's decor
+hallucination, combined with temperature 0.2, gave 5/5 correct, honest
+answers ("I cannot see what you are holding") with no hallucination.
+
+**Swapped:** `engine/llm.py` now talks to a local Ollama server (`ollama
+serve`, the user's existing setup, not started or managed by this
+project) over stdlib `urllib` -- no new dependency for the HTTP call.
+`mlx-lm` was removed from `engine/pyproject.toml` entirely (replaced, not
+kept alongside). `Llm.__init__` now pings Ollama's `/api/version` and
+raises immediately with a clear message if the server isn't running,
+rather than failing confusingly on the first real query.
+`main.py`'s setup log changed from "loading LLM..." to "checking
+Ollama..." since there's no model load in this process anymore --
+Ollama's own process owns that.
+
+**Real measured latency, this session, this machine, warm (no cloud):**
+388-694ms per query through the full `QueryLoop.handle_command` path
+(includes `parse_intent` + fresh-look + LLM call + `_speak` dispatch) --
+noticeably higher than the 0.5B/MLX path's 250-330ms, still well under a
+second, judged an acceptable trade for materially more reliable
+reasoning. Synthetic smoke test (fake tracks, no real camera/mic) showed
+zero hallucination across "what am I holding?" / "describe the room" /
+"tell me a joke" -- the joke was also qualitatively better than the
+0.5B model's. **Not yet verified against real camera + real spoken
+question** -- same owed retest as everything else audio-path in this
+project.
+
+**Real camera + real speech retest, done same session:** no crash,
+conversation window intact, and grounded answers held for clear cases
+("I see a person and a cell phone" matched real detected tracks). Four
+real gaps surfaced, left open rather than chased further -- the user
+explicitly asked to fine-tune "progressively," not all in one session:
+
+1. **Latency variance:** one `llmMs` spiked to 3040ms (vs. the usual
+   250-400ms), stretching that exchange's `wakeToAnswerMs` to 7211ms.
+   Likely Ollama evicting the model from memory between calls and
+   reloading it warm again -- a keep-alive setting is the probable fix,
+   not yet investigated.
+2. **Posture invention still happens outside the few-shot's exact
+   shape:** "what am I doing right now?" answered "You're standing next
+   to the chair" -- invented, same class of error the few-shot fixed for
+   "describe the room"-shaped questions specifically. The fix does not
+   generalize to every phrasing that could imply posture/action.
+3. **"You're holding glasses"** -- plausibly the detector's still-unresolved
+   "glasses" false-positive (see the still-outstanding `detect-log.jsonl`
+   diagnostic, requested but never captured) flowing through a now-correctly-
+   grounded LLM. If so, the LLM isn't at fault here -- `tracks` was.
+4. **STT word-order garbling** ("What I am holding" instead of "what am I
+   holding") sometimes trips the model into a harmless "I didn't catch
+   that, could you repeat?" rather than answering wrong -- a softer
+   failure than before, still friction, root cause is STT accuracy, not
+   this session's LLM work.

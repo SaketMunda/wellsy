@@ -17,15 +17,24 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from collections import deque
 from multiprocessing import Event, Process, Queue
 from pathlib import Path
 
+# Redirect STT's HF Hub weights cache into the single recorded cache
+# exception (~/.cache/yap-engine/weights, D30) before anything imports
+# moonshine_onnx — day10-prompt.md's boundary rule says this cache dir
+# "does not get extended today," which means new model caches route through
+# it, not that no new caches may exist.
+os.environ.setdefault("HF_HOME", str(Path.home() / ".cache" / "yap-engine" / "weights" / "hf"))
+
 from bridge import Bridge
 from capture import capture_worker
 from motion import motion_gate, to_gate_gray
+from tiers import PreemptionSeam
 
 # How much history the gated-fraction readout (stderr) is computed over.
 STATS_WINDOW_SECONDS = 60
@@ -85,6 +94,8 @@ def run_camera(
     detect: bool,
     synthetic_intermittent: bool = False,
     ws_port: int | None = 8765,
+    enable_t3: bool = False,
+    enable_yo: bool = False,
 ) -> None:
     frame_queue: Queue = Queue(maxsize=1)
     stop_event = Event()
@@ -116,6 +127,36 @@ def run_camera(
         detector.set_prompts(model, prompts)
         tracker = Tracker(frame_rate=int(DETECT_HZ))
         print(f"[setup] detector ready in {time.monotonic() - t0:.1f}s, prompts={prompts}", file=sys.stderr, flush=True)
+
+    preemption = PreemptionSeam()
+    query_loop = None
+    if enable_t3:
+        if not detect:
+            print("[warn] --t3 requires detection; ignoring (pass without --no-detect)", file=sys.stderr, flush=True)
+        else:
+            print("[setup] loading STT...", file=sys.stderr, flush=True)
+            t0 = time.monotonic()
+            from query_loop import QueryLoop
+            from stt import Stt
+
+            stt = Stt()
+            print(f"[setup] STT ready in {time.monotonic() - t0:.1f}s", file=sys.stderr, flush=True)
+
+            print("[setup] checking Ollama...", file=sys.stderr, flush=True)
+            t0 = time.monotonic()
+            from llm import Llm
+
+            llm = Llm()
+            print(f"[setup] Ollama reachable, using {llm._model_name} ({time.monotonic() - t0:.1f}s)", file=sys.stderr, flush=True)
+
+            query_loop = QueryLoop(preemption, stt, llm=llm, enable_yo=enable_yo)
+            query_loop.start()
+
+    ambient = None
+    if query_loop is not None:
+        from ambient import AmbientNarrator
+
+        ambient = AmbientNarrator(query_loop)
 
     prev_gray = None
     stats: deque[tuple[float, bool]] = deque()
@@ -161,12 +202,12 @@ def run_camera(
 
             inference_ms = None
             if detect:
-                held_open = last_motion_time is not None and (now - last_motion_time) < MOTION_HOLD_SECONDS
-                t1_active = (not gated) or held_open or not bootstrapped
-                due = (now - last_detect_time) >= DETECT_INTERVAL_S
-
-                if t1_active and due:
-                    bootstrapped = True
+                # day10-prompt.md Part 0.1: a query forces a fresh T1 look,
+                # synchronously, before describeScene reads anything —
+                # regardless of the motion gate. This runs even while T3
+                # has preempted ambient sensing below, because it's the
+                # forced look T3 is specifically waiting on.
+                if preemption.poll_force_request():
                     if prompts_mtime is not None and PROMPTS_PATH.exists():
                         mtime = PROMPTS_PATH.stat().st_mtime
                         if mtime != prompts_mtime:
@@ -174,16 +215,47 @@ def run_camera(
                             detector.set_prompts(model, prompts)
                             prompts_mtime = mtime
                             print(f"[prompts] reloaded: {prompts}", file=sys.stderr, flush=True)
-
                     ti = time.monotonic()
                     last_detections = detector.predict(model, frame)
                     last_tracks = tracker.update(last_detections, now=t_wall)
                     inference_ms = (time.monotonic() - ti) * 1000
                     last_detect_time = now
-                # else: T1 didn't run this frame — last_tracks/last_detections
-                # from the previous run are re-emitted below, on purpose. A
-                # still room must keep showing what was last seen, not go
-                # empty (day8-prompt.md's explicit correctness trap).
+                    bootstrapped = True
+                    preemption.deliver_fresh_look(last_tracks, inference_ms)
+
+                # T3 preempts T1 (day10-prompt.md Part 1): while a query is
+                # in flight, ambient sensing's own-schedule detection pauses
+                # entirely — the JSONL should show no new inferenceMs values
+                # here for the duration of the query except the forced one
+                # above. T0 (the gate computed above, every frame
+                # regardless) is unaffected — "do not gate the gate."
+                elif not preemption.active:
+                    held_open = last_motion_time is not None and (now - last_motion_time) < MOTION_HOLD_SECONDS
+                    t1_active = (not gated) or held_open or not bootstrapped
+                    due = (now - last_detect_time) >= DETECT_INTERVAL_S
+
+                    if t1_active and due:
+                        bootstrapped = True
+                        if prompts_mtime is not None and PROMPTS_PATH.exists():
+                            mtime = PROMPTS_PATH.stat().st_mtime
+                            if mtime != prompts_mtime:
+                                prompts = detector.load_prompts(PROMPTS_PATH)
+                                detector.set_prompts(model, prompts)
+                                prompts_mtime = mtime
+                                print(f"[prompts] reloaded: {prompts}", file=sys.stderr, flush=True)
+
+                        ti = time.monotonic()
+                        last_detections = detector.predict(model, frame)
+                        last_tracks = tracker.update(last_detections, now=t_wall)
+                        inference_ms = (time.monotonic() - ti) * 1000
+                        last_detect_time = now
+                    # else: T1 didn't run this frame — last_tracks/last_detections
+                    # from the previous run are re-emitted below, on purpose. A
+                    # still room must keep showing what was last seen, not go
+                    # empty (day8-prompt.md's explicit correctness trap).
+
+            if ambient is not None:
+                ambient.update(last_tracks)
 
             emit(t_wall, motion, gated, capture_ms, gate_ms, last_tracks, last_detections, inference_ms, stats)
 
@@ -206,6 +278,16 @@ def run_camera(
                     "inferenceMs": round(inference_ms, 2) if inference_ms is not None else None,
                     "sourceWidth": frame.shape[1],
                     "sourceHeight": frame.shape[0],
+                    # Part 2 (decisions.md D38): silence is the default —
+                    # the HUD must be able to show whether ambient
+                    # narration could speak unprompted right now.
+                    "ambientEnabled": query_loop.ambient_enabled if query_loop is not None else False,
+                    # decisions.md D40's ecosystem follow-up: T3's voice
+                    # loop (mic, STT, LLM, TTS) runs entirely in this
+                    # process with zero visibility in the browser — this
+                    # is what lets the HUD show captions for what's
+                    # actually being said, instead of nothing.
+                    "voice": query_loop.last_exchange if query_loop is not None else None,
                 })
     except KeyboardInterrupt:
         pass
@@ -216,6 +298,8 @@ def run_camera(
             proc.terminate()
         if bridge is not None:
             bridge.close()
+        if query_loop is not None:
+            query_loop.stop()
 
 
 def main() -> None:
@@ -231,6 +315,8 @@ def main() -> None:
     )
     parser.add_argument("--ws-port", type=int, default=8765, help="WebSocket bridge port, localhost only (day9-prompt.md)")
     parser.add_argument("--no-ws", action="store_true", help="disable the WebSocket bridge — stdout JSONL only, Day 8 behavior")
+    parser.add_argument("--t3", action="store_true", help="enable the Day 10 query loop: mic, wake phrase, push-to-talk, TTS (day10-prompt.md)")
+    parser.add_argument("--enable-yo", action="store_true", help="add bare 'yo' to the wake phrase list, off by default per decisions.md D39")
     args = parser.parse_args()
     run_camera(
         args.seconds,
@@ -239,6 +325,8 @@ def main() -> None:
         detect=not args.no_detect,
         synthetic_intermittent=args.synthetic_intermittent,
         ws_port=None if args.no_ws else args.ws_port,
+        enable_t3=args.t3,
+        enable_yo=args.enable_yo,
     )
 
 

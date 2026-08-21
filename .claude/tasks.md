@@ -482,14 +482,72 @@ with real hardware, not synthetic substitutes.
       confirm the visual half.
 - [ ] **Film Day 3's track-id-persistence clip** — still owed since Day 3
       (didn't fit in this session's remaining time)
-- [ ] **τ=70ms verdict against real fast motion** — three real attempts
-      this session found the motion gate doesn't clear for a seated
-      person's localized gestures, so T1 never re-ran and there was
-      nothing to interpolate toward. Needs full-body motion (standing,
-      walking across frame) specifically — see day9-results.md
+- [x] **τ=70ms verdict against real fast motion** — Day 10 ran the real
+      walk test (third attempt, after two coordination misses). Verdict:
+      changed, with evidence, not yet retuned — see day10-results.md and
+      decisions.md D34 (amended).
+
+## Day 10 (V2) — the query loop shipped, real gaps carried forward
+See day10-results.md for the full table and decisions.md D34/D36-D39.
+- [x] `PreemptionSeam` wired to a real caller — forced-fresh-T1 proven
+      against real camera + real detector (`verify_preemption.py`)
+- [x] `engine/intent.py` + `engine/scene.py` — Python ports of
+      `parseIntent`/`describeScene`, shared fixture (`spec/intent-cases.json`)
+      passing in both `npm run test` and `uv run pytest`
+- [x] `engine/query_loop.py` — the real T3 loop, one real end-to-end
+      success captured live (`clips/t3-live-test-1.txt`)
+- [x] Ambient narration off by default (`engine/ambient.py`, D38)
+- [x] Wake phrases via transcribe-then-match (`wake_phrases.txt`, D39)
+- [x] Audio confirmed audible by a human, finally — nine days open, closed
+- [ ] **Wake-phrase acceptance bar** (10 min false-accept window, 20-
+      utterance false-reject count) — not run to the full protocol, only a
+      handful of live utterances tried
+- [ ] **Wake word rename** — "yap" reliably mis-transcribes as "app"
+      (live-confirmed); replacement deferred to the owner's judgment
+- [ ] **Full wake/press → first-spoken-word latency** — breakdown logging
+      shipped but not exercised in a clean run; do this first in Day 11
+- [ ] **Mic-contention dual-open test** (Chrome + Python simultaneously),
+      the audio equivalent of `camera-dual-test.mjs` — not run
+- [ ] `debug_window.py` on-screen confirmation — still not confirmed,
+      carried forward from Day 9 unchanged
+- [ ] Owed shots (live HUD screenshot into `.claude/day10-images/`, the
+      microphone-in-frame shot) — cut for time
+- [ ] Browser-side ambient-mode HUD indicator — the bridge sends
+      `ambientEnabled`, nothing in `src/hud/` reads it yet
 - [ ] Re-run `scripts/bench.mjs` (browser-only scenarios) to confirm no
       regression from the `?engine=1` wiring — code-reviewed as a no-op when
       the flag is absent, not re-run through the full harness this session
+
+## Day 10 (V3) — real local LLM fallback added, real gaps found progressively
+See decisions.md D40 and its three amendments for the full story.
+- [x] `parse_intent` gained `presence`/`thanks` patterns — real
+      conversational filler was falling to a canned "I didn't understand"
+- [x] `engine/llm.py` — real local LLM fallback for whatever `parse_intent`
+      calls `unknown`, routed through Ollama (`qwen2.5:7b`, already pulled),
+      not MLX — swapped after the 0.5B/MLX model hit a genuine reasoning
+      ceiling ("I'm holding a person") no prompt fix could clear
+- [x] LLM answers grounded in the real current scene (forced fresh look +
+      `describe_scene(tracks)` passed as context) — fixed fully-invented
+      decor/furniture answers
+- [x] Few-shot worked-example + `temperature=0.2` — fixed the "still invents
+      details even when told not to" failure a prose instruction alone
+      couldn't fix, verified 5/5 on both models before/after
+- [ ] **Ollama latency spike** — one real call took 3040ms vs. the usual
+      250-400ms, plausibly a model-eviction/reload; a `keep_alive` setting
+      is the likely fix, not yet tried
+- [ ] **Posture/action invention outside the few-shot's shape** — "what am
+      I doing right now?" still answered "you're standing next to the
+      chair"; the few-shot generalizes to "describe X"-shaped questions,
+      not to every phrasing that could imply posture
+- [ ] **"Glasses" false-positive still unconfirmed** — a real retest saw
+      "you're holding glasses" with no glasses in frame; plausibly the
+      detector (not the LLM), but the diagnostic capture
+      (`clips/detect-log.jsonl`, real per-detection confidence scores) was
+      requested but never actually captured — do this first before touching
+      `UNCERTAIN_CONFIDENCE` or `prompts.txt`
+- [ ] STT occasionally garbles word order ("what I am holding" instead of
+      "what am I holding"), sometimes tripping a harmless "I didn't catch
+      that" — root cause is Moonshine accuracy, not the LLM layer
 
 ## Known issues
 - Narration timing values (`STABLE_MS`, `min_seconds_between_lines`) still need

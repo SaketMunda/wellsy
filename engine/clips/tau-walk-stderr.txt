@@ -1,0 +1,23 @@
+2026-08-21 10:05:24.149 Python[4900:55181] WARNING: AVCaptureDeviceTypeExternal is deprecated for Continuity Cameras. Please use AVCaptureDeviceTypeContinuityCamera and add NSCameraUseContinuityCameraDeviceType to your Info.plist.
+objc[4898]: Class AVFFrameReceiver is implemented in both /Users/saketmunda/Work/Startup/projects/yap-hud/engine/.venv/lib/python3.13/site-packages/cv2/.dylibs/libavdevice.61.3.100.dylib (0x102c103a8) and /Users/saketmunda/Work/Startup/projects/yap-hud/engine/.venv/lib/python3.13/site-packages/av/.dylibs/libavdevice.62.3.102.dylib (0x10f7c03a8). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.
+objc[4898]: Class AVFAudioReceiver is implemented in both /Users/saketmunda/Work/Startup/projects/yap-hud/engine/.venv/lib/python3.13/site-packages/cv2/.dylibs/libavdevice.61.3.100.dylib (0x102c103f8) and /Users/saketmunda/Work/Startup/projects/yap-hud/engine/.venv/lib/python3.13/site-packages/av/.dylibs/libavdevice.62.3.102.dylib (0x10f7c03f8). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.
+[setup] loading detector...
+[setup] detector ready in 1.4s, prompts=['microphone', 'bed', 'monitor', 'keyboard', 'chair', 'person', 'headphones', 'plant', 'lamp', 'pen', 'blanket', 'shorts', 'glasses', 'cell phone']
+[gated-fraction] 96.7% over last 1s (30 frames)
+[gated-fraction] 88.3% over last 2s (60 frames)
+[gated-fraction] 66.7% over last 4s (90 frames)
+[gated-fraction] 59.2% over last 5s (120 frames)
+[gated-fraction] 55.3% over last 6s (150 frames)
+[gated-fraction] 62.8% over last 7s (180 frames)
+[gated-fraction] 68.1% over last 8s (210 frames)
+[gated-fraction] 72.1% over last 9s (240 frames)
+[gated-fraction] 75.2% over last 10s (270 frames)
+[gated-fraction] 77.7% over last 11s (300 frames)
+[gated-fraction] 79.7% over last 12s (330 frames)
+[gated-fraction] 81.4% over last 13s (360 frames)
+[gated-fraction] 78.5% over last 14s (390 frames)
+[gated-fraction] 73.1% over last 15s (420 frames)
+[gated-fraction] 72.2% over last 16s (450 frames)
+[gated-fraction] 71.0% over last 17s (480 frames)
+[gated-fraction] 72.4% over last 18s (510 frames)
+[gated-fraction] 71.3% over last 19s (540 frames)

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useCamera } from './vision/useCamera';
 import { useDetector } from './vision/useDetector';
 import { useEngineSocket } from './vision/useEngineSocket';
-import { useNarrator } from './narration/useNarrator';
+import { useNarrator, type LogEntry } from './narration/useNarrator';
 import { describeScene, queryObject } from './narration/describeScene';
 import { HudCanvas } from './hud/HudCanvas';
 import { StatusPanel } from './hud/StatusPanel';
@@ -72,7 +72,14 @@ export default function App() {
   // that held frame, same discipline as a still scene's re-emitted tracks.
   // Only idle/loading/error actually block readiness.
   const modelReady = modelStatus === 'ready' || modelStatus === 'stale';
-  const narratorEnabled = active && narrating && modelReady;
+  // decisions.md D40's ecosystem follow-up: in engine mode, the Python
+  // engine owns voice end-to-end (mic, STT, LLM, TTS, ambient narration --
+  // engine/ambient.py, D38) and speaks through the system's own speakers.
+  // The browser's own separate Day 6 voice pipeline (this hook, Web Speech
+  // API mic + in-browser WebLLM + browser TTS) must not also run at the
+  // same time -- confirmed by testing that it otherwise reacts to the same
+  // speech independently, in a different voice, with no coordination.
+  const narratorEnabled = active && narrating && modelReady && !ENGINE_MODE;
   const { log, config, setConfig, llmStatus, ttsStatus, speakAnswer, stopAll } = useNarrator(frameRef, narratorEnabled);
 
   const live = cameraStatus === 'live' && modelReady;
@@ -82,6 +89,22 @@ export default function App() {
   const onDrawMs = useCallback((ms: number) => setHudDrawMs(ms), []);
 
   const [transcript, setTranscript] = useState<Transcript | null>(null);
+
+  // decisions.md D40's ecosystem follow-up: engine mode's voice loop
+  // (mic/STT/LLM/TTS) runs entirely in the Python process and, until now,
+  // had zero visibility in the browser — the HUD showed silent bounding
+  // boxes while YAP spoke through the system speakers. `engine.voice`
+  // (bridge.py's `voice` field, main.py) carries the latest {transcript,
+  // answer, at} exchange; SubtitleTrack already knows how to render a
+  // question/answer pair, it's just never been fed from here before.
+  const engineLog: LogEntry[] = engine.voice
+    ? [{ id: engine.voice.at, text: engine.voice.answer, boring: engine.voice.answer, debug: '', at: engine.voice.at * 1000 }]
+    : [];
+  const engineTranscript: Transcript | null = engine.voice
+    ? { text: engine.voice.transcript, at: engine.voice.at * 1000 }
+    : null;
+  const effectiveLog = ENGINE_MODE ? engineLog : log;
+  const effectiveTranscript = ENGINE_MODE ? engineTranscript : transcript;
 
   // Deterministic, not the LLM (decisions.md Day 6) — a control action like
   // "stop" must never depend on a model that can hallucinate.
@@ -177,7 +200,11 @@ export default function App() {
         case 't':
         case 'T':
           // Held key, not a toggle — ignore OS key-repeat so this fires once per press.
-          if (!listeningKeyDown.current) {
+          // Disabled in engine mode: the engine's own mic (push-to-talk +
+          // wake phrase) already owns voice input; the browser opening its
+          // own mic at the same time is exactly the dual-listener conflict
+          // this mode is meant to avoid.
+          if (!ENGINE_MODE && !listeningKeyDown.current) {
             listeningKeyDown.current = true;
             void startListening();
           }
@@ -218,36 +245,49 @@ export default function App() {
           <span className="brand-sub">Yet Another Perception · live vision overlay</span>
         </div>
         <div className="controls">
-          <button
-            className="btn"
-            onClick={() => setNarrating((n) => !n)}
-            disabled={!active}
-            aria-pressed={narrating}
-          >
-            {narrating ? 'Narration on' : 'Narration off'}
-          </button>
+          {ENGINE_MODE ? (
+            // Engine mode: the Python engine owns voice end-to-end (mic,
+            // wake phrase, LLM, TTS, ambient narration) — no browser
+            // narration toggle or push-to-talk button, since both would
+            // open a second, uncoordinated voice pipeline (decisions.md
+            // D40's ecosystem follow-up).
+            <span className="btn" aria-disabled="true" title="Voice runs in the engine process — say the wake phrase to talk to YAP.">
+              Voice: engine (say &quot;Hey Yap&quot;)
+            </span>
+          ) : (
+            <button
+              className="btn"
+              onClick={() => setNarrating((n) => !n)}
+              disabled={!active}
+              aria-pressed={narrating}
+            >
+              {narrating ? 'Narration on' : 'Narration off'}
+            </button>
+          )}
           <button className="btn btn-primary" onClick={() => setActive((a) => !a)}>
             {active ? 'Stop' : 'Start camera'}
           </button>
-          <button
-            className="btn"
-            aria-pressed={recording === 'recording'}
-            data-warn={recording === 'transcribing' ? 'true' : undefined}
-            title="Hold to talk (or press and hold T). Audio is transcribed on-device and never leaves this browser. Press Escape for an instant stop that doesn't need voice."
-            onMouseDown={(e) => {
-              e.preventDefault();
-              void startListening();
-            }}
-            onMouseUp={stopListening}
-            onMouseLeave={() => recording === 'recording' && stopListening()}
-            onTouchStart={(e) => {
-              e.preventDefault();
-              void startListening();
-            }}
-            onTouchEnd={stopListening}
-          >
-            {recording === 'recording' ? 'Listening…' : recording === 'transcribing' ? 'Transcribing…' : 'Hold to talk'}
-          </button>
+          {!ENGINE_MODE && (
+            <button
+              className="btn"
+              aria-pressed={recording === 'recording'}
+              data-warn={recording === 'transcribing' ? 'true' : undefined}
+              title="Hold to talk (or press and hold T). Audio is transcribed on-device and never leaves this browser. Press Escape for an instant stop that doesn't need voice."
+              onMouseDown={(e) => {
+                e.preventDefault();
+                void startListening();
+              }}
+              onMouseUp={stopListening}
+              onMouseLeave={() => recording === 'recording' && stopListening()}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                void startListening();
+              }}
+              onTouchEnd={stopListening}
+            >
+              {recording === 'recording' ? 'Listening…' : recording === 'transcribing' ? 'Transcribing…' : 'Hold to talk'}
+            </button>
+          )}
           <button
             className="btn"
             onClick={() => setShortcutsOpen((s) => !s)}
@@ -269,7 +309,7 @@ export default function App() {
             reducedMotion={reducedMotion}
             onDrawMs={onDrawMs}
           />
-          <SubtitleTrack log={log} boring={boring} visible={active} transcript={transcript} />
+          <SubtitleTrack log={effectiveLog} boring={boring} visible={active} transcript={effectiveTranscript} />
 
           {/* Staleness must be visible, not silent (day9-prompt.md) — the HUD
               never claims to know something it doesn't currently know, same

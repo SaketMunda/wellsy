@@ -1,0 +1,17 @@
+# Day 10 wake phrases — one per line, hot-reloaded like prompts.txt (mtime
+# checked each loop tick in query_loop.py). Add a phrase by typing it below
+# and saving; no restart needed.
+#
+# Matched by transcribe-then-match: Moonshine transcribes a rolling ~1.5s
+# audio buffer, and the result is fuzzy-matched (difflib) against every
+# line here, tolerant of STT mis-transcription ("hey yap" -> "hey yeah",
+# "hey app", "hay yap"). This is NOT a trained keyword spotter — see
+# decisions.md D39 for why, and for openWakeWord's real cost as the
+# upgrade path.
+#
+# Bare "yo" is deliberately NOT listed here — decisions.md D39 explains why
+# (a ~150ms syllable inside "you"/"your"/"yeah"/"YouTube" can't be made both
+# sensitive and precise). It ships behind `--enable-yo`, off by default.
+hey yap
+yappy
+hey yo

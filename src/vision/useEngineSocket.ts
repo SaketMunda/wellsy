@@ -7,6 +7,13 @@ export type EngineStatus = 'idle' | 'loading' | 'ready' | 'stale' | 'error';
  * (decisions.md D35), plus the coordinate-contract fields
  * (day9-prompt.md Part 1) the client needs to rescale boxes into the
  * browser's own video element's pixel space. */
+interface EngineVoiceExchange {
+  transcript: string;
+  answer: string;
+  /** Python `time.time()` epoch seconds, not ms — converted on read. */
+  at: number;
+}
+
 interface EngineMessage {
   t: number;
   motion: number;
@@ -18,6 +25,7 @@ interface EngineMessage {
   inferenceMs: number | null;
   sourceWidth: number;
   sourceHeight: number;
+  voice?: EngineVoiceExchange | null;
 }
 
 /** localhost only (decisions.md D10/D35) — never configurable to a LAN/host
@@ -50,9 +58,11 @@ export function useEngineSocket(videoRef: React.RefObject<HTMLVideoElement | nul
   const [status, setStatus] = useState<EngineStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState({ fps: 0, inferenceMs: 0, trackMs: 0, count: 0 });
+  const [voice, setVoice] = useState<EngineVoiceExchange | null>(null);
   const frameRef = useRef<Frame>(EMPTY_FRAME);
   const lastMessageAtRef = useRef(0);
   const lastInferenceMsRef = useRef(0);
+  const lastVoiceAtRef = useRef(0);
   const msgTimesRef = useRef<number[]>([]);
 
   useEffect(() => {
@@ -141,6 +151,14 @@ export function useEngineSocket(videoRef: React.RefObject<HTMLVideoElement | nul
 
       if (msg.inferenceMs !== null) lastInferenceMsRef.current = msg.inferenceMs;
 
+      // `voice` only changes when T3 actually speaks (roughly once per
+      // exchange, not once per ~125ms broadcast) -- dedupe on `at` so this
+      // doesn't re-trigger SubtitleTrack's display timer on every frame.
+      if (msg.voice && msg.voice.at !== lastVoiceAtRef.current) {
+        lastVoiceAtRef.current = msg.voice.at;
+        setVoice(msg.voice);
+      }
+
       frameRef.current = {
         detections,
         tracks,
@@ -172,9 +190,10 @@ export function useEngineSocket(videoRef: React.RefObject<HTMLVideoElement | nul
       ws?.close();
       frameRef.current = EMPTY_FRAME;
       lastMessageAtRef.current = 0;
+      lastVoiceAtRef.current = 0;
       msgTimesRef.current = [];
     };
   }, [active, videoRef]);
 
-  return { frameRef, status, error, stats };
+  return { frameRef, status, error, stats, voice };
 }

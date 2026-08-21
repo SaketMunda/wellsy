@@ -1,0 +1,29 @@
+{
+  "$comment": "Shared parseIntent spec — read by both src/voice/parseIntent.test.ts (TS/browser-only legacy) and engine/test_intent.py (Python/T3). Day 10 (decisions.md D37): one spec, two implementations, one place to add a case. Every case here must pass in both languages; a case whose behavior deliberately differs between implementations is not allowed — add a language-specific test instead.",
+  "cases": [
+    { "name": "wake: wake up", "transcript": "wake up", "intent": { "type": "wake" } },
+    { "name": "wake: Hey YAP", "transcript": "Hey YAP", "intent": { "type": "wake" } },
+    { "name": "sleep: go to sleep", "transcript": "go to sleep", "intent": { "type": "sleep" } },
+    { "name": "sleep: be quiet", "transcript": "be quiet", "intent": { "type": "sleep" } },
+    { "name": "sleep: shut up", "transcript": "shut up", "intent": { "type": "sleep" } },
+    { "name": "stop: bare", "transcript": "stop", "intent": { "type": "stop" } },
+    { "name": "stop: wins inside a longer sentence", "transcript": "please stop now", "intent": { "type": "stop" } },
+    { "name": "describe_scene: what do you see", "transcript": "what do you see", "intent": { "type": "describe_scene" } },
+    { "name": "describe_scene: what's in front of you?", "transcript": "what's in front of you?", "intent": { "type": "describe_scene" } },
+    { "name": "describe_scene: describe the scene", "transcript": "describe the scene", "intent": { "type": "describe_scene" } },
+    { "name": "query_object: do you see a laptop", "transcript": "do you see a laptop", "intent": { "type": "query_object", "object": "laptop" } },
+    { "name": "query_object: is there a person?", "transcript": "is there a person?", "intent": { "type": "query_object", "object": "person" } },
+    { "name": "query_object: can you see the bottle", "transcript": "can you see the bottle", "intent": { "type": "query_object", "object": "bottle" } },
+    { "name": "help: what can you do", "transcript": "what can you do", "intent": { "type": "help" } },
+    { "name": "help: bare", "transcript": "help", "intent": { "type": "help" } },
+    { "name": "unknown: off-script phrasing", "transcript": "could you tell me what is around", "intent": { "type": "unknown", "transcript": "could you tell me what is around" } },
+    { "name": "unknown: empty string", "transcript": "", "intent": { "type": "unknown", "transcript": "" } },
+    { "name": "unknown: unrelated request", "transcript": "tell me a joke", "intent": { "type": "unknown", "transcript": "tell me a joke" } },
+    { "name": "case/punctuation insensitive: STOP!", "transcript": "STOP!", "intent": { "type": "stop" } },
+    { "name": "case/punctuation insensitive: Wake Up padded", "transcript": "  Wake Up.  ", "intent": { "type": "wake" } },
+    { "name": "presence: are you there?", "transcript": "are you there?", "intent": { "type": "presence" } },
+    { "name": "presence: you there", "transcript": "you there", "intent": { "type": "presence" } },
+    { "name": "thanks: thanks", "transcript": "thanks", "intent": { "type": "thanks" } },
+    { "name": "thanks: ok, thank you", "transcript": "ok, thank you", "intent": { "type": "thanks" } }
+  ]
+}

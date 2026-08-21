@@ -22,9 +22,14 @@ if not cap.isOpened():
     print("camera did not open")
     sys.exit(1)
 
+# Day 9 lost a 25s ambient clip here: a hardcoded filename silently
+# clobbered the previous recording. Timestamped, never overwritten — see
+# decisions.md D36's amendment.
+out_name = f"real_clip_{time.strftime('%Y%m%d-%H%M%S')}.mp4"
+
 ok, frame = cap.read()
 h, w = frame.shape[:2]
-writer = cv2.VideoWriter("real_clip.mp4", cv2.VideoWriter_fourcc(*"mp4v"), 30, (w, h))
+writer = cv2.VideoWriter(out_name, cv2.VideoWriter_fourcc(*"mp4v"), 30, (w, h))
 
 prev_gray = None
 diffs = []
@@ -51,4 +56,4 @@ print(f"frames={n} duration={seconds}s")
 print(f"raw mean-diff (0..255 scale): min={diffs.min():.3f} p50={np.percentile(diffs,50):.3f} "
       f"p95={np.percentile(diffs,95):.3f} max={diffs.max():.3f} mean={diffs.mean():.3f}")
 print(f"current MOTION_THRESHOLD={MOTION_THRESHOLD}: gated_fraction={gated_frac:.1%}")
-print("saved: engine/clips/real_clip.mp4")
+print(f"saved: engine/clips/{out_name}")

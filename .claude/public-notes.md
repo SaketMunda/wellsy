@@ -440,10 +440,29 @@ running.
   unresolved bug and has not actually been heard to speak as of Day 4. What's
   true and demoable: it downloads, loads, and the app never goes silent —
   it falls back to the built-in voice automatically. Don't claim more.
-- ❌ "Nobody's heard YAP talk yet" isn't a caveat to bury — say it plainly if
-  asked. No audio has been confirmed audible on any machine this project has
-  run on, across all four days, because every verification session so far
-  has been headless with no speaker.
+- ✅ **Update, Day 10: audio has been confirmed audible, by a human, for
+  real.** Nine days open — closed by playing a test line through the room's
+  real speakers and having someone actually listen (not an exit code). The
+  engine's TTS is macOS's built-in `say`, not the browser's neural Kokoro
+  voice — a deliberate, documented trade for reliability over expressiveness
+  (decisions.md D39); don't imply the engine build has the same voice as the
+  browser build's Kokoro path.
+- ❌ Day 10: **the wake phrase is not a trained keyword spotter.** It's
+  transcribe-then-match — Moonshine transcribes a rolling audio window and
+  the text is fuzzy-matched against a phrase list. Say that plainly if
+  asked how it works. A real keyword spotter (openWakeWord) is the named
+  upgrade path, not built.
+- ❌ Day 10: **the query answers are pattern-matched, not understood.**
+  `parseIntent` is a fixed regex list; off-script phrasing ("could you tell
+  me what's around") gets an honest "I didn't understand that," never a
+  guess. Zero LLM in this path.
+- ❌ Day 10: **ambient narration is now off by default.** YAP stays silent
+  until asked, a rule fires, or ambient mode is explicitly turned on by
+  voice ("wake"). Don't imply it narrates continuously anymore — that was
+  Days 1–6's behavior, now an opt-in mode.
+- ❌ Day 10: **"yap" as a wake word has a known, live-confirmed problem** —
+  it's regularly mis-transcribed as "app." Say so if demoing it; a
+  replacement phrase is planned but not yet chosen.
 - ❌ "It understands scenes" — it detects **objects**. It doesn't know "kitchen"
   or "someone is cooking".
 - ❌ "It recognises anything" — **80 fixed classes**. No text, no faces, no brands.

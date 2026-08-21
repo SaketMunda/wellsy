@@ -250,9 +250,52 @@ demoed on real hardware, not just plumbing-verified on synthetic data.
 
 ---
 
-## Day 10 — "JARVIS, what am I looking at?" (Phase 3) ⭐
+## Day 10 — "JARVIS, what am I looking at?" (Phase 3) ⭐ — SHIPPED
 
 **The centrepiece day. Zero LLM in the path.**
+
+**What shipped, real hardware, real evidence:** the query loop end to end
+(`engine/query_loop.py`: mic → VAD → Moonshine → `parseIntent` → forced-
+fresh-T1 → `describeScene` → `say` → speakers), `PreemptionSeam` finally
+wired to a real caller (D36), a real live success captured (`"what do you
+see?" -> "two things: a person and a glasses."` in 119.1ms post-transcription),
+ambient narration off by default (D38), wake phrases via transcribe-then-
+match (D39), and audio confirmed audible by a human for the first time in
+the project's history. Full numbers, including the honest gaps: see
+day10-results.md.
+
+**What did NOT ship as planned, stated plainly:**
+- **TTS is macOS `say`, not Kokoro/Piper** — a deliberate, documented
+  deviation (D39) to guarantee the nine-day-overdue audibility check
+  actually closed this session rather than risking another D13-style
+  bundler saga. Piper stays the real upgrade path once voice quality
+  matters more than the gap it closed.
+- **The wake-word acceptance bar (10 min / 20 utterances) was not run** —
+  only a handful of live utterances were tried. What it *did* surface: a
+  real, live collision — "yap" keeps transcribing as "app." A replacement
+  phrase was discussed but deliberately deferred to the project owner's
+  judgment rather than picked under session time pressure.
+- **The full wake/press → first-spoken-word latency (roadmap's own row 1)
+  was not cleanly captured** — the breakdown logging existed but the first
+  live run was interrupted before it printed; the fix shipped for the next
+  run, but that run didn't happen this session (mic permission ended up
+  scoped to Terminal.app only, not the VS Code integrated terminal or the
+  agent's own process — three different permission contexts on the same
+  machine, a real and mildly absurd macOS TCC finding worth keeping for the
+  write-up).
+
+**What Day 11 should know before starting:**
+- The deterministic loop works and has a *partial* real latency number
+  (119.1ms for intent→TTS-start alone) to compare an LLM-in-the-loop
+  version against — get the full wake-to-answer number in the first few
+  minutes of Day 11, the instrumentation is already there.
+- The forced-fresh-T1 cost is small and real (33.4ms) — budget any new
+  LLM-path latency against that, not against zero.
+- "yap" needs a new name before more wake-word polish is worth doing.
+- Mic permission on this machine is scoped **per actual process**, not
+  per-user — Terminal.app, VS Code's integrated terminal, and this agent's
+  own process tree each need their own grant. Worth remembering before
+  losing time to it again.
 
 **Ships:**
 - **Wake word / push-to-talk → Moonshine (~107ms) → `parseIntent` →

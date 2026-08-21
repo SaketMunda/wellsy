@@ -17,6 +17,8 @@ export type Intent =
   | { type: 'describe_scene' }
   | { type: 'query_object'; object: string }
   | { type: 'help' }
+  | { type: 'presence' }
+  | { type: 'thanks' }
   | { type: 'unknown'; transcript: string };
 
 function normalize(transcript: string): string {
@@ -38,6 +40,13 @@ const SLEEP = /\b(go to sleep|shut up|be quiet|quiet down|hush|sleep now|sleep)\
 const HELP = /\b(what can you do|help|what commands|list commands)\b/;
 const DESCRIBE = /\b(what do you see|what('?s| is) in front of you|describe the scene|describe scene|what can you see|what is there)\b/;
 const QUERY = /\b(?:do you see|can you see|is there|are there)\s+(.+?)\??$/;
+// Real usage found (decisions.md D39 amendment, day 10 retest): common
+// conversational filler ("are you there", "thanks") isn't a command, but
+// answering it with "i didn't understand that" reads as broken rather than
+// as a deliberately narrow grammar. Two more fixed patterns, still zero
+// model — canned, not understood.
+const PRESENCE = /\b(are you there|you there|are you listening|are you awake)\b/;
+const THANKS = /\b(thanks|thank you|thankyou|appreciate it)\b/;
 
 /**
  * `stop` is checked first because it has to interrupt mid-sentence (see
@@ -54,6 +63,8 @@ export function parseIntent(transcript: string): Intent {
   if (WAKE.test(text)) return { type: 'wake' };
   if (SLEEP.test(text)) return { type: 'sleep' };
   if (HELP.test(text)) return { type: 'help' };
+  if (PRESENCE.test(text)) return { type: 'presence' };
+  if (THANKS.test(text)) return { type: 'thanks' };
   if (DESCRIBE.test(text)) return { type: 'describe_scene' };
 
   const queryMatch = QUERY.exec(text);
