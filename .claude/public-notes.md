@@ -539,6 +539,48 @@ running.
   to be cut (see v2-roadmap.md's "if it slips" list) — say "planned, not
   shipped" if asked before then, not "coming soon."
 
+- ✅ "It can read" — shipped Day 11: a real Python traceback, a receipt, a
+  document page, a product label, and a script-font "handwriting" sample
+  were all read correctly by `qwen3-vl:4b` (see day11-results.md). **Say
+  what changed accurately**: the detector's job changed from "identify the
+  80-ish words in `prompts.txt`" to "corroborate what the VLM actually
+  sees" — this is not "the detector got upgraded," it's a different model
+  doing the answering entirely. ❌ Don't say "it read a real handwriting
+  sample" — the shipped test used a stylized script font, not genuine
+  handwritten strokes; real handwriting is still untested.
+- ✅ "It looks at the screen" — the code path (`screen_capture.py`) is
+  real and tested in isolation (203.9ms for a real capture). ❌ Don't say
+  "it read something off my screen" as a finished demo — the actual
+  screen→VLM path was never exercised end-to-end this session (a sandbox
+  limitation where windows this agent spawns don't render on the
+  capturable display, not a bug in the capture code itself — see D42).
+- ✅ "It stopped inventing what you're holding" — the two specific Day 10
+  failures ("standing next to the chair", "holding glasses" with nothing
+  held) were retested verbatim on real camera + real tracks and did not
+  reproduce, on both model sizes tried. ❌ Don't say "grounding is solved"
+  — two retested cases not recurring is real evidence, not a general proof
+  the model can never embellish under different framing.
+- ❌ "It answers instantly now" — it doesn't. Real measured first-token
+  latency for a VLM-routed question is ~1.7-2.8s (`qwen3-vl:4b`, this
+  machine) — noticeably slower than the deterministic fast path's ~17ms.
+  The honest framing: simple questions still answer fast (unchanged);
+  anything needing real vision costs real seconds, and that's the accepted
+  trade, not a hidden regression.
+
+- ✅ "The robotic voice is gone" — `say -v Samantha` was replaced with
+  Chatterbox Turbo (real neural TTS, MIT license) mid-Day-11, pulled
+  forward from the original Day 14 plan on the owner's explicit call.
+  ❌ Don't say "it has emotional/expressive control now" — the
+  `exaggeration` parameter is silently ignored by the fast Turbo
+  checkpoint (its own logged warning says so); only the slower base model
+  supports it, and that hasn't been tested.
+- ❌ "It answers instantly" — say this **less** true now than it was
+  Wednesday. The new voice costs a real 1.6-3.2 second generation pause
+  before any sound starts, for every answer, including the ones that used
+  to be instant (`describe_scene`/`query_object`). This is the real,
+  accepted trade for not sounding robotic — say the number, don't let the
+  demo's silence read as a bug.
+
 ## Tone rules
 - Show the failures. Wrong labels are content, not shame.
 - Always show the telemetry — numbers beat adjectives.

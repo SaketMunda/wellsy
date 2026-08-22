@@ -54,7 +54,7 @@ class PreemptionSeam:
         self._force_requested = threading.Event()
         # main loop -> T3: "here it is."
         self._result_ready = threading.Event()
-        self._result: tuple[list[dict], float] | None = None
+        self._result: tuple[list[dict], float, Any] | None = None
 
     def request(self) -> None:
         with self._lock:
@@ -69,11 +69,18 @@ class PreemptionSeam:
         with self._lock:
             return self._active
 
-    def request_fresh_look(self, timeout: float = 2.0) -> tuple[list[dict], float] | None:
+    def request_fresh_look(self, timeout: float = 2.0) -> tuple[list[dict], float, Any] | None:
         """Called by T3. Blocks until the main capture loop performs one
         forced, synchronous T1 detection on the current frame and hands
-        back (tracks, inference_ms), or returns None on timeout (e.g. the
-        capture process died mid-query)."""
+        back (tracks, inference_ms, frame_bgr), or returns None on timeout
+        (e.g. the capture process died mid-query).
+
+        `frame_bgr` was added Day 11 (day11-prompt.md Part 1) so the query
+        loop can hand the VLM the actual pixels the tracks were computed
+        from, not just their labels -- existing callers that only read
+        `result[0]`/`result[1]` (query_loop.py's describe_scene/query_object
+        path, verify_preemption.py) are unaffected by the tuple growing a
+        third element."""
         self._result_ready.clear()
         self._force_requested.set()
         got = self._result_ready.wait(timeout)
@@ -89,8 +96,8 @@ class PreemptionSeam:
             return True
         return False
 
-    def deliver_fresh_look(self, tracks: list[dict], inference_ms: float) -> None:
+    def deliver_fresh_look(self, tracks: list[dict], inference_ms: float, frame_bgr: Any = None) -> None:
         """Called by the main loop right after it runs the forced detection
         `poll_force_request()` asked for."""
-        self._result = (tracks, inference_ms)
+        self._result = (tracks, inference_ms, frame_bgr)
         self._result_ready.set()

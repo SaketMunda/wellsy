@@ -296,6 +296,16 @@ day10-results.md.
   per-user — Terminal.app, VS Code's integrated terminal, and this agent's
   own process tree each need their own grant. Worth remembering before
   losing time to it again.
+- **Explicit product ask, stated after the Day 10 retest, for a coming
+  day, not now:** the user wants TTS to sound genuinely human, including
+  emotional expressiveness — not the flat, reliable-but-robotic `say
+  -v Samantha` voice this session deliberately shipped with. This is the
+  Piper upgrade already named as the path in D39, now with an explicit
+  emotion/expressiveness requirement on top of just "not robotic" — worth
+  scoping as its own demo beat (e.g. Day 14's polish pass) rather than
+  bolting on quietly, since expressive/emotional TTS is a bigger lift than
+  a plain neural-voice swap (prosody control, likely a different model
+  than base Piper, real latency cost to re-measure).
 
 **Ships:**
 - **Wake word / push-to-talk → Moonshine (~107ms) → `parseIntent` →
@@ -331,192 +341,343 @@ worse than a button that doesn't.
 
 ---
 
-## Day 11 — "It learns when to shut up" (Phase 4)
+# ==========================================================================
+# ENDGAME REWRITE — 2026-08-22, start of Day 11
+# ==========================================================================
+#
+# Everything below replaces the original Days 11-15. The original plan is in
+# git history (commit a2c6428 and earlier) if it's ever needed.
+#
+# **Why this was rewritten.** Audited the build against
+# `jarvis_friday_edith_combined_ai_system_spec.md`. Result: roughly 15% of
+# the spec, concentrated almost entirely in §7 Layer A (Perception). Zero
+# memory (§C), zero context engine (§8), zero tools (§12), zero permissions
+# (§13), zero proactive engine (§16), zero orchestrator (§21), below
+# Autonomy Level 0 (§26). The spec's own MVP Phase 1 — "JARVIS Core:
+# identity, memory, preferences, contextual conversation, basic tool
+# calling" — sits at ~19%.
+#
+# The structural failure, stated plainly: **Days 1-10 built one capability
+# ten times.** Day 1 saw things and said what it saw; Day 3 tracked it
+# better, Day 5 drew it prettier, Day 8 labelled it correctly, Day 9 plumbed
+# it faster, Day 10 made it wait to be asked. Every episode refined the same
+# sentence. That is why there is no differentiator and why the series has
+# had nothing new to show.
+#
+# The word "HUD" does not appear once in the spec's 1,292 lines. Camera
+# vision is one input among fifteen in Layer A. The old roadmap spent its
+# remaining days deepening that same corner (faces, depth, mobile).
+#
+# **The new rule for every remaining day — the spec's own §37 test:** does
+# this make the AI better at *understanding the user*, *understanding the
+# environment*, *deciding what matters*, or *acting on their behalf safely*?
+# Days 1-10 hit exactly one of those four. Days 11-15 must hit the other
+# three.
+#
+# **Day 15 is no longer filming-only. Day 15 is Endgame: everything wired,
+# end to end, working.** Not optimized, not beautiful — working. "First
+# build it, then make it beautiful."
+#
+# ==========================================================================
+
+## The differentiator, named
+
+Every assistant on the market does calendar-and-email tool calling. Almost
+none of them can **see**. The thing YAP will have that they don't is
+**vision-grounded agency**:
+
+> *"Log this."* — while holding a receipt.
+> *"File a bug about that."* — pointing at an error on screen.
+> *"Who just walked in? Don't read that out loud."*
+
+Days 1-10 are not wasted. They are the **input** to a product that does not
+exist yet. The mistake was believing the eyes *were* the product.
+
+## Stack replacements — verified current as of 2026-08-22, not picked from memory
+
+The v1 browser build shipped COCO-SSD/MobileNet (a **2017** model). The
+current engine still runs `qwen2.5:7b` (2024) and macOS `say -v Samantha`
+(a 2009 voice). Every component below was checked against what is actually
+state of the art this month. **This check is now mandatory before any model
+choice** — see `memory/yap_no_stale_tech.md`.
+
+| Slot | Current in repo | Replacing with | Why |
+|---|---|---|---|
+| Understanding / reasoning | YOLOE labels → `describe_scene` template → `qwen2.5:7b` | **Qwen3-VL-8B** (Apache 2.0, 69.6 MMMU, 96.1 DocVQA, ~6GB @ Q4) | One model that *sees and reasons*. Kills the label→template→LLM telephone game that caused every grounding bug (D40's amendments). Reads **screens and documents** — §23, which the build has zero of |
+| Voice out | macOS `say -v Samantha` | **Chatterbox Turbo** (350M, sub-200ms, emotion-exaggeration control) — Kokoro-82M as the fallback if latency bites | Closes the standing expressive-TTS ask. First open-source model with real emotion control |
+| Voice in | Moonshine (buffered) | **Moonshine v2** (Ergodic Streaming Encoder) — Parakeet TDT if v2 disappoints | Streaming, not buffered. Barge-in and turn-taking (§24) need it |
+| Identity | — | **InsightFace 1.0** (May 2026 — SCRFD + ArcFace, no C++ toolchain needed now) | Verified still current, not a stale default. Answers §6-P2's *"who is asking?"* |
+| Ambient T1 | YOLOE @ 8Hz | **stays** | It is the cheap always-on tier and it works. Qwen3-VL is T2/T3, on demand |
+
+---
+
+## Day 11 — "It stops identifying and starts understanding" (the brain swap)
+
+**Spec:** §7 Layer A+B, §23 Screen and Vision Intelligence, §18 Knowledge.
 
 **Ships:**
-- **MLX-LM with Qwen3 8B–14B.** Roughly 20× the browser's 0.5B, on 24GB of
-  unified memory, at published ~130 tok/s.
-- **The voice spec as code, not as a wish** (§6): `FACTUAL` default and `WRY`
-  behind a **humour gate** — a ≥10-minute cooldown *and* a trigger condition.
-  Hard length caps: acknowledgement ≤4 words, factual answer ≤1 sentence.
-- **Grounding survives.** The LLM restyles `describeScene`'s output; it never
-  invents a fact. Same split as `events.ts` on Day 2.
-- **`llmLineGenerator.ts`'s "Roast the habitat" prompt dies**, along with its
-  four sarcastic examples and zero plain answers. That prompt is the literal,
+- **Qwen3-VL-8B replaces the entire label→template→LLM chain.** `describe_scene`'s
+  string templating stops being the source of answers. The model looks at the
+  actual frame.
+- **`parse_intent` survives untouched** for `stop`/`wake`/`sleep` — an LLM must
+  never decide whether "stop" stops (D6/D25, unchanged).
+- **Screen capture as a second perception source.** `screencapture` /
+  ScreenCaptureKit on demand. This is a *new input type*, the first since Day 1.
+- **It reads.** Error logs, terminal output, documents, receipts, handwriting,
+  labels, book spines. The current build cannot read a single word.
+- **Grounding is enforced structurally, not by prompt** — the model gets the
+  frame *and* the track list; every claim carries provenance (§19).
+- YOLOE stays as T1; Qwen3-VL runs as T2/T3 only, behind the `PreemptionSeam`.
+
+**Concept:** For ten days it has been matching pixels to an 80-word vocabulary
+and reading answers off a template. Today it just *looks* — and the entire
+grounding-bug class from Day 10 (the invented posture, "you're holding
+glasses") disappears because there is no longer a telephone game to garble.
+
+**Demo:** Point it at a terminal showing a real stack trace. *"What's wrong?"*
+It reads the error out loud and says what broke. Then hold up a receipt:
+*"How much?"* Nothing in ten days of build could do either.
+
+**Hook:** *"I deleted my object detector's job description. It doesn't identify
+things any more — it just looks."*
+
+**Risk:** 8B VLM inference on M4 Pro may be too slow for the sub-second feel
+Day 10 established. **Mitigation is structural: it's T2/T3 only** — the fast
+deterministic path (`parse_intent` → tracks) still answers instantly, and the
+VLM is the deep-look tier. If 8B is too slow, drop to Qwen3-VL-4B and say the
+number on camera.
+
+**What Day 12 should know before starting:**
+- **The risk called it exactly right.** 8B measured first-token p50
+  2753ms/p95 3048ms — dropped to `qwen3-vl:4b` (p50 1692ms/p95 2282ms,
+  ~half the cost, identical correctness on every test run against it).
+  Neither model hit the brief's own "~1.5s comfortable" bar; the fast
+  path staying separate is what actually saves the interaction, not model
+  size. See `decisions.md` D41, `day11-results.md`.
+- **The thesis held on real data**: both Day 10 grounding failures
+  ("standing next to the chair", "holding glasses") retested verbatim,
+  did not reproduce, on two model sizes. Memory (Day 12's actual job) is
+  the next thing that can quietly reintroduce invention — a model with
+  turn history has a new way to hallucinate ("didn't we already establish
+  X?") that a stateless one-shot VLM call structurally cannot.
+- **Provenance logging exists now** (`clips/provenance.jsonl`, D43) but
+  its disagreement heuristic is weak (58% over-flag rate, measured, not
+  assumed) — Day 12's memory/confidence work should not treat
+  `possibleDisagreement` as a trustworthy signal without tightening it
+  first.
+- **A real sandbox limitation, not a code bug:** this agent's shell can
+  capture the real screen but cannot make any window it spawns actually
+  render on the capturable display (D42). If Day 12's face-identity work
+  (§6-P2, InsightFace) needs to *display* anything (an enrollment UI, a
+  confirmation prompt), budget time to find out early whether the same
+  gap applies, rather than discovering it mid-day.
+- **The standing mic-permission gap is now two days old** (row 3, both
+  Day 10 and Day 11's results docs) — the wake/press→first-word latency
+  number still needs the project owner's own Terminal.app to capture.
+  Worth just doing this first, before Day 12 adds a second thing that
+  needs it (voice-based memory enrollment, if that's how "who is this"
+  ends up being confirmed).
+- **`ollama ps` confirms models unload/reload cheaply** — 8B and 4B were
+  swapped mid-session with no engine restart needed, just a different
+  `MODEL_NAME`. If Day 12 adds a second local model (embeddings for
+  semantic memory, say), Ollama's existing keep-alive/eviction behavior
+  is already proven to coexist fine with the vision model, at least
+  sequentially — concurrent resident cost with a second model wasn't
+  tested.
+
+---
+
+## Day 12 — "It remembers me" (memory, identity, context engine)
+
+**Spec:** §5 Core Identity, §7 Layer C (all six memory types), §8 Context
+Engine, §9 Situation Model, §19 Provenance, §25 Memory Behavior Rules.
+
+**Ships:**
+- **SQLite memory, six layers** — working, episodic, semantic, procedural,
+  relationship, project. **Nothing in the engine currently persists.** Kill
+  the process today and YAP forgets you exist; after Day 12 it doesn't.
+- **The Context Engine** — the spec's own *"central component that makes the AI
+  feel intelligent"* (§8). Assembles User + Conversation + Memory + Environment
+  + Time + Active Tasks + Permissions into one live current-context object,
+  continuously maintained rather than rebuilt per request (§9).
+- **Face identity via InsightFace 1.0**, folded into memory rather than shipped
+  as a party trick — it answers §6-P2's *"who is asking?"*, which Day 13's
+  permission layer needs. **Three bands: match / unsure → say nothing /
+  no-match.** Explicit enrolment only, never covert. Visible delete.
+- **Memory rules enforced (§25):** confidence + provenance on every memory,
+  decay for transient junk, and *never* silently converting a guess into a
+  fact. User can inspect, edit, delete.
+- **Cross-session continuity** — restart the process, it picks up the thread.
+
+**Concept:** Ten days of a system with total amnesia. The spec's Phase 1
+success criterion is one sentence — *"the AI should feel like it knows the
+user"* — and until today the honest answer was that it doesn't know you
+between two consecutive sentences.
+
+**Demo:** Have a conversation. Kill the engine. Restart it. *"What was I doing
+before?"* It knows. Then a second person walks into frame — it greets them by
+name and the context visibly changes.
+
+**Hook:** *"For ten days I rebuilt its brain every morning, because it forgot
+me every night."*
+
+**Risk:** Memory is easy to build and hard to make *useful* — a log nobody
+queries is not memory. **The retrieval path is the deliverable, not the
+schema.** Biometrics carry real legal weight (GDPR Art. 9, BIPA): local only,
+explicit enrolment, visible delete, said out loud in the episode.
+
+---
+
+## Day 13 — "It does things" ⭐ (tools, agent loop, permissions)
+
+**The differentiator day. The one that makes it an assistant instead of a
+describer.**
+
+**Spec:** §11 Planning and Agent Loop, §12 Tool Orchestration, §13 Permission
+Architecture, §26 Autonomy, §27 Failure Handling, §29 Auditability.
+
+**Ships:**
+- **A tool registry** where every tool declares capability, input/output schema,
+  auth, permission level, risk level, latency, **reversibility**, and audit
+  requirement (§12). Not hardcoded function calls — a registry the orchestrator
+  reasons about.
+- **The real agent loop (§11):** Observe → Understand → Check Memory →
+  Determine Goal → Plan → **Check Permissions** → Execute → Observe Result →
+  Verify → Adapt/Retry/Escalate → Report. The build currently does three of
+  those eleven steps.
+- **Risk levels 0-3 with real enforcement (§13).** Level 0-1 auto; Level 2+
+  requires spoken confirmation; Level 3 requires explicit policy. *"It can call
+  the tool"* is never *"it may call the tool."*
+- **Six real tools to start:** files, calendar, reminders/notes, web search,
+  sandboxed shell, and macOS app control. Enough to be useful, few enough to
+  finish.
+- **Action audit log (§29)** — a real one, actions not frames. *"What did you
+  do?"* returns a clear answer.
+- **Failure handling (§27):** never claim success on failure, preserve partial
+  progress, escalate honestly.
+
+**Concept:** Vision-grounded agency. Everyone's assistant can read your
+calendar. Nobody's can look at the thing in your hand and act on it.
+
+**Demo:** Hold up a receipt — *"log this."* It reads the vendor and amount and
+files it. Then, pointing at a real failing terminal: *"file a bug about that."*
+It reads the trace, drafts the issue, and **stops to ask before sending** —
+because that's Level 2.
+
+**Hook:** *"Today it stopped telling me what it can see and started doing
+something about it."*
+
+**Risk:** The largest single day in the series. **Hard priority order: registry
+→ permissions → agent loop → tools, and tools come last** so the count can
+shrink to three without losing the episode. A tool that fires without
+confirmation on camera is the worst possible outcome — the confirmation gate
+ships before the tools do.
+
+---
+
+## Day 14 — "It speaks first, and it sounds human" (proactive engine + voice)
+
+**Spec:** §16 Proactive Intelligence, §15 Communication Modes, §24 Voice
+Interaction, §14 Personality, §3 FRIDAY layer.
+
+**Ships:**
+- **The proactive engine (§16)** — the real scoring rule:
+  `Expected Benefit × Urgency × Confidence ÷ Interruption Cost`, with a
+  configured threshold. This is the FRIDAY layer and the closest thing in the
+  spec to what people actually mean by "JARVIS."
+- **Communication modes (§15):** Normal, **Tactical** (*"Battery 12%. Meeting in
+  14 minutes."*), Analytical, **Alert**, Silent. Verbosity adapts to urgency.
+- **Chatterbox Turbo** — expressive, emotional, sub-200ms. The nine-day-old
+  robot-voice complaint closes here.
+- **Moonshine v2 streaming + real barge-in** — interrupt it mid-sentence and it
+  yields, mid-word. Speaker identification wired to Day 12's face identity, so
+  it knows who is talking.
+- **The personality engine (§14) as config, not as a prompt string** — calm,
+  concise, warm, discreet, dry wit behind a cooldown gate. Hard caps:
+  acknowledgement ≤4 words, factual answer ≤1 sentence.
+- **`llmLineGenerator.ts`'s "Roast the habitat" prompt dies** — the literal,
   traceable cause of the tone complaint.
-- Ambient narration returns as an explicitly off-by-default mode.
 
-**Concept:** A 0.5B model can hold exactly one register, so ours was
-relentlessly deadpan about a chair. An 8B model can hold "concise and
-factual, with rare dry wit." But most of the fix isn't the model or the
-prompt — it's that it now speaks a tenth as often, and rarity is what makes
-wit land.
+**Concept:** Day 10 made it quiet. Today it earns the right to break its own
+silence — once, correctly, about something that actually mattered. Judgement
+about *when to speak* is the hardest thing in the spec and the one people
+recognise instantly.
 
-**Demo:** The same question, three answers side by side: Day 4's 0.5B roast,
-Day 11 `FACTUAL`, and the one-in-twenty `WRY` line. The third one is funny
-*because* the first two weren't trying to be.
+**Demo:** Working in silence. It speaks, unprompted, exactly once — and it's
+right. Then interrupt it mid-sentence; it stops mid-word and listens.
 
-**Hook:** *"My AI was sarcastic about everything, constantly. Turns out
-that's not a personality — that's a stuck register."*
+**Hook:** *"I spent a week teaching it to shut up. Today I taught it the one
+thing that's harder — knowing when to speak anyway."*
 
-**Risk:** 8B first-token latency on top of STT could break the sub-second
-feel Day 10 established. **Mitigation is structural: `parseIntent` and
-`describeScene` still answer without the LLM**, so the fast path stays fast
-and the LLM is a restyle pass that can be skipped under a timeout.
+**Risk:** A proactive system that misfires on camera is worse than a silent
+one. **Threshold high, tuned live, and one deliberate demo trigger prepared.**
+If Chatterbox's latency breaks the feel, fall back to Kokoro-82M and say why.
 
 ---
 
-## Day 12 — "It knows who I am" (Phase 5)
+## Day 15 — "Endgame" (orchestrator, everything wired, end to end)
+
+**This is a build day AND the ship day. Not filming-only. The whole system,
+end to end, working — not optimized, not beautiful. Working.**
+
+**Spec:** §20 Multi-Agent, §21 Unified Orchestrator, §30 One Intelligence,
+§32 Example End-to-End Interaction, §34 High-Level Architecture.
 
 **Ships:**
-- **SCRFD + ArcFace** (InsightFace) — 512-d embeddings, once per new person
-  track, cached by track id. Not per frame.
-- **Explicit enrolment only.** You show your face, you give a name. Never
-  covert, never learned in the background.
-- **Three bands, not two:** match / **unsure → say nothing** / no-match.
-  Calling someone by the wrong name is a worse failure than not recognising
-  them, and 1:N is much harder than 1:1.
-- **The greeting rule** — known person enters frame, YAP greets by name and
-  offers. **The unregistered rule** — see the wording decision below.
-- **Memory layers:** person registry (SQLite + numpy), episodic log
-  (timestamped, enables *"what happened while I was out"*), session context
-  (so *"what about behind me?"* resolves).
+- **The Unified Orchestrator (§21)** — decides which capability, which tools,
+  which context, what sequence, what needs approval, how failure is handled,
+  when the objective is complete. One entry point in front of everything Days
+  11-14 built.
+- **One identity, one voice, one memory across every surface (§30).** Internally
+  it is a VLM, a detector, a memory store, a tool registry, a policy engine.
+  Externally it is one thing.
+- **The §32 interaction, for real:** an outcome-level request — *"prepare me for
+  my next meeting"* — resolved into steps the user never specified.
+- **Packaged and runnable** — one command, weights fetched on first run.
+- **Public repo, README, honest capability/limitation list** including
+  everything this still doesn't do.
+- **The full demo film.**
 
-**Concept:** The one judgement that must happen without being asked — and
-therefore the one deliberate exception to the entire on-demand architecture.
+**Concept:** Fifteen days, one wrong turn at Day 1, one honest correction at
+Day 11, and a local AI that sees, remembers, decides and acts.
 
-**Demo:** Walk into frame: *"Welcome back, Saket."* A friend walks in:
-`UNREGISTERED · NOT IN REGISTRY`. Enrol them live on camera, they walk out
-and back in, and it greets them by name.
+**Demo:** Silence. *"Prepare me for my next meeting."* It checks memory, reads
+the screen, pulls the calendar, spots the unfinished item, asks permission for
+the one consequential action, does the rest, and reports in one sentence.
 
-**Hook:** *"It remembers me now. And when it doesn't know you, it says so —
-it doesn't guess your name."*
+**Hook:** *"Fifteen days. Day 11 I threw out the plan and rebuilt what it
+actually was. Here's everything — including the ten days I got wrong."*
 
-**Open decision — needed before this day (§10.1):** an unregistered face is
-your mother, a courier, a friend, essentially every time. `"Threat detected"`
-would be the first factually false thing this system has ever said, in a
-project whose entire credibility is that it never claims more than it knows.
-**Recommendation: `UNREGISTERED · NOT IN REGISTRY` by default** — on a red
-plate it lands harder anyway, because it sounds like a system that means it —
-**plus an opt-in theatrical mode** that swaps the wording for filming. Your
-call; both are one config flag.
-
-**Risk:** Biometric data has real legal weight (GDPR Art. 9, BIPA). Embeddings
-stay local, enrolment is explicit, and there is a visible delete. Say this
-out loud in the episode — it's a credibility beat, not a disclaimer.
+**Rule:** No new capability after 18:00 on Day 15. Integration and bugs only.
 
 ---
 
-## Day 13 — "It sees in three dimensions" (Phase 6) ⭐
+## If it slips (cut in this order — and say so on camera)
 
-**The visual payoff episode.**
+1. **Tool count on Day 13** — three real tools with a working registry and
+   permission gate beats six tools bolted on. Never cut the registry or the gate.
+2. **Speaker identification** (Day 14) — face identity from Day 12 already
+   answers "who is asking" when they're in frame.
+3. **Procedural + relationship memory** (Day 12) — working, episodic and
+   semantic carry the episode.
+4. **Analytical mode** (Day 14) — Normal, Tactical, Alert and Silent are enough.
+5. **Screen capture** (Day 11) — the camera path alone proves the VLM swap,
+   though this is the most painful cut on the list because §23 is a real gap.
+6. **Packaging** (Day 15) — demo from source and ship the repo.
 
-**Ships:**
-- **Depth Anything V2** — real relative depth. This **retires D17**, the
-  standing rule that the HUD may not claim distances because it couldn't
-  measure them. It can now.
-- **Segmentation masks** (YOLOE-seg / SAM2) — silhouettes instead of
-  rectangles. The single biggest available upgrade to how it *looks*.
-- **Pose** (YOLO26-pose) — orientation, gesture, "facing away".
-- **OCR on demand** — read a screen, a label, a book spine.
-- All of it **T2: on demand only, never on the hot path.** Asked-for, not
-  always-on. This is the day the attention budget earns back its complexity.
+**Never cut:** Qwen3-VL replacing the label chain (Day 11), persistence
+(Day 12), the permission gate (Day 13), and the orchestrator (Day 15). Those
+four are the entire Endgame thesis — it understands, it remembers, it acts
+safely, and it is one thing rather than five.
 
-**Concept:** Everything up to now was rectangles and words. This is the day
-it starts looking like the thing in the film — and it's affordable *only*
-because it runs when asked, not sixty times a second.
+## What must be true for five days to work
 
-**Demo:** *"YAP, scan the room."* The HUD blooms: silhouettes trace real
-outlines, depth shades near-to-far, a real distance number appears next to a
-label — and it's true this time. Then it collapses back to quiet.
-
-**Hook:** *"Day 5 I refused to put distances on screen because it couldn't
-actually measure them. Today it can, so today they're real."*
-
-**Risk:** This is a 2+ day phase compressed into one. **Priority order is
-depth → segmentation → pose → OCR, and it is a hard order.** Depth alone
-carries the episode and retires a documented limitation. Pose and OCR are
-explicitly expendable — see the slip list.
-
----
-
-## Day 14 — "It fits in a pocket" (Phase 7 + freeze)
-
-**Ships:**
-- **On-device mobile T1** via CoreML/ExecuTorch export. Published: YOLO26n at
-  11.3 ms/frame on an iPhone 15 Pro Max — at 8 Hz ambient sensing that's
-  under 10% of the phone's budget. The phone was never the problem; the
-  always-on design was.
-- **The private server split**: phone runs camera, motion gate, detection,
-  tracking and all HUD rendering locally; the server runs T2/T3 on demand.
-  A 50–150ms round trip is invisible when the user has just asked a question
-  and is already waiting.
-- **Auth and TLS before a single byte leaves the LAN.** Private is not
-  automatically secure.
-- **FEATURE FREEZE at end of day.** Whatever exists at 23:59 on Day 14 is
-  what gets filmed on Day 15.
-
-**Concept:** The architecture that made it fast on the desktop is the same
-architecture that makes it possible on a phone. That's not a coincidence —
-it's the whole argument.
-
-**Demo:** Walking through a real space holding a phone, HUD live, asking it
-questions out loud and getting answers back.
-
-**Hook:** *"The Iron Man HUD only works if it's the thing in your hand, not
-the thing on your desk."*
-
-**Risk:** **This is the most likely day to be cut**, and cutting it costs the
-least — Day 15 can film on the Mac. If Day 13 overran, take mobile down to
-"detection running on the phone, questions answered on the desktop" and say
-so plainly on camera.
-
----
-
-## Day 15 — "Ship it" (Phase 8) — FILMING ONLY
-
-**Ships:**
-- **Packaged app** — Tauri or py2app, weights fetched on first run.
-- **Public repo, README with GIF**, and an honest capability/limitation list
-  that includes everything §11 says this still doesn't fix.
-- **The polished 60–90s demo film.**
-- **Series wrap-up write-up** — what real-time perception actually costs,
-  what's genuinely hard, and the honest account of the Day 7 pivot.
-
-**Concept:** Fifteen days, one wrong turn, one honest correction, and a local
-perception system that answers when asked.
-
-**Demo:** The full thing, clean, end to end: silence, a question, an answer,
-a scan, a greeting by name.
-
-**Hook:** *"15 days. It sees, it remembers, it answers, and it stays quiet
-until you ask. Here's everything — including the six days I got wrong."*
-
-**Rule:** No new features today. None. Bugs that break the demo, and nothing
-else.
-
----
-
-## If it slips (cut in this order)
-
-1. **OCR and pose** (Day 13) — depth and segmentation carry the episode alone.
-2. **Mobile on-device export** (Day 14) — demo on the Mac, show the phone as
-   a plan with the benchmark numbers behind it.
-3. **The private server** (Day 14) — all-local is topology A in §8 and it was
-   always a legitimate shipping configuration.
-4. **Wake word** (Day 10) — push-to-talk is honest, reliable, and films fine.
-5. **Segmentation masks** (Day 13) — depth alone still retires D17.
-6. **Episodic log** (Day 12) — the registry and greeting are the demo; "what
-   happened while I was out" is the stretch.
-
-**Never cut:** the Day 8 detection upgrade, the Day 10 query loop, and the
-Day 15 freeze. Those three are the entire V2 thesis — it sees correctly, it
-answers when asked, and it actually ships.
-
-## What must be true for nine days to work
-
-- **Two decisions made before they block a day**: wake-word approach (before
-  Day 10) and the unregistered-person wording (before Day 12).
-- **Day 8's MLX fallback is decided by mid-afternoon**, not at midnight.
-- **Days are not silently merged.** If Day 13 needs two days, take it from
-  Day 14 and say so — do not take it from Day 15.
+- **No day is spent refining a previous day.** Debt gets carried and stated on
+  camera, not repaid at the cost of a new capability. This rule is the direct
+  fix for what went wrong in Days 1-10.
+- **Every model choice is verified current before it is written** — not pulled
+  from habit. See `memory/yap_no_stale_tech.md`.
+- **Every day ends with something a viewer has not seen before.** Not faster,
+  not cleaner — *new*.
+- **Days are not silently merged.** If Day 13 needs two days, it takes them from
+  Day 14, and Day 14's cut is announced.

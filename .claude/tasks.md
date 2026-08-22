@@ -549,6 +549,94 @@ See decisions.md D40 and its three amendments for the full story.
       "what am I holding"), sometimes tripping a harmless "I didn't catch
       that" — root cause is Moonshine accuracy, not the LLM layer
 
+## Day 11 (V3, Endgame rewrite) — the brain swap: Qwen3-VL replaces the label→template→LLM chain
+See decisions.md D41-D43 and day11-results.md for the full numbers.
+- [x] `engine/llm.py` rewired as a vision call — `qwen3-vl:4b` (measured
+      against `qwen3-vl:8b`, chosen for ~half the latency at identical
+      correctness), few-shot grounding hack removed
+- [x] `engine/screen_capture.py` — on-demand `screencapture -x`, tested
+      working in isolation (203.9ms); routing (`_wants_screen()`) unit-
+      tested, but no live end-to-end screen→VLM test — see the sandbox
+      window-rendering gap in D42
+- [x] `engine/provenance.py` — JSONL logging per VLM answer, disagreement
+      heuristic measured at 58% flag rate on real data (over-flags, not
+      under — docstring corrected in-session once measured)
+- [x] `engine/tiers.py` — `PreemptionSeam` carries the real frame through
+      `request_fresh_look()`/`deliver_fresh_look()`
+- [x] `test_query_loop.py` — new regression tests, seam never left stuck
+      `active` for either of Day 11's new failure points (VLM raising,
+      screen capture raising)
+- [x] Both verbatim Day 10 grounding failures retested — "standing next to
+      the chair" and "holding glasses" — neither reproduced, on both model
+      sizes, real camera, real tracks
+- [x] Five reading tests, 5/5 correct on both models — **substituted**
+      (project owner's call): no physical object held to camera this
+      session, generated images fed directly instead of via screen capture
+- [x] Idle CPU confirmed unregressed (`--t3` vs. not, same-session A/B)
+- [x] Fast path (`describe_scene`) confirmed unchanged (~17ms)
+- [ ] **Wake/press → first-spoken-word latency** — still not cleanly
+      captured, same mic-permission gap as Day 10, now carried two days
+- [ ] **A real, physical-object reading test** — receipt/label/handwriting
+      actually held to the camera, not a generated substitute
+- [ ] **Real handwriting** — the shipped "handwriting" test used a script
+      font, not genuine handwritten strokes; the brief's actual hard case
+      is still untested
+- [ ] **The sandbox's window-rendering gap** (D42) — `screencapture -x`
+      works, but no window this agent spawns renders in the captured
+      frame; a real screen-capture-to-VLM test needs either a fix or the
+      project owner running it from their own Terminal.app
+- [ ] **The disagreement heuristic's precision** — 58% flag rate is a
+      real, measured limitation; a version scoped to identity-shaped
+      questions is the next iteration, not attempted this session
+- [ ] One real Ollama timeout (30s, mid-run) — same shape as D40's
+      `keep_alive` latency-spike gap, still not root-caused
+- [ ] Wake-word rename ("yap"→"app") — still the project owner's call
+- [ ] `debug_window.py`, mic-contention test, `bench.mjs` re-run — carried
+      again, per the brief's own "do not do today" list
+
+## Day 11 (mid-session) — Chatterbox Turbo pulled forward from Day 14, on the owner's live direction
+See decisions.md D44 for the full numbers.
+- [x] `engine/tts.py` rewritten — `say -v Samantha` replaced with Chatterbox
+      Turbo (Resemble AI, MIT), real neural voice, no longer formant
+      synthesis
+- [x] Two real install bugs found and fixed: `perth`'s watermarker needed
+      `setuptools<81` (modern setuptools dropped `pkg_resources`); torch
+      downgrade to 2.6.0 (chatterbox's hard pin) regression-tested against
+      YOLOE — holds after a one-time cold Metal-kernel-compile cost
+- [x] Interrupt (`stop()`) verified both directions: during generation
+      (zero audio, loop recovers) and mid-playback (114ms to silence)
+- [ ] **Real cost, disclosed, not yet resolved:** 1.6-3.2s generation
+      latency per utterance (vs. `say`'s near-instant) — Day 10's 119.1ms
+      intent-to-TTS-start number no longer holds for any spoken answer
+- [ ] **Idle CPU regressed** with the model resident — ~18% avg (spikes to
+      44%) vs. the 5.8-8.6% Day 11 baseline without it; not profiled to
+      find the actual cause
+- [ ] `exaggeration`/`cfg_weight` don't work on the Turbo checkpoint (its
+      own logged warning) — real emotional control needs the slower base
+      `ChatterboxTTS`, not attempted this session
+- [ ] Kokoro-82M named as the fallback if the latency/CPU cost proves worse
+      in practice than the robotic voice it replaced — not tested
+
+## Day 11 (mid-session, second pivot) — JARVIS-boot greeting on person-appears, no wake phrase needed to start
+See decisions.md D45.
+- [x] `engine/greeting.py` — `PersonGreeter`, wired into `main.py`, fires
+      once when a `person` track transitions absent→present, opens the
+      conversation-follow-up window automatically (no "hey yap" needed to
+      start talking)
+- [x] Real time-of-day greeting bank (morning/afternoon/evening/night),
+      randomized, JARVIS-toned — not a single fixed catchphrase
+- [x] 7 unit tests (synthetic tracks, mocked QueryLoop) + one real live run
+      (real camera, real detection, real TTS, real speakers) — confirmed
+      `in_conversation` flips true the same tick the greeting fires
+- [x] Found and fixed a real bug en route: `ChatterboxTurboTTS.from_pretrained`
+      was making a live HF Hub round-trip despite cached weights, stalled
+      30+s once — fixed with `HF_HUB_OFFLINE=1` inside `tts.py`
+- [ ] **120-second re-greet cooldown is untuned** — a first-guess constant,
+      not tested against real walk-away/return behavior
+- [ ] Wake *phrase* still required if you're away long enough for the
+      cooldown to lapse and want to start a fresh conversation without
+      walking back into frame first (e.g. talking from off-camera)
+
 ## Known issues
 - Narration timing values (`STABLE_MS`, `min_seconds_between_lines`) still need
   tuning against real footage → Day 4

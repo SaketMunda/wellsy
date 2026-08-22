@@ -4,9 +4,11 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.13"
 dependencies = [
+    "chatterbox-tts>=0.1.7",
     "clip",
     "numpy>=2.5.2",
     "opencv-python>=5.0.0.93",
+    "setuptools<81",
     "sounddevice>=0.5.6",
     "soundfile>=0.14.0",
     "supervision>=0.30.0",

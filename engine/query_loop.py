@@ -31,11 +31,38 @@ import numpy as np
 import sounddevice as sd
 
 from intent import HELP_TEXT, parse_intent
+from provenance import log_answer
 from scene import describe_scene, query_object
+from screen_capture import ScreenCaptureError, capture_screen
 from stt import Stt
 from tiers import PreemptionSeam
 from tts import SpeechHandle, speak
 from vad import EnergyVad, FRAME_SAMPLES, SAMPLE_RATE
+
+# day11-prompt.md Part 2: routing an ambiguous "what's this?" is a real
+# product question with no universally-right answer -- the default here is
+# the camera (holding something up to be seen is this project's whole
+# premise), overridable only by explicitly naming the screen. Keyword-only,
+# same "pattern-matching, not language understanding" honesty as
+# parse_intent itself (D23) -- this is deliberately NOT folded into
+# parse_intent.py, which day11-prompt.md's boundary keeps untouched for the
+# safety-critical intents only; this list lives here because it only
+# affects which frame gets handed to the VLM, never whether a command runs.
+SCREEN_KEYWORDS = (
+    "my screen",
+    "the screen",
+    "on screen",
+    "this screen",
+    "my monitor",
+    "my display",
+    "on my computer",
+    "on the computer",
+)
+
+
+def _wants_screen(transcript: str) -> bool:
+    text = transcript.lower()
+    return any(kw in text for kw in SCREEN_KEYWORDS)
 
 WAKE_PHRASES_PATH = Path(__file__).parent / "wake_phrases.txt"
 WAKE_MATCH_THRESHOLD = 0.72
@@ -214,26 +241,73 @@ class QueryLoop:
             # of a canned "I didn't understand" — that canned line still
             # exists as the fallback if no LLM was wired in (llm=None).
             if self.llm is not None:
-                # Ground the LLM in what's actually in frame right now --
-                # found necessary from a real retest (decisions.md D40
-                # amendment): without it, any scene-shaped question got a
-                # fluent, entirely invented answer instead of a grounded
-                # one. Same forced-fresh-look mechanism describe_scene/
-                # query_object use, so "unknown" gets the same freshness
-                # guarantee as an explicit command.
+                # Day 11 (day11-prompt.md Part 1.2): "unknown" now goes to
+                # the VLM with the actual frame, not a blind text model
+                # reading a word list off describeScene. Tracks still ride
+                # along as corroboration (Part 1.3), not as the source of
+                # the answer -- see llm.py's docstring for why the old
+                # few-shot grounding hack is gone rather than carried
+                # forward.
+                #
+                # try/finally is load-bearing here, not defensive style: an
+                # Ollama call is a network call to another process this
+                # project doesn't manage, and a real retest found that an
+                # unhandled exception here did two bad things at once --
+                # (1) killed `_wake_thread` permanently and silently (the
+                # thread just dies; capture/detection keep running fine,
+                # since they're a separate thread/process, which is exactly
+                # what "the engine is still running but nothing wakes up"
+                # looks like from outside), and (2) left `preemption` stuck
+                # `active` forever since `release()` was never reached,
+                # freezing ambient T1 too. Neither failure mode is
+                # acceptable for an always-on listener thread. Unchanged
+                # from D40's shape; day11-prompt.md Part 1.4 asks for a
+                # regression test proving it still holds with the new
+                # (image-carrying) call in place -- see test_query_loop.py.
                 self.preemption.request()
-                t_freshlook = time.monotonic()
-                result = self.preemption.request_fresh_look()
-                record["freshLookMs"] = round((time.monotonic() - t_freshlook) * 1000, 2)
-                tracks = result[0] if result else []
-                scene = describe_scene(tracks)
+                try:
+                    frame_source = "screen" if _wants_screen(transcript) else "camera"
+                    t_frame = time.monotonic()
+                    tracks: list[dict] = []
+                    frame_bgr = None
 
-                t_llm = time.monotonic()
-                answer = self.llm.respond(transcript, scene=scene)
-                record["llmMs"] = round((time.monotonic() - t_llm) * 1000, 1)
-                record["answer"] = answer
-                self._speak_and_log(transcript, answer)
-                self.preemption.release()
+                    if frame_source == "screen":
+                        try:
+                            frame_bgr = capture_screen()
+                        except ScreenCaptureError as e:
+                            self._log(f"screen capture failed: {e!r} -- falling back to camera frame")
+                            frame_source = "camera"
+
+                    if frame_source == "camera":
+                        result = self.preemption.request_fresh_look()
+                        tracks = result[0] if result else []
+                        frame_bgr = result[2] if result else None
+
+                    record["frameSource"] = frame_source
+                    record["frameMs"] = round((time.monotonic() - t_frame) * 1000, 2)
+                    scene = describe_scene(tracks) if tracks else None
+
+                    t_llm = time.monotonic()
+                    answer = self.llm.respond(transcript, frame_bgr=frame_bgr, scene=scene)
+                    llm_ms = round((time.monotonic() - t_llm) * 1000, 1)
+                    record["llmMs"] = llm_ms
+                    record["answer"] = answer
+                    self._speak_and_log(transcript, answer)
+                    log_answer(
+                        transcript=transcript,
+                        answer=answer,
+                        source="vlm+tracks" if tracks else "vlm",
+                        frame_source=frame_source,
+                        tracks=tracks,
+                        frame_age_ms=record["frameMs"],
+                        llm_ms=llm_ms,
+                    )
+                except Exception as e:
+                    self._log(f"LLM error: {e!r} -- falling back to a canned response")
+                    record["llmError"] = repr(e)
+                    self._speak_and_log(transcript, "i had trouble reaching my language model just now.")
+                finally:
+                    self.preemption.release()
             else:
                 self._speak_and_log(transcript, "i didn't understand that. say help for what i handle.")
             self._extend_conversation()
@@ -373,9 +447,15 @@ class QueryLoop:
             if not transcript:
                 self._log("heard nothing.")
                 continue
-            record = self.handle_command(transcript, source="push-to-talk")
-            record["pressToAnswerMs"] = round((time.monotonic() - t_press) * 1000, 1)
-            self._log(f"press-to-answer breakdown: {record}")
+            try:
+                record = self.handle_command(transcript, source="push-to-talk")
+                record["pressToAnswerMs"] = round((time.monotonic() - t_press) * 1000, 1)
+                self._log(f"press-to-answer breakdown: {record}")
+            except Exception as e:
+                # Defense in depth alongside the try/finally inside
+                # handle_command's LLM branch: nothing should be able to
+                # kill this always-on thread for the rest of the session.
+                self._log(f"press-to-talk error: {e!r}")
 
     # ---- wake phrase: always-on rolling listen ----
 
@@ -439,9 +519,12 @@ class QueryLoop:
                     if not transcript:
                         self._log("heard nothing (conversation mode).")
                         continue
-                    record = self.handle_command(transcript, source="wake-followup")
-                    record["followUpMs"] = round((time.monotonic() - t_follow) * 1000, 1)
-                    self._log(f"conversation breakdown: {record}")
+                    try:
+                        record = self.handle_command(transcript, source="wake-followup")
+                        record["followUpMs"] = round((time.monotonic() - t_follow) * 1000, 1)
+                        self._log(f"conversation breakdown: {record}")
+                    except Exception as e:
+                        self._log(f"wake-followup error: {e!r}")
                     continue
 
                 was_speech = is_speech
@@ -474,9 +557,12 @@ class QueryLoop:
                 if not command_transcript:
                     self._log("heard nothing after wake.")
                     continue
-                record = self.handle_command(command_transcript, source="wake")
-                record["wakeToAnswerMs"] = round((time.monotonic() - t_wake) * 1000, 1)
-                self._log(f"wake-to-answer breakdown: {record}")
+                try:
+                    record = self.handle_command(command_transcript, source="wake")
+                    record["wakeToAnswerMs"] = round((time.monotonic() - t_wake) * 1000, 1)
+                    self._log(f"wake-to-answer breakdown: {record}")
+                except Exception as e:
+                    self._log(f"wake error: {e!r}")
 
     def start(self) -> None:
         # Real crash found post-Day-10 (SIGSEGV in cffi/ffi_call, inside

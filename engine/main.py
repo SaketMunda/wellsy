@@ -65,18 +65,28 @@ def emit(
     detections: list[dict],
     inference_ms: float | None,
     stats: deque[tuple[float, bool]],
+    quiet: bool = False,
 ) -> None:
-    record = {
-        "t": round(t_wall, 3),
-        "motion": round(motion, 4),
-        "gated": gated,
-        "captureMs": round(capture_ms, 2),
-        "gateMs": round(gate_ms, 2),
-        "detections": detections,
-        "tracks": tracks,
-        "inferenceMs": round(inference_ms, 2) if inference_ms is not None else None,
-    }
-    print(json.dumps(record), flush=True)
+    # `quiet` added post-Day-11 (a real user complaint: a terminal full of
+    # one JSON line per frame is meaningless to watch and was mistaken for
+    # something being wrong). This is stdout's per-frame debug/pipe stream
+    # (`debug_window.py`'s README usage pipes it) — the browser HUD does
+    # NOT read this; it gets its own copy over the WebSocket bridge below,
+    # unaffected by this flag. Suppressing it here only removes noise from
+    # a terminal nobody is meant to read line-by-line; it changes nothing
+    # about what the engine actually does.
+    if not quiet:
+        record = {
+            "t": round(t_wall, 3),
+            "motion": round(motion, 4),
+            "gated": gated,
+            "captureMs": round(capture_ms, 2),
+            "gateMs": round(gate_ms, 2),
+            "detections": detections,
+            "tracks": tracks,
+            "inferenceMs": round(inference_ms, 2) if inference_ms is not None else None,
+        }
+        print(json.dumps(record), flush=True)
 
     stats.append((t_wall, gated))
     while stats and t_wall - stats[0][0] > STATS_WINDOW_SECONDS:
@@ -96,6 +106,7 @@ def run_camera(
     ws_port: int | None = 8765,
     enable_t3: bool = False,
     enable_yo: bool = False,
+    quiet: bool = False,
 ) -> None:
     frame_queue: Queue = Queue(maxsize=1)
     stop_event = Event()
@@ -149,14 +160,24 @@ def run_camera(
             llm = Llm()
             print(f"[setup] Ollama reachable, using {llm._model_name} ({time.monotonic() - t0:.1f}s)", file=sys.stderr, flush=True)
 
+            print("[setup] loading TTS (Chatterbox Turbo)...", file=sys.stderr, flush=True)
+            t0 = time.monotonic()
+            import tts as tts_module
+
+            tts_module._get_model()  # pay the ~7.7s cold load here, not on the first real utterance
+            print(f"[setup] TTS ready in {time.monotonic() - t0:.1f}s", file=sys.stderr, flush=True)
+
             query_loop = QueryLoop(preemption, stt, llm=llm, enable_yo=enable_yo)
             query_loop.start()
 
     ambient = None
+    greeter = None
     if query_loop is not None:
         from ambient import AmbientNarrator
+        from greeting import PersonGreeter
 
         ambient = AmbientNarrator(query_loop)
+        greeter = PersonGreeter(query_loop)
 
     prev_gray = None
     stats: deque[tuple[float, bool]] = deque()
@@ -221,7 +242,10 @@ def run_camera(
                     inference_ms = (time.monotonic() - ti) * 1000
                     last_detect_time = now
                     bootstrapped = True
-                    preemption.deliver_fresh_look(last_tracks, inference_ms)
+                    # frame is handed along Day 11 (day11-prompt.md Part 1)
+                    # so T3's query loop can pass real pixels to the VLM
+                    # instead of just the track labels.
+                    preemption.deliver_fresh_look(last_tracks, inference_ms, frame)
 
                 # T3 preempts T1 (day10-prompt.md Part 1): while a query is
                 # in flight, ambient sensing's own-schedule detection pauses
@@ -229,7 +253,21 @@ def run_camera(
                 # here for the duration of the query except the forced one
                 # above. T0 (the gate computed above, every frame
                 # regardless) is unaffected — "do not gate the gate."
-                elif not preemption.active:
+                elif not preemption.active and not (query_loop is not None and query_loop._speaking()):
+                    # Day 11 addendum: `preemption.release()` fires as soon as
+                    # `_speak_and_log` *starts* Chatterbox (a background
+                    # thread, non-blocking) -- not when audio actually
+                    # finishes. Without this second check, T1 (YOLOE, MPS)
+                    # resumed at 8Hz while Chatterbox's own MPS generation
+                    # was still running and while `sounddevice` was mid
+                    # playback, real GPU/CPU contention diagnosed live from a
+                    # user report of distorted audio plus a spurious "trouble
+                    # reaching my language model" (a second TTS-in-flight
+                    # call's Ollama request, or the wake thread's own,
+                    # starved of GPU/CPU by the same contention). Held here,
+                    # not by delaying `preemption.release()` itself, so a
+                    # forced fresh-look request above still isn't blocked by
+                    # an unrelated ambient utterance in flight.
                     held_open = last_motion_time is not None and (now - last_motion_time) < MOTION_HOLD_SECONDS
                     t1_active = (not gated) or held_open or not bootstrapped
                     due = (now - last_detect_time) >= DETECT_INTERVAL_S
@@ -256,8 +294,10 @@ def run_camera(
 
             if ambient is not None:
                 ambient.update(last_tracks)
+            if greeter is not None:
+                greeter.update(last_tracks)
 
-            emit(t_wall, motion, gated, capture_ms, gate_ms, last_tracks, last_detections, inference_ms, stats)
+            emit(t_wall, motion, gated, capture_ms, gate_ms, last_tracks, last_detections, inference_ms, stats, quiet=quiet)
 
             if bridge is not None and (now - last_broadcast_time) >= DETECT_INTERVAL_S:
                 last_broadcast_time = now
@@ -317,6 +357,13 @@ def main() -> None:
     parser.add_argument("--no-ws", action="store_true", help="disable the WebSocket bridge — stdout JSONL only, Day 8 behavior")
     parser.add_argument("--t3", action="store_true", help="enable the Day 10 query loop: mic, wake phrase, push-to-talk, TTS (day10-prompt.md)")
     parser.add_argument("--enable-yo", action="store_true", help="add bare 'yo' to the wake phrase list, off by default per decisions.md D39")
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="suppress the per-frame JSONL on stdout -- keep [setup]/[t3]/[warn]/[error] lines only. "
+        "Doesn't change what the engine does or what the browser HUD sees (that's a separate WebSocket "
+        "copy); this only quiets a terminal nobody is meant to read frame-by-frame.",
+    )
     args = parser.parse_args()
     run_camera(
         args.seconds,
@@ -326,6 +373,7 @@ def main() -> None:
         synthetic_intermittent=args.synthetic_intermittent,
         ws_port=None if args.no_ws else args.ws_port,
         enable_t3=args.t3,
+        quiet=args.quiet,
         enable_yo=args.enable_yo,
     )
 

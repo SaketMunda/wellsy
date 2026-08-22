@@ -1822,3 +1822,456 @@ explicitly asked to fine-tune "progressively," not all in one session:
    that, could you repeat?" rather than answering wrong -- a softer
    failure than before, still friction, root cause is STT accuracy, not
    this session's LLM work.
+
+**Fourth amendment — a real, serious bug: an unhandled LLM/Ollama error
+could silently kill wake-word listening for the rest of the session.**
+Reported live as "Hey App doesn't wake up anything, but the engine is
+continuously running" -- exactly the signature of `_wake_thread` dying
+silently while `capture_worker` (a separate process) kept going. Root
+cause, found by inspection: `handle_command`'s `unknown`/LLM branch called
+`self.preemption.request()` then `self.llm.respond(...)` with no
+try/except -- any exception from that network call to Ollama (down,
+timeout, malformed response) propagated straight out of `handle_command`,
+uncaught, into `_wake_thread`'s loop, which also had no handler around the
+call. Python threads that raise just die, silently, with no crash visible
+to the rest of the process. Two failures at once: (1) the wake thread
+(and push-to-talk) is gone for the rest of the run, and (2)
+`self.preemption.release()` -- right after the now-skipped LLM call --
+never runs, so the preemption seam stays stuck `active` forever, freezing
+ambient T1 too, not just voice.
+
+**Fixed:** the LLM call is now wrapped in `try/except/finally` --
+`finally: self.preemption.release()` guarantees the seam is never stuck,
+and the `except` falls back to a spoken "i had trouble reaching my
+language model just now" instead of propagating. Added a second layer of
+defense at all three call sites of `handle_command()` inside the
+always-on threads (`_ptt_thread`, and both wake-thread call sites) --
+any *other* unexpected exception now gets logged and the loop continues,
+rather than the thread dying. **Verified** with a fake LLM that always
+raises: `preemption.active` correctly returns to `False` (not stuck), a
+spoken fallback answer is produced, and a second call right after proves
+the loop is still alive and handling commands normally.
+
+---
+
+### D41 — Qwen3-VL replaces the label→template→LLM chain (the brain swap)
+
+**Decided:** Day 11, per the Endgame rewrite's own naming of this as the
+day's one non-negotiable ship. See `.claude/day11-results.md` for the full
+numbers this rests on; this entry is the reasoning and the retire/keep
+list.
+
+**Why, structurally, not just "a bigger model":** D40's three amendments
+each fixed a symptom (few-shot to stop invented decor, forced-fresh-look to
+stop stale answers, temperature to reduce variance) of one root cause: the
+LLM never saw a pixel. It reasoned about a word list (`describe_scene()`'s
+string), so any question needing posture, held objects, printed text, or
+anything outside the tracker's 80-ish-prompt vocabulary got a plausible
+invention instead of an "I don't know." A model that receives the actual
+frame does not have this failure mode by construction — it can only invent
+*within* what it sees, not conjure detail a word list never carried.
+
+**What D40 got right, and what Day 11 retires:** D40's forced-fresh-look
+mechanism (`PreemptionSeam.request_fresh_look()`), the `try/except/finally`
+exception discipline, and the whole `unknown`→LLM routing shape are all
+kept, unchanged in structure — only the payload changed (an image added,
+not tracks removed). What's retired: the few-shot worked example in
+`llm.py` (existed only to compensate for blindness) and, functionally, the
+temperature-tuning-as-primary-defense framing — `TEMPERATURE = 0.2` is
+still set, but grounding no longer depends on it the way D40's third
+amendment's investigation implied it might.
+
+**Model choice, on measured latency, not the brief's first guess:**
+`qwen3-vl:8b` (pulled first, per instruction) measured first-token p50
+2753.3ms / p95 3048.4ms on this M4 Pro (24GB) — well outside "answerable
+directly." `qwen3-vl:4b`, measured the same way (12 real streamed queries,
+`day11_bench.py`, a new non-shipped harness), came in at p50 1692.5ms / p95
+2282.4ms — roughly half the cost, identical correctness on every reading
+test and both verbatim grounding retests run against it. **Shipped:
+`qwen3-vl:4b`.** Neither model hit the brief's own "~1.5s comfortable" bar
+— stated plainly rather than rounded up to a win. The mitigation is
+structural (T2/T3 behind `PreemptionSeam`, the fast deterministic path
+still answers `describe_scene`/`query_object` in ~17ms unchanged), not a
+latency trick that made either model actually fast.
+
+**The two Day 10 failures, retested verbatim, both resolved on real data:**
+"what am I doing right now?" (was: invented "standing" for a seated user)
+now answers "sitting" on both 8B and 4B. "what am I holding?" (was:
+invented "holding glasses") now correctly says nothing is held, on both
+models, despite `glasses` being a real, confident (1.0) tracked label in
+the same frame — the exact case D40 could never resolve, because the old
+chain had no way to distinguish "an object is detected somewhere in frame"
+from "the user is holding it." See day11-results.md Part 5 for the full
+verbatim answers and the honest caveat that this doesn't prove the failure
+mode can never recur under different conditions, only that these two
+specific documented failures did not reproduce.
+
+**A new, measured limitation, not hidden:** the VLM-vs-tracks disagreement
+heuristic (`provenance.py`, D43) was found this session to over-flag —
+58% (11/19) on a real 20-query run — because it fires on any answer that
+doesn't restate the tracked object labels, regardless of whether the
+question was about object identity at all. Recorded as a real finding in
+both `provenance.py`'s docstring and the results doc, not smoothed over to
+make row 7 of the measurement table look cleaner.
+
+**Cost:** `engine/llm.py`'s diff is a near-total rewrite (182 lines
+changed) — the module's job changed shape, not just its prompt.
+`engine/tiers.py`'s `PreemptionSeam` result tuple grew a third element
+(`frame_bgr`), additive for both existing callers. `engine/query_loop.py`
+gained ~140 lines: frame/screen routing, provenance logging, the same
+exception shape as D40's fourth amendment, now covered by a new regression
+test (`test_query_loop.py`) proving the seam is never left stuck `active`
+for either of Day 11's two new failure points (VLM raising, screen capture
+raising). No new pip dependency — `cv2` (already present) handles JPEG
+encoding; the Ollama HTTP call is still stdlib `urllib`.
+
+**Revisit if:** a future machine's GPU makes 8B's extra headroom worth the
+2x latency cost — `MODEL_NAME` is a one-line change. Also revisit the
+disagreement heuristic once a version scoped to identity-shaped questions
+is built (not attempted this session, per the brief's own no-refinement
+rule for carried debt).
+
+---
+
+### D42 — Screen capture as a second perception source, on-demand only
+
+**Decided:** Day 11, day11-prompt.md Part 2 — the first genuinely new
+input type since Day 1 (spec §23, previously at zero).
+
+**Shipped:** `engine/screen_capture.py`, `screencapture -x` to a scratch
+file inside `engine/clips/` (never `/tmp`, per the project's own boundary
+rule), loaded via `cv2.imread`, scratch file deleted before the function
+returns. Directly tested working in isolation: 203.9ms for a real
+1920x1080 capture. Routing: `query_loop.py`'s `_wants_screen()`, a small
+fixed keyword list ("my screen", "the screen", "my monitor", etc.) checked
+against the transcript before deciding which frame to fetch — deliberately
+**not** folded into `parse_intent.py`, which day11-prompt.md's boundary
+keeps untouched for the safety-critical intents (`stop`/`wake`/`sleep`)
+only. The default for an ambiguous "what's this?" is the camera — this
+project's whole premise is holding something up to be seen — overridable
+only by naming the screen explicitly, per the brief's own instruction to
+pick a default and state it rather than build a disambiguation dialogue.
+
+**A real environment limitation, found and reported rather than papered
+over:** this session's shell runs in a sandboxed/remote context where
+`screencapture -x` genuinely captures live pixels (confirmed: the captured
+image's menu bar tracked real frontmost-app changes as Terminal/Preview/
+TextEdit were switched via `open`/AppleScript) but no window this agent
+spawns ever rendered inside the captured frame, across either of the
+machine's two virtual displays — only the desktop wallpaper came back.
+`osascript`'s keystroke automation is separately blocked outright. This
+reads as a session/display-routing quirk of the sandbox this agent runs
+in, not a bug in `screen_capture.py` — its own direct, isolated test
+passed cleanly. Per the project owner's live call (asked, not guessed),
+Part 3's reading tests bypass this code path and feed generated images
+directly as `frame_bgr` instead — real coverage of the VLM's reading
+ability, not of screen capture's pixels reaching it end-to-end. The
+routing logic itself (`_wants_screen()`, fallback-to-camera on capture
+failure) is covered by `test_query_loop.py` via a monkeypatched
+`capture_screen`.
+
+**Privacy, said out loud per the brief's instruction, not left as a
+disclaimer:** the screen is captured only on an explicit request that
+already matched a keyword before any capture call happens, the resulting
+frame lives in memory for exactly the one VLM call that answers the
+question, and the on-disk scratch file is deleted before the function
+returns. Nothing about screen content persists beyond the provenance
+line's `frameSource: "screen"` tag (D43) — no pixels, no OCR'd text, no
+filename.
+
+**Cost:** one new file, no new dependency (`cv2`, `subprocess` already
+present). **Revisit if:** the sandbox's window-rendering gap is ever
+resolved (or this ships from the project owner's own Terminal.app, which
+Day 9/10's mic-permission precedent suggests may behave differently) — a
+real end-to-end screen-capture-to-VLM test with actual on-screen content is
+still owed.
+
+---
+
+### D43 — Provenance logging for VLM answers, extending D22's discipline
+
+**Decided:** Day 11, day11-prompt.md Part 1.3, spec §19.
+
+**Shipped:** `engine/provenance.py`, one JSONL line per VLM answer into
+`clips/provenance.jsonl` (not a new cache location — D30's boundary is
+about model weights, not per-run logs; `clips/` already holds every other
+per-run artifact this project writes). Each line carries: the claim
+(`answer`), the transcript, `source` (`vlm` or `vlm+tracks`), `frameSource`
+(`camera`/`screen`), the tracker's labels at the time, `frameAgeMs`,
+`llmMs`, and a `possibleDisagreement` heuristic flag — the same
+claim→source→timestamp→confidence→freshness shape D22's `labelConfidence`/
+`runnerUpLabel` discipline established for tracks, extended to the new
+layer.
+
+**The disagreement heuristic, measured rather than assumed, and found
+weaker than hoped — recorded honestly:** `flag_disagreement()` checks
+whether any confidently-tracked label appears as a substring of the VLM's
+answer. A real 20-question run against one real frame (tracks:
+`[person, glasses, blanket]`, all confidence 1.0) flagged **11/19 (58%)**,
+with one Ollama timeout excluded. Reading the 11 flagged cases shows this
+is a precision problem, not a recall win being undersold: "is there a
+window?" → "Yes, there's a window..." gets flagged purely because the
+answer doesn't restate "person"/"glasses"/"blanket", not because it
+contradicts the tracker at all. The heuristic's docstring originally
+(incorrectly) claimed it "under-counts more than it over-counts" — written
+before this measurement existed; corrected in the same session once real
+data contradicted it, per the project's own rule that a recalled or
+authored claim gets checked against current evidence, not left standing
+once proven wrong.
+
+**What the heuristic is actually good for, stated precisely:** zero false
+negatives against the narrow case it can detect at all (a claim that
+directly contradicts a confidently-tracked label never slips through
+unflagged), at the cost of a high false-positive rate on correct-but-
+off-topic answers. Useful as a "worth a human glance" tripwire in the raw
+JSONL, not yet precise enough to report as a real disagreement-rate metric
+on its own.
+
+**Cost:** one new file, no new dependency. Reuses `scene.py`'s
+`UNCERTAIN_CONFIDENCE` constant to exclude already-hedged track labels from
+the check, rather than duplicating the threshold a third time.
+
+**Revisit if:** a version scoped to identity-shaped questions (only check
+disagreement when the question is plausibly asking "what is this object"
+rather than about color, position, count, lighting, etc.) is built — not
+attempted this session, per the brief's own no-refinement-of-prior-day rule
+applied to same-day scope creep too.
+
+---
+
+### D44 — Chatterbox Turbo replaces `say -v Samantha`, pulled forward from Day 14 into Day 11
+
+**Decided:** Day 11, mid-session, on the project owner's explicit, live
+direction — not planned, not a quiet scope add. D39 shipped `say -v
+Samantha` deliberately as a stopgap to close the nine-day-old audibility
+gap, naming the real ask (human-sounding, emotional TTS) and scoping it to
+Day 14 (`v2-roadmap.md`, Chatterbox Turbo already named there). The owner
+pushed back hard, live, mid-Day-11: *"I can't wait for Day 14... just get
+rid of it."* This entry is that swap, done immediately, with every real
+cost found and stated rather than smoothed over because the ask was urgent
+and emotional.
+
+**Model, verified current the same session, not assumed from the earlier
+roadmap research:** a live web check confirmed Chatterbox Turbo
+(`ResembleAI/chatterbox-turbo`, Resemble AI, MIT license, 350M params) is
+real, current, and installable via `pip install chatterbox-tts` (which
+ships both `chatterbox.tts` and the faster `chatterbox.tts_turbo`).
+
+**Three real installation problems, found and fixed, not glossed over:**
+1. `chatterbox-tts` hard-pins `torch==2.6.0` — a downgrade from this
+   project's `torch==2.13.0`. Checked before accepting: `ultralytics` only
+   requires `torch>=1.8.0`, no real conflict. **Regression-tested** after
+   downgrading: YOLOE inference cost 3849.9ms on the first call (cold
+   Metal kernel compile — the same phenomenon D40 already documented for
+   the LLM path), then a steady 21.8-22.2ms on every call after — matches
+   pre-downgrade performance.
+2. Loading the model raised `TypeError: 'NoneType' object is not
+   callable` on `perth.PerthImplicitWatermarker()`. Traced (not guessed):
+   `perth`'s watermark submodule imports `pkg_resources`, which modern
+   `setuptools` (84.x) dropped in late 2025. Fixed with `setuptools<81`,
+   the last line still shipping it — chosen over disabling the
+   watermarker, since keeping Resemble's own audio-provenance watermark
+   active on every generated clip is the more responsible default for a
+   project whose entire ethos is honesty about what's real.
+3. `exaggeration`/`cfg_weight` are accepted by `.generate()` but **silently
+   ignored by the Turbo checkpoint** — its own runtime warning says so.
+   The emotion-control knob `v2-roadmap.md`'s Day 14 description named
+   only works on the slower base `chatterbox.tts.ChatterboxTTS`, not
+   Turbo. Turbo still delivers a real neural voice, not `say`'s formant
+   synthesis — it fixes baseline robotic-ness, not dynamic emotional
+   range. Stated plainly rather than let the "emotion control" framing
+   from the roadmap stand uncorrected.
+
+**Real measured cost, this machine, this session — the headline finding,
+not hidden:**
+- **Latency:** Resemble's own claim is "75ms latency, 6x real-time"
+  (almost certainly CUDA-measured). On this M4 Pro's MPS backend, real
+  generation for short assistant-shaped replies: `"okay."` 3167ms, `"i am
+  listening."` 1652ms, `"yes, one person in view."` 2269ms, `"nothing in
+  view right now."` 1852ms — real-time factor **~1.1x-3.3x**, i.e.
+  generation takes about as long as, or longer than, the resulting clip,
+  not 6x faster. Cold model load: 7693ms, now pre-warmed at startup
+  (`main.py`) so it isn't paid on the first live utterance.
+- **This directly costs Day 10's centerpiece number.** The 119.1ms
+  intent-to-TTS-start measurement (D36, day10-results.md) depended on
+  `say` producing audio within milliseconds of being invoked. Every
+  Chatterbox utterance now has a real **1.6-3.2 second pause** before any
+  sound starts, even for the deterministic fast-path answers that used to
+  be instant. The fast path itself (`parse_intent` → tracks →
+  `describe_scene`) is unchanged and still computes its answer in ~17ms —
+  what changed is that *speaking* any answer now has a real, human-
+  noticeable wait in front of it that didn't exist before.
+- **Idle CPU got measurably noisier with the model resident.** `--synthetic
+  --t3` (Chatterbox pre-warmed, not being called): main process averaged
+  **~18% of one core** across 5 samples (15.9/44.5/11.7/9.0/10.7%,
+  including a real spike to 44.5%), vs. Day 11's earlier `--t3` baseline
+  (Ollama only, no resident PyTorch TTS model) of 5.8-8.6%. Plausibly
+  PyTorch/MPS background threads a resident model keeps alive in-process
+  — unlike Ollama, which runs as a separate server process with no
+  memory/thread cost inside the engine's own PID. **Day 8's ~6-8% idle
+  target does not hold once Chatterbox is loaded** — a real, disclosed
+  regression, not swept into the "no regression" framing D41's idle-CPU
+  row used for the VLM path.
+- **Memory:** ~10.4-10.5% of 24GB (~2.5GB) resident for the engine's main
+  process with Chatterbox loaded, on top of YOLOE/Moonshine/tracker —
+  Ollama's LLM/VLM weights don't count against this since they live in
+  Ollama's own separate process.
+
+**Interruption, kept working, implemented differently.** `say`'s subprocess
+made "stop mid-word" a SIGTERM away. Chatterbox generates a whole clip
+in-process then plays it via `sounddevice` — `SpeechHandle.stop()` sets a
+cancellation flag (checked before playback starts, so a stop during the
+1.6-3.2s generation window prevents the clip from ever playing) and calls
+`sd.stop()` (cuts actual playback). **Measured, both directions:**
+cancelling during generation produced zero audio and left the loop able to
+speak a second utterance normally right after; cancelling 800ms into real
+playback returned control in **114ms** — not SIGTERM-instant, but a real,
+fast, working interrupt. **Not true mid-generation cancellation** — if
+`stop()` fires while `model.generate()` is running, that call still runs to
+completion on its background thread (the user hears nothing either way;
+the CPU cost of the discarded generation isn't reclaimed). Acceptable for
+a first cut; the `chatterbox` library doesn't expose a way to abort
+generation mid-flight.
+
+**Cost:** two new dependencies (`chatterbox-tts`, `setuptools<81` pinned
+down from 84.x), `torch` downgraded 2.13.0→2.6.0 project-wide (regression-
+tested against YOLOE, holds), `engine/tts.py` rewritten in full (subprocess
+→ in-process PyTorch model + `sounddevice` playback), `main.py` gained a
+TTS pre-warm step at startup.
+
+**Revisit if:** the 1.6-3.2s pause proves worse in real use than the
+robotic voice it replaced — Kokoro-82M (already vetted, D13/D39) is the
+named fallback, a one-file swap back to something faster but less
+expressive. Also revisit if real emotional/exaggeration control is wanted
+badly enough to justify testing the slower base `ChatterboxTTS` instead of
+Turbo. The idle-CPU regression is worth a real profiling pass (is it MPS
+allocator threads, autograd, something reducible) rather than accepted as
+a permanent cost, once there's a day with room for it.
+
+---
+
+### D45 — Proactive JARVIS-boot greeting: a person appearing opens the conversation window without a wake phrase
+
+**Decided:** Day 11, immediately after D44, same live session, on the
+project owner's direct ask: *"Can we not use the wake up, but just
+initiate by their own if I first appear in the frame. And say 'Hey Sir!
+What's for today?' or something funny greetings inspired by JARVIS."*
+
+**What this is not:** not the spec's §16 Proactive Intelligence Engine
+(Expected Benefit × Urgency × Confidence ÷ Interruption Cost scoring),
+which stays scoped to Day 14 as planned — that's a general-purpose
+proactive-alerting system. This is one narrow, hand-scoped trigger:
+`person` track transitions absent→present, speak one real JARVIS-style
+line, open the same conversation-follow-up window `handle_command` already
+opens after any answered command. `parse_intent`'s `wake`/`sleep`/`stop`
+grammar is completely untouched — the wake *phrase* still exists and still
+works exactly as before; this adds a second, automatic way into the
+conversation window, it doesn't replace or weaken the first.
+
+**Shipped:** `engine/greeting.py`, `PersonGreeter`, wired into `main.py`
+alongside `AmbientNarrator`, updated every frame off the same `last_tracks`
+the ambient narrator already reads. **Deliberately not gated behind
+`QueryLoop.ambient_enabled`** (unlike `ambient.py`'s D38 "silence is
+default" narration) — this is the one kind of unprompted speech the owner
+explicitly asked to always be on today. Scoped tight to avoid reopening
+the narration-fatigue problem D38 was built to close: fires once per
+genuine appearance (a 120-second cooldown, first-guess constant, not
+tuned against real walk-away/return footage this session), not on every
+frame a person is visible, not on other objects appearing.
+
+**Greeting content: real time-of-day, not fabricated.** `datetime.now().hour`
+picks one of four small line banks (morning/afternoon/evening/night),
+`random.choice`d so it doesn't say the identical line every time — the
+same honesty rule D17 applied to "never print a number with no real source
+behind it" applied here to "never claim a time of day that isn't real."
+JARVIS-toned ("Good morning, sir. What's on the agenda today?"), not the
+literal line the owner suggested verbatim, since a small bank reads better
+over repeated real use than one fixed catchphrase would.
+
+**Tested two ways:** `test_greeting.py` (7 cases, synthetic tracks, a
+mocked `QueryLoop` — the appear/no-repeat/cooldown/gap/busy-state logic,
+all without needing camera or TTS) and a real live run this session: real
+camera, real YOLOE detection, a real person (this session's operator)
+appearing in frame, a real greeting selected, real Chatterbox Turbo
+generation, real audio out the real speakers. `in_conversation` flipped
+`False`→`True` in the same tick the greeting fired, confirmed by direct
+inspection of `QueryLoop`'s own state, not assumed from the code reading
+right.
+
+**A real gap found and fixed en route:** `ChatterboxTurboTTS.from_pretrained`
+was making a live Hugging Face Hub metadata round-trip even with weights
+already cached under `HF_HOME` — one real run stalled 30+ seconds on it
+(unauthenticated rate limiting, same warning class STT/LLM setup already
+logs). Fixed with `HF_HUB_OFFLINE=1`, set lazily inside `tts.py`'s model
+loader (not globally in `main.py`, since `Stt`'s very first-ever run on a
+fresh machine still needs one real fetch) — weights don't change between
+runs once downloaded, so forcing cache-only load is correct, not a
+workaround.
+
+**Cost:** one new file (`greeting.py`), a 6-line wiring change in
+`main.py` (import + instantiate + one `.update()` call alongside the
+existing `ambient.update()`), one new test file. No new dependency. Reuses
+`QueryLoop.speak_ambient()` (which already checks `preemption.active`) and
+`QueryLoop._extend_conversation()` (which `handle_command` already calls
+after every answered command) rather than inventing new plumbing.
+
+**Revisit if:** real use shows the 120s cooldown is wrong in either
+direction — too naggy if you step out of frame briefly and back (lower
+grace, not shorter cooldown, is probably the actual fix), or too rare if
+you want a "welcome back" moment sooner after a real absence. Also revisit
+whether the greeting should route the same provenance logging (D43) VLM
+answers get — not done this session, since a greeting isn't a claim about
+anything observed, just a social opener.
+
+### D46 — `--quiet` flag, and pausing T1 while TTS is speaking (a real contention bug, not a config tweak)
+
+**Decided:** Day 11, same session, after the owner ran the engine live and
+reported three concrete problems from a pasted terminal log: unprompted
+speech with no browser open, confusion about whether the engine needs the
+browser at all, a wall of meaningless per-frame JSON, and — in a follow-up
+message with a second real log — **distorted TTS audio** and the engine
+answering a real question with "i had trouble reaching my language model
+just now" (`query_loop.py`'s hard-coded fallback for an `Llm.respond()`
+exception).
+
+**`--quiet` (main.py):** suppresses the per-frame JSONL `emit()` prints to
+stdout; keeps `[setup]`/`[t3]`/`[warn]`/`[error]`/`[gated-fraction]` lines.
+Purely cosmetic — doesn't touch the WebSocket bridge (the browser HUD's
+copy of the same data is unaffected either way) or engine behavior.
+
+**The distortion and the LLM error were not two unrelated bugs — traced to
+one real cause, not assumed.** `query_loop.py`'s `handle_command` releases
+`preemption` (`finally: self.preemption.release()`) the instant
+`_speak_and_log` *starts* Chatterbox generation — `speak()` is
+fire-and-forget, returning a handle immediately, well before generation or
+playback finishes (`tts.py`'s own docstring already states real generation
+takes 1.6–3.2s on this machine). `main.py`'s T1 loop only checked
+`preemption.active` before resuming YOLOE (MPS) inference at up to 8Hz —
+so as soon as `release()` fired, T1 resumed while Chatterbox was still
+mid-generation on the same MPS device *and* `sounddevice` was mid-playback
+on the real-time audio callback thread. Verified in isolation
+(`chatterbox.generate()` alone, no contention: clean float32 in [-1, 1],
+no NaN/inf, correct mono shape — ruling out a data bug in `tts.py` itself)
+before concluding the cause was concurrent GPU/CPU load, not corrupt audio
+data. Three real MPS-bound workloads (YOLOE, Ollama's llama.cpp Metal
+backend, Chatterbox's torch/MPS backend) sharing one GPU, plus CPU
+contention starving PortAudio's real-time callback, is a well-known class
+of failure (audio crackle/underrun under host starvation) and directly
+explains both symptoms the owner saw: garbled sound (the audio side of the
+contention) and a request to Ollama slow or failing enough to hit
+`Llm`'s exception path (the GPU side).
+
+**Fix:** `main.py`'s T1-resume condition now also checks
+`not query_loop._speaking()`, gating detection the same way `preemption.active`
+already does, for the same reason — extending an existing pattern rather
+than inventing new plumbing. Held at the T1-resume check specifically, not
+by delaying `preemption.release()` itself, so a forced fresh-look request
+(`poll_force_request()`, unconditional, above this check) still isn't
+blocked by an unrelated ambient/greeting utterance in flight.
+
+**Not verified live this session** — this agent has no mic/speaker access
+in this sandbox (the same standing limitation noted since Day 9/10 for
+capturing real wake-latency numbers). The fix is a direct, evidenced
+response to the owner's real report and passes the existing 47-test suite,
+but the owner is the one who can confirm on real hardware whether the
+distortion is actually gone.
