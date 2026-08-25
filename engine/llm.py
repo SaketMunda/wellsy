@@ -76,7 +76,11 @@ SYSTEM_PROMPT = (
     "tracker's object list is included below the image, treat it as a "
     "second opinion, not ground truth -- prefer what you actually see. You "
     "have no memory of earlier turns -- if the question depends on "
-    "something said before, say you didn't catch it rather than guessing."
+    "something said before, say you didn't catch it rather than guessing. "
+    "On a multi-monitor question, you may be given more than one screen "
+    "image in the same message -- if so, they are separate physical "
+    "displays, not one image; answer about whichever one is actually "
+    "relevant, or say which display you're describing if it matters."
 )
 
 # JPEG, not PNG: smaller payload over localhost for a 720p-ish webcam/screen
@@ -114,16 +118,20 @@ class Llm:
     def respond(
         self,
         transcript: str,
-        frame_bgr: np.ndarray | None,
+        frame_bgr: np.ndarray | list[np.ndarray] | None,
         scene: str | None = None,
     ) -> str:
-        """`frame_bgr`: the actual camera or screen frame the answer should
-        be grounded in -- required in practice (query_loop.py always has
-        one by the time it calls this), but left optional at the type level
-        so a caller with no frame gets an honest text-only answer instead
-        of a crash. `scene`: `describe_scene()`'s tracker-derived string,
-        passed as corroboration per day11-prompt.md Part 1.3, not as the
-        source of the answer."""
+        """`frame_bgr`: the actual camera or screen frame(s) the answer
+        should be grounded in -- required in practice (query_loop.py always
+        has at least one by the time it calls this), but left optional at
+        the type level so a caller with no frame gets an honest text-only
+        answer instead of a crash. A single frame (the camera path, always)
+        or a list of frames (the screen path, on a multi-monitor machine --
+        `screen_capture.py`'s fix for silently grabbing the wrong display)
+        are both accepted; Ollama's `images` field just wants a flat list
+        of base64 strings either way. `scene`: `describe_scene()`'s
+        tracker-derived string, passed as corroboration per
+        day11-prompt.md Part 1.3, not as the source of the answer."""
         parts = [transcript]
         if scene:
             parts.insert(0, f"[tracker's object list, for cross-reference only: {scene}]")
@@ -131,7 +139,8 @@ class Llm:
 
         message: dict = {"role": "user", "content": user_content}
         if frame_bgr is not None:
-            message["images"] = [_encode_jpeg_b64(frame_bgr)]
+            frames = frame_bgr if isinstance(frame_bgr, list) else [frame_bgr]
+            message["images"] = [_encode_jpeg_b64(f) for f in frames]
 
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},

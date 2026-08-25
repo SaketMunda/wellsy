@@ -106,7 +106,8 @@ def run_camera(
     ws_port: int | None = 8765,
     enable_t3: bool = False,
     enable_yo: bool = False,
-    quiet: bool = False,
+    quiet: bool = True,
+    no_greet: bool = False,
 ) -> None:
     frame_queue: Queue = Queue(maxsize=1)
     stop_event = Event()
@@ -174,10 +175,20 @@ def run_camera(
     greeter = None
     if query_loop is not None:
         from ambient import AmbientNarrator
-        from greeting import PersonGreeter
 
         ambient = AmbientNarrator(query_loop)
-        greeter = PersonGreeter(query_loop)
+        if not no_greet:
+            # D45/D46 amendment: unprompted speech triggered by a
+            # misdetection (an empty-room chair, reported live) is a real,
+            # not-fully-eliminable risk at the detector's current accuracy
+            # -- the gate was made much more conservative, but that's a
+            # mitigation, not a guarantee. `--no-greet` is the honest
+            # escape hatch: full silence-until-wake-phrase, same as every
+            # day before this one, if the greeting misfires more than it's
+            # worth.
+            from greeting import PersonGreeter
+
+            greeter = PersonGreeter(query_loop)
 
     prev_gray = None
     stats: deque[tuple[float, bool]] = deque()
@@ -358,11 +369,20 @@ def main() -> None:
     parser.add_argument("--t3", action="store_true", help="enable the Day 10 query loop: mic, wake phrase, push-to-talk, TTS (day10-prompt.md)")
     parser.add_argument("--enable-yo", action="store_true", help="add bare 'yo' to the wake phrase list, off by default per decisions.md D39")
     parser.add_argument(
-        "--quiet",
+        "--debug",
         action="store_true",
-        help="suppress the per-frame JSONL on stdout -- keep [setup]/[t3]/[warn]/[error] lines only. "
-        "Doesn't change what the engine does or what the browser HUD sees (that's a separate WebSocket "
-        "copy); this only quiets a terminal nobody is meant to read frame-by-frame.",
+        help="print the per-frame JSONL on stdout (one line per camera frame) -- off by default as of "
+        "the Day 11 log-noise fix; a real user complaint was that this is on by default and reads as "
+        "something being wrong when nothing is. Doesn't change what the engine does or what the browser "
+        "HUD sees (that's a separate WebSocket copy, always on, unaffected by this flag) -- this only "
+        "controls a terminal stream nobody reads frame-by-frame in normal use.",
+    )
+    parser.add_argument(
+        "--no-greet",
+        action="store_true",
+        help="disable the proactive person-appears greeting (D45/D46) -- a misdetection can still trigger "
+        "unprompted speech even with the confidence/aspect-ratio gates; pass this for full silence-until-"
+        "wake-phrase if that's happened to you. The wake phrase itself is unaffected.",
     )
     args = parser.parse_args()
     run_camera(
@@ -373,8 +393,9 @@ def main() -> None:
         synthetic_intermittent=args.synthetic_intermittent,
         ws_port=None if args.no_ws else args.ws_port,
         enable_t3=args.t3,
-        quiet=args.quiet,
+        quiet=not args.debug,
         enable_yo=args.enable_yo,
+        no_greet=args.no_greet,
     )
 
 

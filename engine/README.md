@@ -14,8 +14,13 @@ uv run main.py --synthetic                   # no camera needed — generated fr
 uv run main.py --no-detect                   # T0 only (Day 7 behavior) — isolates gate cost
 uv run main.py --synthetic-intermittent --seconds 35   # staged enter/hold-still-20s/move-again clip
 
-uv run main.py --seconds 60 | uv run debug_window.py   # filmable cv2.imshow overlay
+uv run main.py --seconds 60 --debug | uv run debug_window.py   # filmable cv2.imshow overlay
 ```
+
+Per-frame JSONL on stdout is off by default (Day 11 fix — it read as noise/errors
+in normal use). Pass `--debug` to turn it back on; `debug_window.py` needs it,
+since that's what it reads from stdin. Nothing else (the browser HUD's own
+WebSocket feed, detection, tracking) is affected either way.
 
 Add `--camera-index N` to pick a different camera. Drop `--seconds` to run
 until Ctrl+C.

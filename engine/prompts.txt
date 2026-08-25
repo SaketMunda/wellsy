@@ -6,7 +6,10 @@ bed
 monitor
 keyboard
 chair
+empty office chair
+gaming chair
 person
+a human person
 headphones
 plant
 lamp

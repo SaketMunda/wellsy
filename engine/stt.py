@@ -25,6 +25,31 @@ MODEL_NAME = "moonshine/base"
 # once tiny turned out not to.
 
 
+# Real bug, found from a live report: "what do you see" transcribed as "or
+# do you see", "hello, yap" transcribed as "yeah, yeah" -- whole syllables
+# dropped or replaced, not just a wake-phrase-matching miss. Cross-checked
+# against real wake_debug/*.wav evidence from the same session (vad.py's
+# MIN_ABSOLUTE_SPEECH_RMS comment): even near-silent noise blips had
+# non-trivial RMS relative to what real speech was apparently producing --
+# consistent with this user's actual mic input running quiet overall, not
+# just occasional silence. A small STT model fed a low-amplitude signal has
+# less headroom above quantization/self-noise and guesses at whatever
+# "sounds close," which is exactly this failure shape (dropped words,
+# plausible-sounding wrong words) rather than empty output. Gain-normalize
+# every clip up toward full scale before transcribing, capped so it can't
+# amplify true silence/noise into full-scale garbage.
+TARGET_PEAK = 0.9
+MAX_GAIN = 20.0
+
+
+def _normalize_gain(audio: np.ndarray) -> np.ndarray:
+    peak = float(np.max(np.abs(audio))) if audio.size else 0.0
+    if peak < 1e-4:
+        return audio  # near-silence -- nothing real to boost, avoid amplifying noise floor into noise
+    gain = min(TARGET_PEAK / peak, MAX_GAIN)
+    return audio * gain
+
+
 class Stt:
     """Loads once, reused across calls — `moonshine_onnx.transcribe()`
     reloads the model from disk every call (measured ~1.35-1.4s per call
@@ -46,6 +71,7 @@ class Stt:
 
     def transcribe(self, audio: np.ndarray) -> str:
         """`audio`: float32 mono, 16kHz, arbitrary length."""
+        audio = _normalize_gain(audio)
         if audio.ndim == 1:
             audio = audio[None, ...]
         tokens = self._model.generate(audio)

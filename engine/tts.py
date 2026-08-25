@@ -90,6 +90,7 @@ threading support the `chatterbox` library doesn't expose.
 
 from __future__ import annotations
 
+import sys
 import threading
 import time
 from pathlib import Path
@@ -121,7 +122,29 @@ def _get_model():
             from chatterbox.tts_turbo import ChatterboxTurboTTS
 
             _model = ChatterboxTurboTTS.from_pretrained(device="mps")
+
+            # Real bug, reported live: the greeting's first words got cut
+            # off -- "she started early." The TTS *model* was already
+            # warmed here (main.py calls this at startup, before anything
+            # can talk), but the actual `sounddevice`/CoreAudio *output
+            # stream* was not -- `sd.play()` opens a fresh PortAudio stream
+            # on its first-ever call in the process, and a cold device
+            # open has real, non-zero startup latency during which the
+            # first samples written can be dropped or clipped. Playing one
+            # silent buffer here, at the same startup point the model
+            # warms, pays that cost before anyone is listening instead of
+            # during the first real thing YAP ever says.
+            _warm_audio_device(_model.sr)
     return _model
+
+
+def _warm_audio_device(samplerate: int) -> None:
+    silence = np.zeros(int(0.2 * samplerate), dtype=np.float32)
+    try:
+        sd.play(silence, samplerate=samplerate)
+        sd.wait()
+    except Exception:
+        pass  # best-effort warmup; a real failure here will surface for real on the first actual utterance
 
 
 class SpeechHandle:
@@ -156,16 +179,35 @@ class SpeechHandle:
         return not self._done.is_set()
 
 
+# Backstop for the same "first words cut off" bug the device warmup above
+# targets: `sd.play()` opens a new PortAudio stream on every call, not just
+# the process's first ever call, so a cold-start clip is possible on any
+# utterance, not only the very first. 120ms of real silence in front of
+# every clip is cheap insurance -- if the device is already warm this is
+# inaudible; if it isn't, the clip eats silence instead of your first word.
+LEAD_SILENCE_SECONDS = 0.12
+
+
 def _generate_and_play(handle: SpeechHandle, text: str) -> None:
+    # A real gap, found from a live report of "it detected me but said
+    # nothing" with no error visible anywhere: this had no `except` clause,
+    # so any failure here (generate() raising, sd.play() raising) relied on
+    # Python's default per-thread traceback dump to stderr -- real, but
+    # easy to miss entirely inside the tqdm progress-bar noise every
+    # generate() call already prints. Now it's an explicit, tagged line.
     try:
         model = _get_model()
         wav = model.generate(text)
         if handle._cancelled.is_set():
             return
         arr = wav.squeeze().detach().cpu().numpy().astype(np.float32)
+        lead_silence = np.zeros(int(LEAD_SILENCE_SECONDS * model.sr), dtype=np.float32)
+        arr = np.concatenate([lead_silence, arr])
         handle.audio_started_at = time.monotonic()
         sd.play(arr, samplerate=model.sr)
         sd.wait()
+    except Exception as e:
+        print(f"[tts] failed to generate/play {text!r}: {e!r}", file=sys.stderr, flush=True)
     finally:
         handle._done.set()
 
