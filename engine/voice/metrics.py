@@ -306,7 +306,8 @@ def main(args: argparse.Namespace) -> int:
     trials = getattr(args, "trials", 20) or 20
     res = _measure(trials)
     print(json.dumps(res, indent=2))
-    p = RESULTS_DIR / f"voice-latency-{stamp}.json"
+    tag = res.get("llm_model", "llm").replace(":", "-").replace("/", "-")
+    p = RESULTS_DIR / f"voice-latency-{stamp}-{tag}.json"
     p.write_text(json.dumps({"date": stamp, **res}, indent=2) + "\n")
     print(f"wrote {p}")
     return 0
