@@ -15,6 +15,7 @@ Usage:
     wellsy --no-detect           # T0 only — isolates motion-gate cost
     wellsy doctor                # check camera / mic / screen permission for this process tree
     wellsy screen                # one-shot screen capture + degenerate-capture verification
+    wellsy bench                 # cross-platform inference benchmark (LLM / ASR / TTS / VAD)
 """
 
 from __future__ import annotations
@@ -247,11 +248,19 @@ def _run_screen(argv: list[str]) -> None:
             print(f"wrote {out}", file=sys.stderr)
 
 
+def _run_bench(argv: list[str]) -> None:
+    from engine.inference.bench import main as bench_main
+
+    raise SystemExit(bench_main(argv))
+
+
 def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "doctor":
         return _run_doctor(sys.argv[2:])
     if len(sys.argv) > 1 and sys.argv[1] == "screen":
         return _run_screen(sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] == "bench":
+        return _run_bench(sys.argv[2:])
     parser = argparse.ArgumentParser(prog="wellsy", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--seconds", type=float, default=None, help="stop after N seconds (default: run until Ctrl+C)")
     parser.add_argument("--camera-index", type=int, default=0)
