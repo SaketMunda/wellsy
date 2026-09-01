@@ -1,8 +1,8 @@
 {
-  "$comment": "Shared parseIntent spec — read by both src/voice/parseIntent.test.ts (TS/browser-only legacy) and engine/test_intent.py (Python/T3). Day 10 (decisions.md D37): one spec, two implementations, one place to add a case. Every case here must pass in both languages; a case whose behavior deliberately differs between implementations is not allowed — add a language-specific test instead.",
+  "$comment": "parse_intent spec — read by tests/test_intent.py. Originally a shared TS/Python contract (decisions.md D37); the TS/browser implementation was deleted in the rebuild, so this is now the single source for the Python deterministic intent path (invariant #3).",
   "cases": [
     { "name": "wake: wake up", "transcript": "wake up", "intent": { "type": "wake" } },
-    { "name": "wake: Hey YAP", "transcript": "Hey YAP", "intent": { "type": "wake" } },
+    { "name": "wake: Hey WELLSY", "transcript": "Hey WELLSY", "intent": { "type": "wake" } },
     { "name": "sleep: go to sleep", "transcript": "go to sleep", "intent": { "type": "sleep" } },
     { "name": "sleep: be quiet", "transcript": "be quiet", "intent": { "type": "sleep" } },
     { "name": "sleep: shut up", "transcript": "shut up", "intent": { "type": "sleep" } },

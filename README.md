@@ -1,94 +1,62 @@
-# YAP — Yet Another Perception
+# WELLSY
 
-A live vision overlay. Point your webcam at the world; YAP draws a heads-up
-display over the video showing what it recognises, and narrates the scene out
-loud as things change.
+A local, private, agentic assistant. Runs on your own hardware; no third-party
+cloud service ever receives pixels, audio, or raw personal files.
 
-**Runs entirely in your browser.** No backend, no API keys, no uploads — video
-never leaves your device.
+It began as a browser-based perception HUD under a different name and is being
+rebuilt (`~70%` rewrite) around a preserved perception core — see
+`.claude/stack-teardown.md` for the audit and `.claude/rebuild/` for the
+step-by-step plan. The `.claude/` day 1–11 documents describe that earlier
+build and deliberately still refer to it by its old name.
+
+## Status
+
+**Step 1 of 6 — repo reset + perception core port.** What runs today:
+
+```
+camera → motion gate (T0) → open-vocab detect + track (T1) → JSON lines on stdout
+```
+
+The voice path, screen capture, native interface, and agent runtime are rebuilt
+in later steps as clients of the runtime, not part of it.
+
+## Run it
 
 ```bash
-npm install
-npm run dev
-# open http://localhost:5173, click "Start camera"
+uv sync
+uv run wellsy --help
+uv run wellsy --seconds 60          # real camera, perception loop, exits cleanly
+uv run wellsy --synthetic --seconds 20 --debug   # no camera; per-frame JSONL
 ```
 
-First load downloads the model weights (a few MB); cached afterwards.
+First real-camera run on macOS triggers the system camera-permission prompt for
+whatever process hosts the shell — grant it once in
+System Settings → Privacy & Security → Camera.
 
-## What it does
-
-- **Detects** objects in real time — COCO-SSD on the TensorFlow.js WebGL backend
-- **Draws** a HUD overlay: tracking brackets, labels, confidence, live telemetry
-- **Narrates** what changes, in the voice of a documentary narrator who is
-  deeply unimpressed — optionally spoken via the Web Speech API
-- **~12ms** inference per frame
-
-## What it doesn't do (yet)
-
-- Knows **80 object classes** only (the COCO set) — no text, faces, or brands
-- Object *detection*, not scene *understanding* — it knows "chair", not "kitchen"
-- No temporal tracking yet, so boxes jitter between frames
-- Desktop browsers only
-
-## How it works
-
-Three loops, decoupled by a ref:
+## Layout
 
 ```
-camera → [detect loop: COCO-SSD @ ~20-60fps] ─┐
-                                              ├→ frameRef ─→ [draw loop: canvas @ 60fps]
-                                              └→ [narration sampler @ 4fps → speech]
+wellsy/
+  perception/   motion.py  detector.py  tracker.py  capture.py
+  runtime/      tiers.py            # T0–T3 scheduler + PreemptionSeam
+  honesty/      provenance.py  intent.py
+  config/       prompts.txt  wake_phrases.txt
+  cli.py                            # the `wellsy` console entry point
+tests/          one module per surviving unit
+bench/          detector_bench.py   # perception no-regression benchmark
+spec/           phase1-acceptance.md — the definition of done
+.claude/        planning docs, rebuild steps, and the pre-rebuild build log
 ```
 
-Narration is two layers, deliberately kept apart:
+## Model weights (not in the repo)
 
-```
-settled scene → [event layer: appear/disappear/count_change/still_present] → truth
-                                    ↓
-                [personality layer: template bank + no-repeat memory] → voice
-```
+YOLOE's detector (`yoloe-11s-seg.pt`, ~28 MB) and its MobileCLIP text-prompt
+encoder (`mobileclip_blt.ts`, ~570 MB) live at `~/.cache/wellsy/weights`,
+outside the repo. `detector.py` points Ultralytics' settings there and `chdir`s
+into it before the first load.
 
-The event layer states facts; the personality layer may only restyle them,
-never invent them. Flip **boring mode** in the panel to show the raw events for
-the same rows — the sarcasm is a rendering, the detection underneath is real.
-The whole personality is a plain template bank: no LLM, no API, no network, so
-it works offline and costs nothing per line.
+## Open-vocabulary prompts
 
-Detections never enter React state — that would re-render the tree 30×/second.
-See [.claude/architecture.md](.claude/architecture.md) for the full picture and
-[.claude/decisions.md](.claude/decisions.md) for why each choice was made.
-
-## Project structure
-
-```
-src/vision/     camera + model + detect loop
-src/hud/        canvas drawing + telemetry panel
-src/narration/  scene → English + speech timing
-.claude/        build-in-public workspace: research, decisions, roadmap
-```
-
-## Building in public
-
-This is a 7-day build. Progress, research notes, and the daily narrative live in
-[.claude/](.claude/) — see [week-roadmap.md](.claude/week-roadmap.md).
-
-
-Python engine (real detector, tracking, and the Day 10 query loop)
-
-cd /Users/saketmunda/Work/Startup/projects/yap-hud/engine
-uv run python main.py                    # real camera, runs until Ctrl+C
-Useful flags:
-
---seconds N — stop after N seconds instead of running forever
---t3 — turn on the Day 10 query loop (mic, wake phrases "hey yap"/"yappy"/"hey yo", push-to-talk via Enter, TTS through speakers)
---enable-yo — also accept bare "yo" as a wake word (off by default, see decisions.md D39)
---synthetic — no real camera needed, exercises the pipeline against a generated frame
---no-ws — disable the WebSocket bridge, stdout JSONL only
-To see it in the browser HUD with the real engine driving detection:
-
-
-# terminal 1
-cd engine && uv run python main.py --t3
-
-# terminal 2
-cd /Users/saketmunda/Work/Startup/projects/yap-hud && npm run dev
+`wellsy/config/prompts.txt` is a plain list, one term per line, `#`-comments
+allowed. Edit it while `wellsy` is running — it's picked up on the next
+detection pass via an mtime check, no restart needed.

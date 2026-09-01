@@ -1,5 +1,9 @@
 # YAP — System State
 
+> **Rename note (2026-09-01):** the project is now **WELLSY**. This document
+> describes the pre-rebuild YAP state at end of Day 11 and is kept as-is for
+> history; its tooling sections are superseded by `stack-teardown.md`.
+
 **As of 2026-08-25, end of Day 11.** Machine of record: Apple M4 Pro, 24 GB,
 macOS 24.5. Everything runs locally; no third-party network calls at
 runtime. Every number below is measured on that machine, not estimated.
