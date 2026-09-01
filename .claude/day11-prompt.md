@@ -47,7 +47,7 @@ of bug by removing the layer that caused it.
 ## Boundaries
 
 - **Everything stays in this repo.** No `/tmp`, no scratch directories, no
-  session temp. Clips, screenshots, JSONL, results — all inside `yap-hud/`.
+  session temp. Clips, screenshots, JSONL, results — all inside `wellsy/`.
   The one standing exception is the model-weights cache (D30). Day 9 broke
   this rule and Day 10 had to clean it up; do not be the third occurrence.
 - **Local only.** No cloud APIs, ever. Ollama on this machine, or MLX. A
@@ -64,7 +64,7 @@ of bug by removing the layer that caused it.
 - **Verify the model choice before writing it.** Qwen3-VL-8B is this brief's
   recommendation as of 2026-08-22, checked this month — but check it holds
   when you start, and state release dates for anything you substitute. See
-  `memory/yap_no_stale_tech.md`. Shipping a stale default is a firing
+  `memory/wellsy_no_stale_tech.md`. Shipping a stale default is a firing
   offence on this project.
 
 ---
@@ -99,8 +99,8 @@ From `.claude/day10-results.md`, `decisions.md` D36-D40 and `tasks.md`:
   grant. Every real audio test to date had to be run by the project owner in
   Terminal.app directly. Plan around this — do not lose an hour rediscovering
   it.
-- **Open, needs the project owner and blocks nothing today:** "yap"
-  transcribes as **"app"**, repeatedly, live. The wake phrase needs renaming.
+- **Open, needs the project owner and blocks nothing today:** the wake
+  word transcribes as **"app"**, repeatedly, live. The wake phrase needs renaming.
   Surface it, don't solve it unilaterally, don't let it eat the day.
 
 ---

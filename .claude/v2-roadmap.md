@@ -272,7 +272,7 @@ day10-results.md.
   matters more than the gap it closed.
 - **The wake-word acceptance bar (10 min / 20 utterances) was not run** —
   only a handful of live utterances were tried. What it *did* surface: a
-  real, live collision — "yap" keeps transcribing as "app." A replacement
+  real, live collision — the wake word keeps transcribing as "app." A replacement
   phrase was discussed but deliberately deferred to the project owner's
   judgment rather than picked under session time pressure.
 - **The full wake/press → first-spoken-word latency (roadmap's own row 1)
@@ -291,7 +291,7 @@ day10-results.md.
   minutes of Day 11, the instrumentation is already there.
 - The forced-fresh-T1 cost is small and real (33.4ms) — budget any new
   LLM-path latency against that, not against zero.
-- "yap" needs a new name before more wake-word polish is worth doing.
+- The wake word needs a new name before more wake-word polish is worth doing.
 - Mic permission on this machine is scoped **per actual process**, not
   per-user — Terminal.app, VS Code's integrated terminal, and this agent's
   own process tree each need their own grant. Worth remembering before
@@ -314,7 +314,7 @@ day10-results.md.
   slowness or for lying.
 - **T3 preempts T1** — a question in flight pauses ambient sensing. This is
   why the STT latency problem disappears rather than being optimised away.
-- **The speech policy lands: silence is the default.** YAP speaks when asked,
+- **The speech policy lands: silence is the default.** WELLSY speaks when asked,
   when a rule fires, or when ambient mode is explicitly on. Days 1–6's
   narration becomes an off-by-default mode.
 - **Kokoro or Piper natively** — the D13 espeak/Rollup production-build bug
@@ -325,7 +325,7 @@ day10-results.md.
 **Concept:** The moment it stops performing and starts responding. Everything
 before this was a system that talked. This is a system you can interrupt.
 
-**Demo:** Silent room. Silent HUD. *"YAP, what do you see?"* — one beat —
+**Demo:** Silent room. Silent HUD. *"WELLSY, what do you see?"* — one beat —
 a grounded, accurate, one-sentence answer. Then *"stop"*, and it stops
 mid-word. The silence before the answer is the demo.
 
@@ -383,7 +383,7 @@ worse than a button that doesn't.
 ## The differentiator, named
 
 Every assistant on the market does calendar-and-email tool calling. Almost
-none of them can **see**. The thing YAP will have that they don't is
+none of them can **see**. The thing WELLSY will have that they don't is
 **vision-grounded agency**:
 
 > *"Log this."* — while holding a receipt.
@@ -399,7 +399,7 @@ The v1 browser build shipped COCO-SSD/MobileNet (a **2017** model). The
 current engine still runs `qwen2.5:7b` (2024) and macOS `say -v Samantha`
 (a 2009 voice). Every component below was checked against what is actually
 state of the art this month. **This check is now mandatory before any model
-choice** — see `memory/yap_no_stale_tech.md`.
+choice** — see `memory/wellsy_no_stale_tech.md`.
 
 | Slot | Current in repo | Replacing with | Why |
 |---|---|---|---|
@@ -495,7 +495,7 @@ Engine, §9 Situation Model, §19 Provenance, §25 Memory Behavior Rules.
 **Ships:**
 - **SQLite memory, six layers** — working, episodic, semantic, procedural,
   relationship, project. **Nothing in the engine currently persists.** Kill
-  the process today and YAP forgets you exist; after Day 12 it doesn't.
+  the process today and WELLSY forgets you exist; after Day 12 it doesn't.
 - **The Context Engine** — the spec's own *"central component that makes the AI
   feel intelligent"* (§8). Assembles User + Conversation + Memory + Environment
   + Time + Active Tasks + Permissions into one live current-context object,
@@ -676,7 +676,7 @@ safely, and it is one thing rather than five.
   camera, not repaid at the cost of a new capability. This rule is the direct
   fix for what went wrong in Days 1-10.
 - **Every model choice is verified current before it is written** — not pulled
-  from habit. See `memory/yap_no_stale_tech.md`.
+  from habit. See `memory/wellsy_no_stale_tech.md`.
 - **Every day ends with something a viewer has not seen before.** Not faster,
   not cleaner — *new*.
 - **Days are not silently merged.** If Day 13 needs two days, it takes them from

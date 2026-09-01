@@ -1,6 +1,6 @@
 # Day 9 — "Same face, new engine"
 
-You are picking up YAP on Day 9. Days 1–8 have shipped. Read
+You are picking up WELLSY on Day 9. Days 1–8 have shipped. Read
 `.claude/context.md`, `.claude/decisions.md` (D1–D33), `.claude/tasks.md`,
 `.claude/v2-roadmap.md` (Day 8's SHIPPED block and Day 9's plan), and
 `.claude/day8-results.md`. This document is the brief for today only.
@@ -34,9 +34,9 @@ is drawn* was drawn in the right place on Day 2.
 
 - **Everything lives in this repo.** Every file — code, notes, captured
   clips, measurement output — goes inside
-  `/Users/saketmunda/Work/Startup/projects/yap-hud`. Not `/tmp`, not a
+  `/Users/saketmunda/Work/Startup/projects/wellsy`. Not `/tmp`, not a
   scratchpad, not a home directory. The model-weights cache
-  (`~/.cache/yap-engine/weights`, D30) remains the single recorded
+  (`~/.cache/wellsy/weights`, D30) remains the single recorded
   exception and does not get extended today.
 - **No cloud (D10).** The WebSocket binds to **localhost only**. Not
   `0.0.0.0`, not a LAN address, not a tunnel. The private server is Day 14

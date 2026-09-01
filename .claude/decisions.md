@@ -63,7 +63,7 @@ screenshot. Flipping box coordinates in `drawHud` fixes it cleanly.
 sample at 4Hz, require a scene to hold ~900ms (kills flicker from
 low-confidence boxes), enforce a ~3.5s cooldown. And describe what *changed*,
 not the full scene — re-reading everything is what makes narration feel robotic.
-**Cost:** Up to ~1s of latency before YAP comments on something new. Correct
+**Cost:** Up to ~1s of latency before WELLSY comments on something new. Correct
 trade: a narrator that stutters is worse than one that's briefly late.
 **Numbers are first-guess, not tuned on real scenes — that's Day 3's job.**
 
@@ -640,7 +640,7 @@ commands are short, English, and few-word — exactly the case a tiny model
 handles fine, and the smallest model that clears the bar is the house rule
 (same reasoning as D13's Qwen2.5-0.5B pick).
 **Device selection:** WebGPU when `'gpu' in navigator`, wasm otherwise —
-unlike the LLM loader's hard WebGPU gate (D13, `yapUnavailable` on no
+unlike the LLM loader's hard WebGPU gate (D13, `wellsyUnavailable` on no
 WebGPU), ASR must keep working on wasm-only hardware, so this is a
 preference passed to `transformers.js`'s own device selection, not a
 hard requirement that throws.
@@ -674,10 +674,10 @@ accuracy — "did it actually hear 'what do you see' and produce that text"
 — was not checked this session. Stated plainly, same standing caveat shape
 as "no audio has been confirmed audible" (D13).
 **Cost / not shipped:** wake word (always-listening, transcribe-then-match
-against "yap"/"hey yap") is explicitly the stretch item per the day's own
+against "wellsy"/"hey wellsy") is explicitly the stretch item per the day's own
 brief and was not attempted — push-to-talk is a complete feature on its
 own, not a broken one. Because only push-to-talk shipped, the
-self-hearing gate ("don't let YAP's own voice trigger the mic") was not
+self-hearing gate ("don't let WELLSY's own voice trigger the mic") was not
 needed and was not built — it only matters for an always-listening mode.
 **Revisit if:** wake word is picked up later — it needs voice-activity
 segmentation, continuous transcription, and the self-hearing gate this
@@ -1011,7 +1011,7 @@ a hard runtime requirement of YOLOE's text-prompt path — `ultralytics`
 attempts to auto-install it via `pip`, which isn't on this project's PATH
 since `uv` manages the venv, so it had to be added explicitly).
 **Cost:** ~1.5GB across the model weights and the MobileCLIP text encoder,
-cached at `~/.cache/yap-engine/weights` — outside the repo, on purpose (see
+cached at `~/.cache/wellsy/weights` — outside the repo, on purpose (see
 the boundary in day8-prompt.md and `engine/README.md`'s Weights section).
 First run on a fresh machine pays a one-time ~600MB download.
 **Revisit if:** an MLX-native open-vocabulary detector ships on PyPI later
@@ -1423,7 +1423,7 @@ always be talking about what it sees. Six days of that work is what
 *taught* the project the opposite lesson — `day7-baseline.md`'s CPU-floor
 finding (D28) and the τ/motion-gate investigation both point at the same
 root cause: doing maximum work, including maximum *talking*, whether or
-not anyone needs the answer. Day 10 flips the default: **YAP speaks in
+not anyone needs the answer. Day 10 flips the default: **WELLSY speaks in
 exactly three cases — asked (T3), a rule fires (not built), or ambient mode
 is explicitly on** (`query_loop.py`'s `ambient_enabled`, `False` by
 default, set `True` only by the `wake` intent — mirroring the browser
@@ -1438,7 +1438,7 @@ It is **not** a port of `events.ts`/`generateLine.ts`/`templates.ts`'s
 authored joke-line bank or salience ranking — out of scope for a day whose
 point is that this mode is off, not that it's eloquent. The bridge's
 broadcast payload now carries `ambientEnabled` so the HUD can show whether
-YAP could currently speak unprompted; **the actual browser-side visual
+WELLSY could currently speak unprompted; **the actual browser-side visual
 indicator was cut for time this session** — see "what was cut" in
 day10-results.md.
 **Cost:** the honest one — six days of narration-engine work (D6, D12, D13,
@@ -1458,7 +1458,7 @@ word-window sliding, threshold 0.72) against `engine/wake_phrases.txt` —
 hot-reloaded on mtime change, same pattern as `prompts.txt`. **This is not
 a trained keyword spotter and the report says so on camera**; a real one
 (openWakeWord) would need synthetic-speech data generation plus a training
-run for a custom phrase like "Yappy" — hours, not this session's budget —
+run for a custom phrase like "Wellsy" — hours, not this session's budget —
 and stays the documented upgrade path.
 **VAD is an energy gate, not Silero.** `webrtcvad` (the other "small, CPU"
 option named in the brief) is unmaintained and its wheel imports
@@ -1485,16 +1485,16 @@ if mundane, part of the verification) and was confirmed heard on retry.
 This is the first time in the project's history this has been checked by
 a person listening rather than an exit code.
 **A real, live collision found and not tuned around:** during a live test
-session, "hey yap"/"yappy" repeatedly transcribed as "app"/"App." —
-Moonshine hears "yap" as the much more common word "app." One full success
+session, the original wake word was repeatedly transcribed as "app"/"App." —
+Moonshine heard it as the much more common word "app." One full success
 was also captured live: wake match on "hey yo" (0.77 ratio) correctly
 triggered a real query — `"What do you see?" -> describe_scene -> "two
 things: a person and a glasses."` in **119.1ms** end to end. The
-"yap"/"app" collision is a genuine finding, not a tuning failure — a
+original-wake-word / "app" collision is a genuine finding, not a tuning failure — a
 short, low-information-content syllable colliding with a common English
 word is exactly the failure mode this file's own header warns bare "yo"
-would have, discovered for "yap" instead. **Decision: keep "hey yap" /
-"yappy" / "hey yo" as the current default phrase list** (they still work —
+would have, discovered for the original wake word instead. **Decision: keep "hey wellsy" /
+"wellsy" / "hey yo" as the current default phrase list** (they still work —
 "hey yo" succeeded live) **but flag the collision plainly and carry a
 wake-word rename as open, owner's call, for Day 11.** `wake_phrases.txt`
 being hot-reloadable, one-line-per-phrase means whatever replacement is
@@ -1507,7 +1507,7 @@ precise. Not measured against the full 10-minute/20-utterance acceptance
 bar this session — see day10-results.md for what was and wasn't run to
 that bar, and why.
 **The feedback trap (day10-prompt.md Part 3):** wake matching is
-suppressed while `QueryLoop._speaking()` is true (YAP can't wake itself up
+suppressed while `QueryLoop._speaking()` is true (WELLSY can't wake itself up
 hearing its own voice), but this only gates the wake-listener thread —
 push-to-talk (`_ptt_thread`) is a separate thread reading stdin and is
 never gated by TTS playback, so "stop" always works mid-word by design,
@@ -1550,10 +1550,10 @@ partial STT output produces — `parseIntent` did its job correctly on
 whatever text it was actually given; the text itself was the problem.
 Also switched the STT model default from `moonshine/tiny` to
 `moonshine/base` (`engine/stt.py`) for real accuracy headroom — `tiny`
-consistently misheard "yap" as "app" and is simply too small a model for
+consistently misheard the original wake word as "app" and is simply too small a model for
 full sentences, not just short wake phrases.
 **Missing feature, not a bug, also raised live: no "stay awake" window.**
-Every question required repeating "hey yap." Added
+Every question required repeating "hey wellsy." Added
 `QueryLoop.in_conversation` (a rolling `CONVERSATION_WINDOW_SECONDS = 10s`
 deadline, extended after every handled command except `stop`/`sleep`) —
 while active, the wake thread skips the wake-phrase match entirely and
@@ -1667,7 +1667,7 @@ not a redesign.
 
 **Cost:** a new dependency (`mlx-lm`, pulled into `engine/pyproject.toml`)
 and a new model download (~300-400MB, cached under the same
-`~/.cache/yap-engine/weights` exception as STT/detector weights via
+`~/.cache/wellsy/weights` exception as STT/detector weights via
 `HF_HOME`) — the first real new weights added since D30's cache boundary
 was drawn, justified the same way D30 always allowed: a new capability,
 not scope creep.
@@ -1706,7 +1706,7 @@ against a real camera + real spoken question — same owed retest as
 everything else audio-path in this project.
 
 **Second amendment — grounding fixed wrong objects, not invented details,
-found on the very next real retest:** "Hey Yap, describe the room" (real
+found on the very next real retest:** "Hey Wellsy, describe the room" (real
 mic, real camera) correctly named the real objects but added
 *"a person standing by it"* — the user was sitting. Root cause: `tracks`
 carries labels/counts only, never posture/action/color/decor — there is

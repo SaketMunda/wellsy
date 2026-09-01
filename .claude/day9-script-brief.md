@@ -16,7 +16,7 @@ Day 2. The proof: `git diff --stat -- src/hud/` is empty.**
 
 ## The 30-second version, if that's all there's room for
 
-YAP's interface (the brackets, the labels, the narration) hasn't changed
+WELLSY's interface (the brackets, the labels, the narration) hasn't changed
 since Day 5. What changed underneath it, today, is everything: Days 1–8
 ran a small model in the browser tab; today the eyes moved to a separate
 Python process on the same machine, talking to the browser over a local

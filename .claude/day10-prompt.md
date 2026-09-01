@@ -1,6 +1,6 @@
 # Day 10 — "JARVIS, what am I looking at?"
 
-You are picking up YAP on Day 10. Days 1–9 have shipped. Read
+You are picking up WELLSY on Day 10. Days 1–9 have shipped. Read
 `.claude/context.md`, `.claude/decisions.md` (D1–D35), `.claude/tasks.md`,
 `.claude/v2-roadmap.md` (Day 9's SHIPPED block and Day 10's plan), and
 `.claude/day9-results.md` — especially its τ section, which contains the
@@ -25,11 +25,11 @@ first day since Day 1 where the thing being built is not a capability but a
    why the STT latency problem *disappears* rather than getting optimised
    away. `engine/tiers.py`'s `PreemptionSeam` has been sitting inert since
    Day 8 waiting for its first caller. Today it gets one.
-3. **The speech policy: silence is the default.** YAP speaks when asked,
+3. **The speech policy: silence is the default.** WELLSY speaks when asked,
    when a rule fires, or when ambient mode is explicitly enabled. Days 1–6's
    constant narration becomes an off-by-default mode. Six days of work
    becomes a toggle, on purpose, on camera.
-4. **Wake phrases: "Hey Yap" / "Yappy".** Push-to-talk works first and stays
+4. **Wake phrases: "Hey Wellsy" / "Wellsy".** Push-to-talk works first and stays
    as the filming fallback. See Part 3 — the wake word has a specific,
    measurable acceptance bar and it is allowed to fail that bar.
 5. **Close the oldest open gap in the project: confirm audio is audible on
@@ -45,11 +45,11 @@ system you can interrupt.
 
 - **Everything lives in this repo.** Code, notes, clips, screenshots,
   measurement output — all inside
-  `/Users/saketmunda/Work/Startup/projects/yap-hud`. Not `/tmp`, not a
+  `/Users/saketmunda/Work/Startup/projects/wellsy`. Not `/tmp`, not a
   scratchpad, not a home directory. **Day 9 broke this** — it wrote
   `/tmp/real_hud_engine.png` and then noted it wasn't committed. Part 0
   fixes that. Do not repeat it. The model-weights cache
-  (`~/.cache/yap-engine/weights`, D30) remains the single recorded
+  (`~/.cache/wellsy/weights`, D30) remains the single recorded
   exception and does not get extended today.
 - **No cloud (D10).** STT and TTS are local models on this machine. The
   socket stays bound to `127.0.0.1` (D35). No exceptions, not even for a
@@ -83,7 +83,7 @@ system you can interrupt.
 - **`inferenceMs: null` means T1 did not run this frame** and
   `tracks`/`detections` are a deliberate carried-forward repeat. This
   matters enormously today — see Part 0.
-- **`parseIntent` already knows the phrase "hey yap"** — it is in the `WAKE`
+- **`parseIntent` already knows the phrase "hey wellsy"** — it is in the `WAKE`
   regex, written on Day 6 before there was any wake word. That is a
   coincidence worth using, not a design that already exists.
 
@@ -107,7 +107,7 @@ detector. **For Day 10 it is fatal**, and here is exactly why:
 
 > The Day 10 demo is a person *sitting still* and *asking a question*.
 > By construction, the gate is closed. T1 has not re-run in seconds.
-> `describeScene` reads held, stale tracks — and YAP confidently describes
+> `describeScene` reads held, stale tracks — and WELLSY confidently describes
 > a room as it was some unknown time ago.
 
 The fix is **not** to retune the gate. Lowering the threshold to catch
@@ -231,7 +231,7 @@ mic → VAD (always-on, cheap) → Moonshine STT → parseIntent
   for audio is "is anyone speaking." Neither runs a neural net worth
   worrying about. Use Silero VAD or equivalent — small, CPU, chunked.
   **Never run STT on silence.**
-- **`unknown` is a shipped answer.** When `parseIntent` falls through, YAP
+- **`unknown` is a shipped answer.** When `parseIntent` falls through, WELLSY
   says it did not understand, briefly, and stops. It does not guess, and it
   does not reach for a model. `public-notes.md` already says this is
   pattern-matching, not language understanding — today it has to *behave*
@@ -260,7 +260,7 @@ This is the smallest diff of the day and the biggest product change.
 - Ambient narration becomes **off by default**. `narrator.config`'s
   `voice_enabled`/narration path gets an explicit ambient-mode switch, and
   the default is off.
-- YAP speaks in exactly three cases: **asked**, **a rule fired**, or
+- WELLSY speaks in exactly three cases: **asked**, **a rule fired**, or
   **ambient mode is explicitly on**.
 - The HUD must make the mode visible. A viewer — and you, filming — should
   never have to wonder whether it is about to start talking.
@@ -278,7 +278,7 @@ silence was the right default.
 
 ### What is shipping
 
-**"Hey Yap"** and **"Yappy"** as the wake phrases. Push-to-talk works first,
+**"Hey Wellsy"** and **"Wellsy"** as the wake phrases. Push-to-talk works first,
 ships regardless, and stays the filming fallback.
 
 ### About "yo"
@@ -311,7 +311,7 @@ list. Moonshine is already in the build for STT, so the wake path costs no
 new model.
 
 A real keyword spotter (openWakeWord) would keep the always-on tier
-genuinely cheaper, **but a custom phrase like "Yappy" needs a trained model**
+genuinely cheaper, **but a custom phrase like "Wellsy" needs a trained model**
 — synthetic-speech data generation plus a training run, which is hours, not
 an afternoon, and it is not today's work. Note it in `decisions.md` as the
 real upgrade path with its actual cost, so a later day can pick it up
@@ -323,8 +323,8 @@ pattern. Adding a wake phrase should be typing a word into a text file. That
 is the same episode beat that made the `prompts.txt` reveal land on Day 8,
 and it costs nothing to reuse.
 
-Match with tolerance, because STT will not hand you clean text: *"hey yap"*
-will come back as *"hey yeah"*, *"hey app"*, *"hay yap"*. Fuzzy-match, and
+Match with tolerance, because STT will not hand you clean text: *"hey wellsy"*
+will come back as *"hey yeah"*, *"hey app"*. Fuzzy-match, and
 **write down the real transcriptions you observe** — that list is both the
 tuning evidence and a good piece of footage.
 
@@ -332,7 +332,7 @@ tuning evidence and a good piece of footage.
 
 | Test | Method | Bar |
 |---|---|---|
-| **False accepts** | 10 minutes of normal conversation / a podcast playing in the room, nobody addressing YAP | **Zero.** One misfire in ten minutes is one misfire per take. |
+| **False accepts** | 10 minutes of normal conversation / a podcast playing in the room, nobody addressing WELLSY | **Zero.** One misfire in ten minutes is one misfire per take. |
 | **False rejects** | 20 deliberate utterances — near, mid, and across-room | Report the hit rate honestly. |
 | **Wake→answer latency** | wake phrase to first spoken word | Report p50/p95. |
 
@@ -346,8 +346,8 @@ embarrasses you on take four.
 TTS output goes into the same room as the microphone. Two consequences,
 both real:
 
-1. **YAP can wake itself up** by saying a wake phrase, or trigger STT on its
-   own voice. Suppress wake matching against text YAP is currently speaking.
+1. **WELLSY can wake itself up** by saying a wake phrase, or trigger STT on its
+   own voice. Suppress wake matching against text WELLSY is currently speaking.
 2. **But "stop" must still work while it is speaking** — the "it stops
    mid-word" moment *is* the demo, and it requires listening during
    playback. So this cannot be solved by simply muting the mic during TTS.
@@ -380,7 +380,7 @@ Row 1 is the headline. Row 4 is the thesis. Row 7 is nine days overdue.
 
 Silent room. Silent HUD. Nothing is being narrated, nothing is being said.
 
-*"Hey Yap — what do you see?"*
+*"Hey Wellsy — what do you see?"*
 
 One beat. A grounded, accurate, one-sentence answer about the actual room.
 
@@ -410,7 +410,7 @@ that's what finally made it feel intelligent."*
 9. Part 0's remaining items (τ walk test, clip bug, debug window, owed shots)
 
 **Items 1–4 are the day.** If 5 slips, the demo works but the thesis is
-unproven. If 6 slips, the demo is impossible — YAP will talk over its own
+unproven. If 6 slips, the demo is impossible — WELLSY will talk over its own
 answer. If 7 slips entirely, push-to-talk carries the episode and the wake
 word becomes Day 11's opener; that is an acceptable outcome and the roadmap
 already says so.

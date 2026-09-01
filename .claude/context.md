@@ -1,7 +1,7 @@
-# YAP — Yet Another Perception
+# WELLSY — Yet Another Perception
 
 ## What it is
-A live vision overlay. Point a camera at the world; YAP draws a heads-up display
+A live vision overlay. Point a camera at the world; WELLSY draws a heads-up display
 over the video showing what it recognises, and narrates the scene out loud as
 things change.
 
@@ -20,7 +20,7 @@ The demo value is that perception becomes *legible*. You can watch the machine
 think.
 
 ## The one-sentence version
-> YAP turns any webcam into a heads-up display that sees what's in front of it
+> WELLSY turns any webcam into a heads-up display that sees what's in front of it
 > and tells you, in real time, entirely on your own device.
 
 ## Core constraints (chosen deliberately)

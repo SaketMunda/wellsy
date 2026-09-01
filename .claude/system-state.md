@@ -1,4 +1,8 @@
-# YAP — System State
+# WELLSY — System State
+
+> **Rename note (2026-09-01):** the project is now **WELLSY**. This document
+> describes the pre-rebuild WELLSY state at end of Day 11 and is kept as-is for
+> history; its tooling sections are superseded by `stack-teardown.md`.
 
 **As of 2026-08-25, end of Day 11.** Machine of record: Apple M4 Pro, 24 GB,
 macOS 24.5. Everything runs locally; no third-party network calls at
@@ -210,7 +214,7 @@ response to real captured audio:
 memory. (`moonshine_onnx.transcribe()` reloads from disk on every call —
 ~1.35 s even warm — which is unusable in a query loop.)
 
-Upgraded from `tiny` after live evidence: `tiny` heard "hey yap" as "app"
+Upgraded from `tiny` after live evidence: `tiny` heard the wake phrase as "app"
 consistently and garbled full questions badly enough to misroute intent.
 
 **Gain normalization** on every clip before transcription: peak-normalize
@@ -225,7 +229,7 @@ it guesses at whatever sounds close, producing plausible wrong words
 
 - **Transcribe-then-fuzzy-match**, not a trained keyword spotter. Phrases live
   in `wake_phrases.txt`, hot-reloaded. `difflib` ratio ≥ 0.72, which tolerates
-  "hey app" / "hay yap" / "hey yeah".
+  "hey app" / "hey yeah".
 - Wake transcription fires **once per detected phrase boundary** (speech → a
   0.35 s pause), with a 0.5 s cooldown. It previously fired on every VAD-positive
   30 ms frame — dozens of transcriptions per second competing with the detector
@@ -237,7 +241,7 @@ it guesses at whatever sounds close, producing plausible wrong words
   not required again, and the window re-extends on each answer.
 - **Push-to-talk:** Enter key, bypasses wake matching entirely.
 - **Unprompted greeting** (`greeting.py`): when a `person` track transitions
-  absent → present, YAP speaks one JARVIS-style greeting and opens the same
+  absent → present, WELLSY speaks one JARVIS-style greeting and opens the same
   conversation window — so the first thing you say after walking into frame
   needs no wake phrase. 120 s re-greet cooldown so occlusion doesn't retrigger.
   This is the *only* always-on unprompted speech; ambient narration
@@ -493,7 +497,7 @@ Python ≥ 3.13, managed by `uv`. `torch` is pinned to 2.6.0 by
 YOLOE (3849.9 ms first call = cold Metal kernel compile, then a steady
 21.8–22.2 ms — matching pre-downgrade performance).
 
-**Model weights live outside the repo** at `~/.cache/yap-engine/weights` —
+**Model weights live outside the repo** at `~/.cache/wellsy/weights` —
 the single recorded exception to the repo-only boundary. `HF_HOME` is
 redirected there in `main.py` *before* any import that could trigger a
 download, and `detector.py` chdirs into it because Ultralytics' asset
@@ -528,7 +532,7 @@ Measured against `jarvis_friday_edith_combined_ai_system_spec.md`. Roughly
 | T2 deep look | Stub returning `None`. |
 
 Cross-session continuity — the §35 Phase-1 success criterion, *"the AI should
-feel like it knows the user"* — is **at zero**. YAP remembers nothing between
+feel like it knows the user"* — is **at zero**. WELLSY remembers nothing between
 runs, or between minutes.
 
 ---
@@ -553,7 +557,7 @@ runs, or between minutes.
   itself. The voice is neural and real, but not dynamically emotional.
 - **The disagreement heuristic over-flags at 58 %.** A version scoped to
   identity-shaped questions is the honest next step.
-- **Wake phrase "yap" transcribes as "app"** live and repeatedly. A rename is
+- **The wake phrase transcribes as "app"** live and repeatedly. A rename is
   the owner's open decision.
 - **Screen capture was never exercised end-to-end with real displayed
   content** — the module is proven in isolation (real pixels, real timing) and
@@ -574,7 +578,7 @@ Rules that constrain every future change:
 
 1. **Repo-only.** All project files live inside this repository. Never `/tmp`,
    never a session scratchpad. The single exception is model weights at
-   `~/.cache/yap-engine/weights`.
+   `~/.cache/wellsy/weights`.
 2. **Local only.** No third-party cloud services at runtime. A private server
    the owner controls is acceptable; a vendor API is not.
 3. **`parse_intent` owns `stop` / `wake` / `sleep` deterministically.** No

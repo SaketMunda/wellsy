@@ -1,33 +1,23 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-node_modules
-dist
-dist-ssr
-*.local
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-# Day 7 bench harness — regenerate with scripts/generate-bench-assets.sh
-scripts/bench-assets/*.y4m
-scripts/bench-output/
-
-# Python (engine/)
+# Python
 __pycache__/
 *.pyc
 .venv/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# Per-run artifacts (provenance log, benchmark output)
+runs/
+
+# Model weights — cached outside the repo at ~/.cache/wellsy/weights, this is
+# defence in depth in case a download ever lands here.
+*.pt
+*.ts
+weights/
+
+# OS / editor
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea

@@ -14,7 +14,7 @@ pattern-matching and grounded track data, not model output.
 | 3 | Forced-fresh-T1 cost (Part 0.1) | **33.4ms** real inference, **71.2ms** wall-clock round trip (thread hand-off included) | Real camera, real YOLOE detector, `verify_preemption.py`, `engine/clips/preemption-verify.jsonl` |
 | 4 | Preemption visible in JSONL during a query | **Yes.** During the 60 frames (~2s) the seam was held `active`, exactly one `inferenceMs` was non-null (the forced look, 33.4ms) and zero others — ambient T1 genuinely paused, not just throttled. See `engine/clips/preemption-verify.jsonl` and the excerpt below. | Real camera, real detector |
 | 5 | Idle CPU with mic + VAD always on | Main engine process (capture+detect+T1+T3 threads, one PID): **11.5%** during startup settling, dropping to **1.9–2.3%** of one core at steady state (`--synthetic`, no real motion, wake-phrase listener + VAD running). Not directly comparable to Day 9's "main+capture, 6–13%" framing — this number is the main PID alone, not summed with the separate capture subprocess. | `--synthetic --t3`, `ps` sampling |
-| 6 | Wake-phrase false accepts / false rejects | **Not run to the stated bar (10 min / 20 utterances) this session.** What was captured live, real hardware, real speech: 3 wake attempts, 2 matched ("hey yap" heard as "App." → matched "yappy" at 0.75; "hey yo" heard inside a longer sentence → matched at 0.77), 1 produced a full successful query end-to-end. Zero observed false accepts during the ~30s this ran, but that is far too short a window to claim the bar is met. **A real, live collision was found instead: "yap" is repeatedly transcribed as "app"** — see decisions.md D39. Carried forward: the acceptance-bar test itself, and a wake-word rename (user's call, deferred this session). | Real mic, real speakers, live human speech |
+| 6 | Wake-phrase false accepts / false rejects | **Not run to the stated bar (10 min / 20 utterances) this session.** What was captured live, real hardware, real speech: 3 wake attempts, 2 matched (the wake phrase heard as "App." → matched at 0.75; "hey yo" heard inside a longer sentence → matched at 0.77), 1 produced a full successful query end-to-end. Zero observed false accepts during the ~30s this ran, but that is far too short a window to claim the bar is met. **A real, live collision was found instead: the original wake word is repeatedly transcribed as "app"** — see decisions.md D39. Carried forward: the acceptance-bar test itself, and a wake-word rename (user's call, deferred this session). | Real mic, real speakers, live human speech |
 | 7 | Audio confirmed audible on real speakers | **Yes — by a human, finally, after nine days.** First attempt: silence (default output was an HT-S20R soundbar that was off). Second attempt, same device, powered on: confirmed heard. | `say -v Samantha`, real speakers (HT-S20R) |
 | 8 | τ verdict (Part 0.3) | **Changed, with evidence — not yet retuned.** Real walk test (third attempt, after two coordination misses — see below) produced 89 real T1 ticks with per-tick box movement mean 55.7px, p95 252.5px, max 707.2px, over a mean 225ms inter-tick gap. τ=70ms resolves the mean case within one tick interval but cannot close the p95/max jumps before the next real update lands. See decisions.md D34 (amended). | Real camera, real walk, `engine/clips/tau-walk.jsonl` |
 
@@ -122,9 +122,9 @@ half-built.
 
 ## Part 3 — wake phrases
 
-`engine/wake_phrases.txt` ships `hey yap` / `yappy` / `hey yo`, hot-reloaded
+`engine/wake_phrases.txt` ships `hey wellsy` / `wellsy` / `hey yo`, hot-reloaded
 on mtime change. `--enable-yo` adds bare `yo`, off by default. **Real,
-live finding: "yap" collides with "app" in Moonshine's transcription** —
+live finding: the original wake word collides with "app" in Moonshine's transcription** —
 reported to the project owner during this session; a replacement wake word
 was discussed (candidates: "Hey Jarvis", matching the episode's own hook;
 "Hey Vision") but **deferred to a future session, owner's explicit call**.
@@ -160,7 +160,7 @@ reasoning and the transcription evidence: decisions.md D39.
 - **The forced-fresh-T1 cost (33.4ms) is real and small** — Day 11 adding
   an LLM call in the middle of this loop should budget against that
   number, not against zero.
-- **"yap" needs a new name before more wake-word work is worth doing** —
+- **the original name needs replacing before more wake-word work is worth doing** —
   every phrase built around it inherits the same STT collision.
 - **The instrumentation gap (row 1/2) should be the first five minutes of
   Day 11**, not a recurring apology — the fix already shipped

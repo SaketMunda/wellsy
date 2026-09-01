@@ -80,7 +80,7 @@ not happen this session, and the reason why is itself the most useful single
 finding of the day.** Configured for scenario C/D, `line_generator_engine:
 'local-llm'` and `voice_engine: 'local-tts'` never left the `loading` state
 in either scenario — confirmed via the app's own `llmStatus`/`ttsStatus`
-(exposed to the harness as `window.__yapStatus`), and separately via the
+(exposed to the harness as `window.__wellsyStatus`), and separately via the
 push-to-talk voice panel, which showed `ASR loading 4%` the entire time
 scenario D's push-to-talk was held. **Qwen2.5-0.5B, measured at 45–63s cold
 in D13's own earlier session, sat in `loading` for 7+ minutes with zero
@@ -130,7 +130,7 @@ stall exists." See `v2-roadmap.md`'s Day 7 update.
 
 **The idle scene burned essentially the same CPU as every busy scene —
 72.4%, against A's 72.7%, B's 74.1%, C's 76.2% — for zero output.**
-`window.__yapStatus.detectFps` stayed at ~60Hz throughout scenario E's full
+`window.__wellsyStatus.detectFps` stayed at ~60Hz throughout scenario E's full
 minute pointed at a flat, unmoving gray frame — the current (V1) detector
 has no motion gate at all, so TF.js runs a full COCO-SSD inference pass on
 every single rAF tick regardless of whether the frame changed since the

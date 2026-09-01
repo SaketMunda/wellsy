@@ -1,0 +1,35 @@
+[project]
+name = "wellsy"
+version = "0.1.0"
+description = "WELLSY — a local, private, agentic assistant. Perception core (T0–T1)."
+requires-python = ">=3.13"
+dependencies = [
+    "numpy>=2.2",
+    "opencv-python>=4.10",
+    "supervision>=0.30.0",
+    "ultralytics>=8.4.120",
+    "clip",
+]
+
+[project.scripts]
+wellsy = "engine.cli:main"
+
+[tool.uv.sources]
+# YOLOE's open-vocabulary text-prompt head needs Ultralytics' CLIP fork
+# (detector.py -> model.get_text_pe). Not the PyPI `clip` package.
+clip = { git = "https://github.com/ultralytics/CLIP.git" }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+]
+
+# The installable/distribution name is `wellsy` and the console command is
+# `wellsy`; the import package is `engine` (the runtime core), so the repo
+# folder isn't `wellsy/wellsy/`. Like `pip install wellsy` → `import engine`.
+[tool.setuptools.packages.find]
+include = ["engine*"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

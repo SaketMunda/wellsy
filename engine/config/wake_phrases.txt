@@ -1,0 +1,19 @@
+# Wake phrases — one per line, hot-reloaded (mtime checked each loop tick).
+# Add a phrase by typing it below and saving; no restart needed.
+#
+# Matched by transcribe-then-match: the ASR transcribes a rolling ~1.5s audio
+# buffer, and the result is fuzzy-matched (difflib) against every line here,
+# tolerant of STT mis-transcription. This is NOT a trained keyword spotter —
+# see decisions.md D39 for why, and for openWakeWord's real cost as the
+# upgrade path.
+#
+# TODO(step4): the difflib fuzzy-match threshold was 0.72, tuned for the old
+# single-syllable wake word (which the ASR heard as "app"). "wellsy" has a soft
+# /w/ onset and a medial /s/ that survives a quiet mic — the threshold will need
+# retuning against the streaming ASR in step 4. Do not guess a new value here.
+#
+# Bare "yo" was historically listed behind --enable-yo (decisions.md D39: a
+# ~150ms syllable inside "you"/"your"/"yeah" can't be made both sensitive and
+# precise). Dropped in the rebuild along with the old wake word.
+wellsy
+hey wellsy

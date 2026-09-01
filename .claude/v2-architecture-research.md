@@ -1,4 +1,4 @@
-# YAP v2 — architecture research: leaving the browser, and becoming JARVIS
+# WELLSY v2 — architecture research: leaving the browser, and becoming JARVIS
 
 **Status:** research + proposal. Nothing decided, nothing built.
 **Written:** 2026-08-12, after Day 5. **Revised** 2026-08-13 with the
@@ -68,7 +68,7 @@ Fixing 1a–1d makes that waste *faster*. It does not make it stop.
 > not commentating on the furniture in between.*
 
 This is the most important correction in this document, and it is both a
-product fix and a performance fix. Right now YAP is an always-on commentator
+product fix and a performance fix. Right now WELLSY is an always-on commentator
 that happens to have a camera. JARVIS is a system that is **quietly aware,
 expensively smart only on request, and almost always silent.**
 
@@ -105,7 +105,7 @@ Two design notes that make this work:
 
 ### 2b. The speech policy — silence is the default
 
-YAP speaks in exactly three cases. Everything else updates the HUD **silently**.
+WELLSY speaks in exactly three cases. Everything else updates the HUD **silently**.
 
 1. **It was asked.** Wake word or push-to-talk.
 2. **A rule fired.** A registered person arrives; an unregistered face
@@ -238,7 +238,7 @@ not know.
 
 ### Memory layers
 
-1. **Person registry** — who, and what YAP knows about them.
+1. **Person registry** — who, and what WELLSY knows about them.
 2. **Episodic log** — timestamped events. Enables "what happened while I was
    out", "when did you last see my keys".
 3. **Session context** — what was just said, so a follow-up question
@@ -306,7 +306,7 @@ A prompt that says "be funny only sometimes" will not hold. Build it:
 - **A humour gate**, evaluated before generation. `WRY` is permitted only when
   a cooldown has elapsed (say ≥ 10 minutes since the last wry line) **and** a
   trigger holds: the user made a joke, an absurd repetition (the fifth cup),
-  YAP itself just failed at something, or a long absence ended. Otherwise:
+  WELLSY itself just failed at something, or a long absence ended. Otherwise:
   `FACTUAL`. Testable, tunable, and it makes the humour land because it is
   rare.
 - **Length caps by intent.** Acknowledgement ≤ 4 words ("Camera online, sir.")

@@ -7,7 +7,7 @@ Every day ships something visible. Every day has a story beat.
 ## Day 1 — "It can see" ✅ SHIPPED
 **Ships:** Camera → detection → HUD overlay → spoken narration. The full loop.
 **Concept:** Single-shot object detection running on the GPU, in a browser.
-**Demo:** Boxes lock onto objects; YAP says "I can see 1 person and 1 laptop."
+**Demo:** Boxes lock onto objects; WELLSY says "I can see 1 person and 1 laptop."
 **Unfinished:** Boxes jitter. Only 80 object classes. Desktop only.
 **Hook:** *"I gave my laptop eyes in one day. It just told me what's on my desk."*
 
@@ -39,7 +39,7 @@ clock, decoupled from detection.
 and the 4s rate limit alongside a live narration log that fires roughly once
 every 4+ seconds under normal movement — never on every frame.
 
-**Hook:** *"YAP had two jobs running at two speeds. The eyes kept up. The
+**Hook:** *"WELLSY had two jobs running at two speeds. The eyes kept up. The
 mouth was drowning. Here's the fix — talk about events, not frames."*
 
 **Risk:** none — verified against the existing codebase, not built from
@@ -281,7 +281,7 @@ performance work is superseded entirely by the tier scheduler).
 The gap between them is entirely edge cases — and, per this reshuffle, entirely
 the performance budget a phone actually has to live inside.
 
-**Demo:** YAP running on a phone, walking around a real space, WebGPU vs
+**Demo:** WELLSY running on a phone, walking around a real space, WebGPU vs
 WebGL numbers on screen.
 
 **Hook:** *"Every demo works on the demo machine. Today I tried to break it —

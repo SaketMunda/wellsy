@@ -1,6 +1,6 @@
 # Day 5 — "Same brain, better face" (HUD + UX polish)
 
-You're working in the YAP repo (`yap-hud`) — a build-in-public live vision
+You're working in the WELLSY repo (`wellsy`) — a build-in-public live vision
 overlay: camera → COCO-SSD detection → IoU tracking → HUD overlay → narration
 (templates or a local LLM) → speech, all in-browser, no backend, no API keys.
 The `.claude/` directory is the project's build-in-public workspace. **Read the
@@ -38,7 +38,7 @@ Two boundaries on that goal:
    sweeps, leader lines, boot sequences and monospace telemetry are generic
    sci-fi HUD grammar — use them freely. Do not copy Marvel assets, do not
    use their marks or fonts, and do not name anything in the product or the
-   docs JARVIS / FRIDAY / EDITH / Karen. YAP is YAP.
+   docs JARVIS / FRIDAY / EDITH / Karen. WELLSY is WELLSY.
 2. **No new network dependencies.** No webfont from a CDN, no icon set, no
    image assets fetched at runtime. The project's headline claim is that it
    works offline after first load (D10, D13) and a Google Fonts link would
@@ -230,7 +230,7 @@ whole series' credibility rests on them.
 Day 5 is the day with the highest risk of overclaiming, because *the interface
 starts implying capability the model doesn't have*. A HUD that looks like
 E.D.I.T.H. invites viewers to assume scene understanding, identity recognition,
-memory, threat assessment, depth sensing — YAP has **none** of that. It draws
+memory, threat assessment, depth sensing — WELLSY has **none** of that. It draws
 boxes around 80 COCO classes and says something dry about them.
 
 So: build the aesthetic fully, then say the honest thing out loud in
