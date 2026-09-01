@@ -26,7 +26,8 @@ deliberate, not sloppy.
 | 2 | `step2-backend-abstraction.md` | Portable inference interfaces + backends + cross-platform benchmark harness | 1 |
 | 3 | `step3-capture-layer.md` | Camera + screen capture with degenerate-capture verification. **Fixes the wallpaper defect.** | 1 |
 | 4 | `step4-voice-path.md` | Streaming voice on Pipecat: Silero VAD, Smart Turn, streaming ASR/TTS, real barge-in | 2, 3 |
-| 5 | `step5-agent-runtime.md` | LangGraph runtime, MCP tools, policy gate, audit log | 2 |
+| 4b | `step4b-live-verification.md` | **Owner at the machine.** A8-granted, A14 live, acoustic latency, wake tuning. Wires capture into the VLM path. | 3, 4 |
+| 5 | `step5-agent-runtime.md` | LangGraph runtime, MCP tools, policy gate, audit log, **two model roles** | 2 |
 | 6 | `step6-memory-context.md` | Memory substrate, provenance-aware writes, context engine | 5 |
 
 Later phases — proactive engine, autonomy levels, communication modes, the
@@ -60,3 +61,22 @@ by decisions not made until step 5:
 **Action for the master session:** produce a specification with measured VRAM
 and throughput requirements at the end of step 5, not before. Sizing a box
 against guesses is how the current stack ended up wrong.
+
+## Status as of 2026-09-01
+
+Steps 1–4 merged to `master`. 98 tests green, tree clean.
+
+Ratified deviations: package `wellsy/` -> `engine/`; LLM backend is
+`openai_http` (OpenAI-compatible streaming — covers Ollama, llama-server, vLLM,
+SGLang) rather than in-process llama-cpp-python; ASR is faster-whisper `base.en`
+after Qwen3-ASR was rejected on measured numbers; Pipecat's bundled
+Silero + Smart Turn v3 over the step-2 wrappers.
+
+Open debt carried forward:
+- **Qwen3-TTS was never measured.** Kokoro was adopted without the two-candidate
+  bench-off step 2 required. Kokoro clears the latency budget, but it is flat,
+  and there is a standing requirement for expressive, human-sounding speech it
+  cannot meet. Owed, not urgent.
+- faster-whisper `base.en` is English-only.
+- An in-process LLM backend must be validated before embodiment bring-up.
+- Linux/CUDA path is code-complete and **unexecuted**.

@@ -62,6 +62,38 @@ that a class of action can be trusted unsupervised. An agent that destroys
 something once, silently, with no way to report it is not robust; it is
 single-shot.
 
+## Deliverable 2b — two model roles, not one model (added 2026-09-01)
+
+Step 4 measured the LLM row at **3957 ms p50 against a 1500 ms target** with
+`qwen3:4b`, because that build runs a reasoning pass on every turn and no
+documented flag disables it (verified by direct `curl` against every option).
+The same root cause sits in the VLM row: `qwen3-vl:4b` TTFT **p95 8081 ms**.
+
+**Do not resolve this by picking one faster model.** Reasoning is poison on the
+conversational hot path and genuinely valuable in the planner — decomposing an
+outcome into <= 6 tool calls is exactly what a reasoning pass is for.
+
+Split by role:
+
+| Role | Model class | Budget |
+|---|---|---|
+| **Fast path** — conversation, simple lookups, acknowledgements | non-reasoning instruct | §1 budget applies: < 1500 ms p50 to first word |
+| **Planner** — decompose, verify, multi-step | reasoning | 3–4 s acceptable **only because the fast path speaks first** |
+
+**The acknowledge-then-deliver rule:** when a request routes to the planner, the
+fast path emits an acknowledgement ("let me check your calendar") within the §1
+budget while the planner runs behind it. This is what makes an assistant feel
+fluent rather than slow, and it converts the measured miss into a non-issue.
+
+**Do not settle on `qwen2.5:3b`** because it cleared the number in step 4's
+control run. It is a 2024-era model and adopting it because it happened to be
+installed is the stale-tech failure mode this project has an invariant against
+(#8). Benchmark current non-reasoning instruct models for the fast slot through
+`wellsy bench`, and record the losing numbers.
+
+Also resolve the VLM reasoning pass, or route vision through a non-reasoning
+VLM. An 8-second p95 fails A7 and A8 regardless of how good the answer is.
+
 ## Deliverable 3 — LangGraph agent loop
 
 **LangGraph, decided (D53).** The decisive property is that its `interrupt()`
@@ -135,7 +167,8 @@ The owner will buy a Linux/NVIDIA box once requirements are known, and **this
 step is where they become knowable.** With the agent running, report:
 
 - final model sizes and whether the brain is resident or loaded on demand,
-- **measured** peak and steady resident memory with the full stack warm,
+- **measured** peak and steady resident memory with the full stack warm —
+  including **both** model roles from Deliverable 2b, resident or swapped,
 - tokens/sec needed to hold the §1 latency budget under real tool-calling load,
 - whether the Jetson Orin NX class target (~16 GB, 100 TOPS — **less headroom
   than the 24 GB M4 Pro this was developed on**) constrains the desktop build.
