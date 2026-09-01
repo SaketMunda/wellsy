@@ -1,0 +1,73 @@
+{
+  "date": "2026-09-01",
+  "trials": 5,
+  "stages_warm": {
+    "asr_det": {
+      "p50_ms": 286.1,
+      "p95_ms": 288.5,
+      "mean_ms": 285.6,
+      "n": 5
+    },
+    "asr_llm": {
+      "p50_ms": 270.5,
+      "p95_ms": 273.2,
+      "mean_ms": 269.8,
+      "n": 5
+    },
+    "tts_ttfa": {
+      "p50_ms": 307.7,
+      "p95_ms": 315.4,
+      "mean_ms": 309.2,
+      "n": 5
+    },
+    "llm_ttft": {
+      "p50_ms": 2647.5,
+      "p95_ms": 2707.0,
+      "mean_ms": 2502.8,
+      "n": 5
+    },
+    "llm_first_sent": {
+      "p50_ms": 2661.1,
+      "p95_ms": 2789.0,
+      "mean_ms": 2571.0,
+      "n": 5
+    },
+    "llm_full": {
+      "p50_ms": 2675.1,
+      "p95_ms": 2802.8,
+      "mean_ms": 2585.0,
+      "n": 5
+    }
+  },
+  "cold_ms": {
+    "asr_det": 265.5,
+    "asr_llm": 270.8,
+    "tts_ttfa": 319.7,
+    "llm_ttft": 4600.1,
+    "llm_full": 4696.7
+  },
+  "composed": {
+    "deterministic  (asr + tts_ttfa)": {
+      "p50_ms": 593.6,
+      "p95_ms": 602.8,
+      "mean_ms": 594.8,
+      "n": 5
+    },
+    "llm  (asr + llm_ttft + tts_ttfa)": {
+      "p50_ms": 3228.1,
+      "p95_ms": 3293.8,
+      "mean_ms": 3081.8,
+      "n": 5
+    }
+  },
+  "streaming_overlap_first_pcm_before_llm_done": [
+    0,
+    5
+  ],
+  "llm_model": "qwen3:4b",
+  "notes": [
+    "component timing; the mic->speaker e2e and A14 need a live session (see module docstring)",
+    "deterministic path has no LLM; IntentGate reply is effectively 0 ms",
+    "llm row will miss <1500 ms while Ollama 0.33.2 + this qwen3 build runs the reasoning pass regardless of think/enable_thinking"
+  ]
+}

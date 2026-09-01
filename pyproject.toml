@@ -20,6 +20,14 @@ dependencies = [
     "onnxruntime>=1.29",  # portable runtime for the small models (ASR/TTS/VAD)
     "httpx>=0.28",        # streaming OpenAI-compatible HTTP client (LLM/VLM backend)
     "psutil>=7.0",        # resident-memory readout for `wellsy bench`
+    # step 4 — streaming voice path. Pipecat is the streaming frame pipeline,
+    # turn detection (Smart Turn v3, ONNX, bundled) and barge-in; extras:
+    #   local   -> pyaudio (LocalAudioTransport, portable PortAudio)
+    #   whisper -> faster-whisper (CTranslate2, portable CPU/CUDA) — the ASR path
+    #   kokoro  -> kokoro-onnx — the portable fast TTS baseline
+    # Silero VAD and Smart Turn v3 models ship inside the pipecat wheel, so no
+    # network fetch and no platform package (INVARIANTS #14).
+    "pipecat-ai[local,whisper,kokoro]==1.8.1",
 ]
 
 [project.optional-dependencies]
@@ -29,6 +37,14 @@ inference-mlx = ["mlx-lm>=0.28"]
 
 [project.scripts]
 wellsy = "engine.cli:main"
+
+[tool.uv]
+# pipecat-ai 1.8.1 core-pins onnxruntime~=1.24.3; step 2 verified and pinned
+# onnxruntime>=1.29 (spec/model-inventory.md, INVARIANTS #8). ORT is
+# session-API-stable across 1.24->1.29 and both pipecat's bundled models
+# (silero_vad.onnx, smart-turn-v3.2-cpu.onnx) and engine/inference load on 1.29
+# — verified in step 4. Override keeps one ORT for the whole tree.
+override-dependencies = ["onnxruntime>=1.29"]
 
 [tool.uv.sources]
 # YOLOE's open-vocabulary text-prompt head needs Ultralytics' CLIP fork

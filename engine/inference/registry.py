@@ -12,12 +12,16 @@ Selection order (highest wins):
 
 Auto-selection table (`stack-teardown.md` §4, step 2 Deliverable 2):
 
-    | platform                | llm          | asr / tts | vad    |
-    |-------------------------|--------------|-----------|--------|
-    | linux + nvidia / jetson | openai_http* | onnx      | silero |
-    | windows + nvidia        | openai_http* | onnx      | silero |
-    | macos apple silicon     | openai_http* | onnx      | silero |
-    | anything, no accel      | openai_http* | reference | energy |
+    | platform                | llm          | asr            | tts    | vad    |
+    |-------------------------|--------------|----------------|--------|--------|
+    | linux + nvidia / jetson | openai_http* | faster_whisper | kokoro | silero |
+    | windows + nvidia        | openai_http* | faster_whisper | kokoro | silero |
+    | macos apple silicon     | openai_http* | faster_whisper | kokoro | silero |
+    | anything, no accel      | openai_http* | faster_whisper | kokoro | silero |
+
+    `faster_whisper` / `kokoro` fall back to `reference` when their package or
+    weights are absent. `onnx` stays registered as the generic ONNX-session
+    scaffold (env-var driven) but is no longer auto-selected.
 
     * openai_http is the portable LLM path — it points at whatever local server
       is running (Ollama here; llama-server / vLLM / SGLang on Linux/CUDA).
@@ -39,19 +43,21 @@ from typing import Any
 
 from engine.inference.base import BackendUnavailable, detect_accelerator, platform_tag
 from engine.inference.backends.energy import EnergyVad
+from engine.inference.backends.kokoro import KokoroTts
 from engine.inference.backends.mlx import MlxLlm
 from engine.inference.backends.onnx import OnnxAsr, OnnxTts
 from engine.inference.backends.openai_http import OpenAiHttpLlm
 from engine.inference.backends.reference import ReferenceAsr, ReferenceTts
 from engine.inference.backends.silero import SileroVad
+from engine.inference.backends.whisper_faster import FasterWhisperAsr
 
 MODALITIES = ("llm", "asr", "tts", "vad")
 
 # registry key -> backend class
 _BACKENDS: dict[str, dict[str, type]] = {
     "llm": {"openai_http": OpenAiHttpLlm, "mlx": MlxLlm},
-    "asr": {"onnx": OnnxAsr, "reference": ReferenceAsr},
-    "tts": {"onnx": OnnxTts, "reference": ReferenceTts},
+    "asr": {"faster_whisper": FasterWhisperAsr, "onnx": OnnxAsr, "reference": ReferenceAsr},
+    "tts": {"kokoro": KokoroTts, "onnx": OnnxTts, "reference": ReferenceTts},
     "vad": {"silero": SileroVad, "energy": EnergyVad},
 }
 
@@ -59,8 +65,8 @@ _BACKENDS: dict[str, dict[str, type]] = {
 # is_available() is true wins. MLX is intentionally absent.
 _AUTO_ORDER: dict[str, tuple[str, ...]] = {
     "llm": ("openai_http",),
-    "asr": ("onnx", "reference"),
-    "tts": ("onnx", "reference"),
+    "asr": ("faster_whisper", "onnx", "reference"),
+    "tts": ("kokoro", "onnx", "reference"),
     "vad": ("silero", "energy"),
 }
 
