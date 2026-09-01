@@ -16,6 +16,10 @@ Usage:
     wellsy doctor                # check camera / mic / screen permission for this process tree
     wellsy screen                # one-shot screen capture + degenerate-capture verification
     wellsy bench                 # cross-platform inference benchmark (LLM / ASR / TTS / VAD)
+    wellsy voice                 # streaming voice conversation (Pipecat: VAD, Smart Turn, barge-in)
+    wellsy voice --measure       # the spec/phase1-acceptance.md §1 latency harness
+    wellsy record-wake           # guided capture of wake / non-wake fixtures
+    wellsy tune-wake             # sweep the wake fuzzy-match threshold against the fixtures
 """
 
 from __future__ import annotations
@@ -254,13 +258,39 @@ def _run_bench(argv: list[str]) -> None:
     raise SystemExit(bench_main(argv))
 
 
+_SUBCOMMANDS = {
+    "doctor": _run_doctor,
+    "screen": _run_screen,
+    "bench": _run_bench,
+}
+
+
+def _run_voice(argv: list[str]) -> None:
+    from engine.voice import run as voice_run
+
+    raise SystemExit(voice_run.voice(argv))
+
+
+def _run_record_wake(argv: list[str]) -> None:
+    from engine.voice import run as voice_run
+
+    raise SystemExit(voice_run.record_wake(argv))
+
+
+def _run_tune_wake(argv: list[str]) -> None:
+    from engine.voice import run as voice_run
+
+    raise SystemExit(voice_run.tune_wake(argv))
+
+
+_SUBCOMMANDS.update(
+    {"voice": _run_voice, "record-wake": _run_record_wake, "tune-wake": _run_tune_wake}
+)
+
+
 def main() -> None:
-    if len(sys.argv) > 1 and sys.argv[1] == "doctor":
-        return _run_doctor(sys.argv[2:])
-    if len(sys.argv) > 1 and sys.argv[1] == "screen":
-        return _run_screen(sys.argv[2:])
-    if len(sys.argv) > 1 and sys.argv[1] == "bench":
-        return _run_bench(sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] in _SUBCOMMANDS:
+        return _SUBCOMMANDS[sys.argv[1]](sys.argv[2:])
     parser = argparse.ArgumentParser(prog="wellsy", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--seconds", type=float, default=None, help="stop after N seconds (default: run until Ctrl+C)")
     parser.add_argument("--camera-index", type=int, default=0)

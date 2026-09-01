@@ -74,30 +74,51 @@ waits for the full completion. Lines appended to
 with concurrent machine load.)
 
 Weight file: `~/.cache/wellsy/weights/silero_vad.onnx`
-(`$WELLSY_WEIGHTS_DIR` overrides).
+(`$WELLSY_WEIGHTS_DIR` overrides). The step-4 voice pipeline uses **Pipecat's
+bundled** `SileroVADAnalyzer` (same v5 model, shipped inside the wheel); this
+`silero` backend remains the standalone / bench VAD.
 
----
+### ASR — adopted step 4
 
-## Models — scaffolded (interface only, real model deferred)
+| Model | Backend | Version | Verified | Licence | Bench (5 s synthetic, cold) |
+|---|---|---|---|---|---|
+| faster-whisper `base.en` | `faster_whisper` (CTranslate2, int8 CPU / fp16 CUDA) | faster-whisper 1.2.1 | 2026-09-01 | MIT (lib) / MIT (model) | cold 14.6 s (incl. first-run model fetch) · p50 **261 ms** / p95 276 ms · RTF **0.052** · resident 626 MB |
+| — (fixed transcript) | `reference` | wellsy-reference-asr 1 | 2026-09-01 | ours | shape only |
 
-The ASR and TTS interfaces have two registered backends each and pass the
-shared **shape** conformance test, but real model wiring + a bench-off is a
-later step (agreed scope for step 2).
+**Why not Qwen3-ASR 0.6B:** its only CPU-ONNX export
+(`Daumee/Qwen3-ASR-0.6B-ONNX-CPU`) is 2.5 GB (two 571 MB INT8 decoders), does
+**batch** autoregressive decode on ~30 s silence-split chunks, and runs at
+RTF ~0.32 on desktop — a ~1 s STT floor paid *after* endpoint, which breaks the
+§1 budget this step exists to fix. Verified 2026-09-01; not adopted. Smart Turn
+v3 owns end-of-turn, so `base.en`'s lack of word-level partials costs little.
+`WELLSY_ASR_MODEL` overrides the Whisper size.
+Weights: `$WELLSY_WEIGHTS_DIR/faster-whisper/` (auto-fetched once).
 
-| Modality | `onnx` backend | `reference` backend |
-|---|---|---|
-| ASR | loads an `InferenceSession` if `WELLSY_ASR_ONNX_MODEL` points at an export; `stream()` decode loop deferred | fixed-transcript, portable, streams `Partial`→`Final` |
-| TTS | same, `WELLSY_TTS_ONNX_MODEL`; vocoder pipeline deferred | 180 Hz tone generator, portable, streams `PcmChunk` |
+### TTS — adopted step 4
 
-Candidates to benchmark when that step lands (verified current 2026-09-01, not
-yet adopted):
+| Model | Backend | Version | Verified | Licence | Bench (~4 s output, cold) |
+|---|---|---|---|---|---|
+| Kokoro-82M | `kokoro` (kokoro-onnx, ORT provider auto) | kokoro-onnx 0.6.1 / model-files-v1.0 | 2026-09-01 | Apache-2.0 | cold 509 ms · p50 **819 ms** / p95 827 ms · **RTF 0.202** (~5× realtime) · resident 697 MB |
+| — (180 Hz tone) | `reference` | wellsy-reference-tts 1 | 2026-09-01 | ours | shape only |
 
-| Modality | Candidate | Licence | Portable path |
-|---|---|---|---|
-| ASR | Qwen3-ASR 0.6B / 1.7B | Apache-2.0 | ONNX exports (`Daumee/Qwen3-ASR-0.6B-ONNX-CPU`, `andrewleech/qwen3-asr-*-onnx`); `sherpa-onnx` |
-| ASR | Whisper tiny/base | MIT | ONNX; `sherpa-onnx`; faster-whisper (CTranslate2) |
-| TTS | Qwen3-TTS (12 Hz) | check at adoption | `qwentts.cpp` GGUF (CPU/CUDA/Metal/Vulkan); ONNX pipelines less mature |
-| TTS | Kokoro-82M | Apache-2.0 | ONNX, well-supported — the fast-but-flat fallback |
+RTF measured before adoption (step 4 "Do not"). `stack-teardown.md` §5's
+fast-but-flat portable baseline; an expressive, instructable model (Qwen3-TTS)
+is a later day and the seam does not change when it lands. Needs `espeak-ng`
+(system package) for phonemisation. Weights:
+`$WELLSY_WEIGHTS_DIR/kokoro-v1.0.onnx` + `voices-v1.0.bin`.
+`WELLSY_TTS_VOICE` / `WELLSY_TTS_SPEED` override.
+
+### Voice pipeline runtime
+
+| Component | Version | Verified | Licence | Portable path | Role |
+|---|---|---|---|---|---|
+| Pipecat | 1.8.1 | 2026-09-01 | BSD-2-Clause | pure Python, cross-platform | streaming frame pipeline, interruptions, turn detection |
+| Smart Turn v3 | `smart-turn-v3.2-cpu.onnx` (bundled in pipecat wheel) | 2026-09-01 | (per pipecat) | ONNX, CPU ~12–65 ms, 23 languages, no GPU | semantic end-of-turn — replaces the fixed 600 ms tail |
+| PyAudio / PortAudio | pyaudio 0.2.14 | 2026-09-01 | MIT | PortAudio, cross-platform | `LocalAudioTransport` mic + speaker |
+
+`onnxruntime` is held at `>=1.29` for the whole tree via
+`[tool.uv] override-dependencies` — pipecat core-pins `~=1.24.3`; both bundled
+models and `engine/inference` load on 1.29, verified in step 4.
 
 ---
 

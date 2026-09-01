@@ -1,0 +1,35 @@
+{
+  "date": "2026-09-01",
+  "trials": 20,
+  "stages_warm": {
+    "asr_det": {"p50_ms": 280.7, "p95_ms": 293.6, "mean_ms": 282.9, "n": 20},
+    "asr_llm": {"p50_ms": 267.1, "p95_ms": 308.3, "mean_ms": 273.9, "n": 20},
+    "tts_ttfa": {"p50_ms": 344.6, "p95_ms": 406.0, "mean_ms": 345.9, "n": 20},
+    "llm_ttft": {"p50_ms": 3380.7, "p95_ms": 5215.4, "mean_ms": 3472.7, "n": 20},
+    "llm_first_sent": {"p50_ms": 3462.5, "p95_ms": 5229.2, "mean_ms": 3545.9, "n": 20},
+    "llm_full": {"p50_ms": 3476.2, "p95_ms": 5243.2, "mean_ms": 3561.2, "n": 20}
+  },
+  "cold_ms": {
+    "asr_det": 260.0, "asr_llm": 268.6, "tts_ttfa": 318.9,
+    "llm_ttft": 2739.1, "llm_full": 2834.8
+  },
+  "composed": {
+    "deterministic  (asr + tts_ttfa)": {"p50_ms": 617.4, "p95_ms": 699.7, "mean_ms": 628.7, "n": 20},
+    "llm  (asr + llm_ttft + tts_ttfa)": {"p50_ms": 3956.7, "p95_ms": 5854.4, "mean_ms": 4092.5, "n": 20}
+  },
+  "streaming_overlap": {
+    "first_pcm_before_llm_done": [3, 3],
+    "samples_ms": [
+      {"first_pcm": 7212.0, "llm_done": 8460.5},
+      {"first_pcm": 32741.5, "llm_done": 34083.8},
+      {"first_pcm": 6402.7, "llm_done": 7854.2}
+    ]
+  },
+  "llm_model": "qwen3:4b",
+  "notes": [
+    "component timing; the mic->speaker e2e and A14 need a live session (see engine/voice/metrics.py docstring)",
+    "deterministic path has no LLM; IntentGate reply is effectively 0 ms",
+    "llm row misses <1500 ms: Ollama 0.33.2 + this qwen3:4b build runs the reasoning pass regardless of think / enable_thinking / no_think / qwen3:4b-nothink tag (each verified by curl). LLM TTFT is ~2.6-3.4 s of reasoning.",
+    "see voice-latency-2026-09-01-qwen2.5-3b.json for the same pipeline with a non-reasoning model: llm row p50 643 ms / p95 683 ms — PASS"
+  ]
+}
