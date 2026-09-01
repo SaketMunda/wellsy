@@ -79,12 +79,17 @@ def log_answer(
     tracks: list[dict],
     frame_age_ms: float | None,
     llm_ms: float | None,
+    capture: dict | None = None,
 ) -> None:
-    """`source`: 'vlm' (image + question) or 'vlm+tracks' if tracks were
-    non-empty and passed as corroboration -- always the latter today since
-    query_loop.py always passes tracks when it has them, kept as a
-    distinct value in case a screen-only query with no camera tracks
-    becomes 'vlm' alone later. `frame_source`: 'camera' or 'screen'."""
+    """`source`: 'vlm' (image + question), 'vlm+tracks' if tracks were
+    non-empty and passed as corroboration, or 'refused' when the capture
+    layer would not hand over a frame (INVARIANTS #6/#12/#15 — the refusal
+    still writes an audit line). `frame_source`: 'camera' or 'screen'.
+
+    `capture` is `CaptureResult.provenance()` (via
+    `engine.voice.vision.VisionCapture.provenance()`) — the step-3 capture
+    layer's own record: which backend, whether it was verified, by which
+    signal, when. Step 3 left this fold explicitly owed to step 4."""
     record = {
         "t": round(time.time(), 3),
         "claim": answer,
@@ -96,6 +101,8 @@ def log_answer(
         "llmMs": llm_ms,
         "possibleDisagreement": flag_disagreement(answer, tracks),
     }
+    if capture:
+        record.update(capture)
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
     with _lock:
         with open(PROVENANCE_PATH, "a") as f:
