@@ -11,3 +11,6 @@
 [streaming] openai_http: first answer delta @ 5215 ms; remaining 25 of 26 deltas (134 chars) streamed over the next 344 ms — a non-streaming path would have withheld all 26 until +344 ms
 [streaming] openai_http: first answer delta @ 3341 ms; remaining 32 of 33 deltas (156 chars) streamed over the next 438 ms — a non-streaming path would have withheld all 33 until +438 ms
 [streaming] openai_http: first answer delta @ 3023 ms; remaining 21 of 22 deltas (91 chars) streamed over the next 300 ms — a non-streaming path would have withheld all 22 until +300 ms
+[streaming] openai_http: first answer delta @ 3758 ms; remaining 28 of 29 deltas (137 chars) streamed over the next 396 ms — a non-streaming path would have withheld all 29 until +396 ms
+[streaming] openai_http: first answer delta @ 3791 ms; remaining 30 of 31 deltas (154 chars) streamed over the next 410 ms — a non-streaming path would have withheld all 31 until +410 ms
+[streaming] openai_http: first answer delta @ 4930 ms; remaining 28 of 29 deltas (146 chars) streamed over the next 390 ms — a non-streaming path would have withheld all 29 until +390 ms

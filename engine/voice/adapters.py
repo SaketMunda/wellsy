@@ -134,21 +134,22 @@ class SeamTTSService(TTSService):
 
 
 def build_llm():
-    """Pipecat `OpenAILLMService` on the local server. Text-only `qwen3:4b` by
-    default (the fair latency comparison — `qwen3-vl:4b` pays a vision
-    prompt-processing tax even with reasoning off); override with
-    `WELLSY_LLM_MODEL` / `WELLSY_LLM_BASE_URL`."""
+    """Pipecat `OpenAILLMService` on the local server. Default `qwen2.5:3b`:
+    on Ollama 0.33.2 every `qwen3` / `qwen3-vl` build ignores `think:false` and
+    burns 8-22 s/turn on a reasoning pass (re-confirmed 2026-09-01 by curl;
+    step 4b), which blows the §1 budget the voice path exists to meet.
+    `qwen2.5:3b` answers in ~50 ms TTFT with no reasoning — the honest pipeline
+    number. Override with `WELLSY_LLM_MODEL` (e.g. a non-reasoning VLM like
+    `qwen2.5vl:3b` for image turns) / `WELLSY_LLM_BASE_URL`."""
 
     from pipecat.services.openai.llm import OpenAILLMService
 
     base_url = os.environ.get("WELLSY_LLM_BASE_URL", "http://localhost:11434/v1")
-    model = os.environ.get("WELLSY_LLM_MODEL", "qwen3:4b")
+    model = os.environ.get("WELLSY_LLM_MODEL", "qwen2.5:3b")
     # `keep_alive: -1` pins the model resident so the ~10-16 s cold reload does
-    # not tax every idle-gap turn. `think`/`enable_thinking` are also sent, but
-    # note: Ollama 0.33.2 + this qwen3:4b build ignores every documented switch
-    # and always runs the reasoning pass — the LLM-answer latency row reflects
-    # that (step 4 report). A server that honours no-think (or qwen2.5:3b) meets
-    # the budget; the pipeline is not the bottleneck.
+    # not tax every idle-gap turn. `think` / `enable_thinking` are still sent so
+    # a qwen3 override behaves as well as that build allows (it currently
+    # ignores them — step 4b finding).
     extra_body = {
         "keep_alive": -1,
         "think": False,

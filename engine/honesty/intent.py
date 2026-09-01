@@ -40,6 +40,15 @@ _HELP = re.compile(r"\b(what can you do|help|what commands|list commands)\b")
 _DESCRIBE = re.compile(
     r"\b(what do you see|what('?s| is) in front of you|describe the scene|describe scene|what can you see|what is there)\b"
 )
+# Screen grounding (A8). A question / read verb plus an explicit screen word ->
+# describe_scene; `engine.voice.vision.route()` then captures the screen rather
+# than the camera. Kept narrow — an interrogative is required, so "turn off my
+# monitor" does not match. This is still the "describe" family, not a new
+# safety-path intent (INVARIANTS #3 is about stop/wake/sleep).
+_SCREEN = re.compile(
+    r"\b(what('?s| is| are)?|which|any|anything|is there|are there|do you see|"
+    r"can you see|read|show me|tell me)\b[^?]*\b(screen|monitor|my display)\b"
+)
 _QUERY = re.compile(r"(?:do you see|can you see|is there|are there)\s+(.+?)\??$")
 # Real usage found (decisions.md D39 amendment, day 10 retest): common
 # conversational filler ("are you there", "thanks") isn't a command, but
@@ -81,7 +90,7 @@ def parse_intent(transcript: str) -> Intent:
         return Intent("presence")
     if _THANKS.search(text):
         return Intent("thanks")
-    if _DESCRIBE.search(text):
+    if _DESCRIBE.search(text) or _SCREEN.search(text):
         return Intent("describe_scene")
 
     match = _QUERY.search(text)

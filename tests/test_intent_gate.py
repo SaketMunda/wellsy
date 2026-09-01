@@ -25,9 +25,11 @@ from engine.voice.intent_gate import decide
         ("what can you do", "canned", "help"),
         ("are you there", "canned", "presence"),
         ("thanks", "canned", "thanks"),
-        ("what do you see", "forward", "describe_scene"),
-        ("do you see a chair", "forward", "query_object"),
+        ("what do you see", "vision", "describe_scene"),
+        ("do you see a chair", "vision", "query_object"),
+        ("what's on my screen", "vision", "describe_scene"),
         ("what's the weather like tomorrow", "forward", "unknown"),
+        ("tell me a joke", "forward", "unknown"),
     ],
 )
 def test_decide_routing(transcript, action, intent_type):
@@ -36,9 +38,10 @@ def test_decide_routing(transcript, action, intent_type):
     assert d.intent_type == intent_type
 
 
-def test_stop_wake_sleep_never_forward():
+def test_stop_wake_sleep_never_forward_or_vision():
+    # The safety path never becomes a model turn of any kind.
     for t in ("stop", "hey wellsy", "wake up", "go to sleep", "shut up"):
-        assert decide(t).action != "forward"
+        assert decide(t).action not in ("forward", "vision")
 
 
 def test_canned_carries_text():

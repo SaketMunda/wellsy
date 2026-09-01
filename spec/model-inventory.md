@@ -34,9 +34,10 @@ can be added later without changing the interface.
 
 | Model | Served as | Version / digest | Verified | Licence | Notes |
 |---|---|---|---|---|---|
-| Qwen3-VL 4B | Ollama `qwen3-vl:4b` (default) | digest `1343d82ebee3`, 3.3 GB | 2026-09-01 | Apache-2.0 | `openai_http` default; VLM via `images=` |
-| Qwen3-VL 8B | Ollama `qwen3-vl:8b` | digest `901cae732162`, 6.1 GB | 2026-09-01 | Apache-2.0 | available, not default |
-| Qwen3 4B | Ollama `qwen3:4b` / MLX `mlx-community/Qwen3-4B-4bit` | Ollama `359d7dd4bcda` 2.5 GB · MLX rev `main`, 4-bit, ~2.3 GB | 2026-09-01 | Apache-2.0 | used for the MLX-vs-server head-to-head |
+| Qwen2.5 3B | Ollama `qwen2.5:3b` | 2026-09-01 | Apache-2.0 | **voice-path LLM default** (`adapters.build_llm`, `metrics.py`). Non-reasoning: ~50 ms TTFT, composed §1 LLM row 614 ms. Chosen because every `qwen3*` build below burns 8-22 s/turn on this Ollama (next row). |
+| Qwen3-VL 4B | Ollama `qwen3-vl:4b` | digest `1343d82ebee3`, 3.3 GB | 2026-09-01 | Apache-2.0 | `openai_http` standalone default; VLM via `images=`. **Not usable in the voice loop**: ignores `think:false` on Ollama 0.33.2 (re-confirmed by curl 2026-09-01, step 4b — "say hi in 3 words" → 4082 thinking tokens), 8-22 s to first audio measured live. VLM §1 row is BLOCKED until a non-reasoning local VLM (`qwen2.5vl:3b` / moondream / llava) is pulled. |
+| Qwen3-VL 8B | Ollama `qwen3-vl:8b` | digest `901cae732162`, 6.1 GB | 2026-09-01 | Apache-2.0 | available; same reasoning-tax problem as 4B |
+| Qwen3 4B | Ollama `qwen3:4b` / MLX `mlx-community/Qwen3-4B-4bit` | Ollama `359d7dd4bcda` 2.5 GB · MLX rev `main`, 4-bit, ~2.3 GB | 2026-09-01 | Apache-2.0 | MLX-vs-server head-to-head; Ollama build reasons uncontrollably (~43 s for a 3-word answer) so it is not the voice default |
 
 **`wellsy bench --modality llm` (trials 20, `/no_think` prompt, cold):**
 

@@ -3,9 +3,15 @@
     transport.input()
       -> SeamSTT           (transcribes every VAD-gated utterance)
       -> WakeGate          (asleep: only a wake phrase passes)
-      -> IntentGate        (deterministic stop/wake/sleep/help — INVARIANTS #3)
+      -> IntentGate        (deterministic stop/wake/sleep/help — INVARIANTS #3;
+                            describe_scene / query_object -> capture + verify a
+                            frame, attach to context, run the VLM)
       -> user_aggregator
-      -> LLM               (streaming, text-only qwen3:4b by default)
+      -> LLM/VLM           (streaming; qwen2.5:3b by default — non-reasoning;
+                            image turns need a non-reasoning VL model, e.g.
+                            WELLSY_LLM_MODEL=qwen2.5vl:3b)
+      -> ProvenanceLogger  (vision turns: one provenance line per answer with the
+                            step-3 capture provenance folded in; drops the image)
       -> SeamTTS           (sentence-chunked; first audio before the LLM finishes)
       -> transport.output()
       -> assistant_aggregator
@@ -23,13 +29,15 @@ import os
 import sys
 
 from engine.voice.config import load_voice_config
-from engine.voice.intent_gate import build_intent_gate
+from engine.voice.intent_gate import build_intent_gate, build_provenance_logger
+from engine.voice.vision import VisionPending
 from engine.voice.wake import WakeState, build_wake_gate
 
-# `/no_think` keeps qwen3 from spending seconds on reasoning tokens before the
-# first answer token — the voice path cannot afford it (see model-inventory.md).
+# Default LLM is qwen2.5:3b (non-reasoning — step 4b). qwen3 overrides get
+# `think:false` via extra_body in adapters.build_llm(); that build ignores it
+# today, but this prompt stays model-agnostic.
 SYSTEM_PROMPT = (
-    "/no_think You are WELLSY, a local voice assistant. You are speaking aloud, so "
+    "You are WELLSY, a local voice assistant. You are speaking aloud, so "
     "answer in one or two short spoken sentences. No lists, no markdown, no emoji. "
     "If you do not know, say so plainly."
 )
@@ -38,8 +46,27 @@ AUDIO_IN_SR = 16000   # Silero VAD + Smart Turn v3 + Whisper all want 16 kHz
 AUDIO_OUT_SR = 24000  # Kokoro native rate
 
 
-def build(*, start_awake: bool = False, on_decision=None):
-    """Construct (worker, runner, wake_state, kickoff-coro-factory)."""
+def _warm(stt, tts) -> None:
+    """Run one throwaway ASR + TTS inference so turn 1 is not the cold turn.
+    Cold faster-whisper is ~1.3 s vs ~0.26 s warm; cold Kokoro TTFA ~0.76 s vs
+    ~0.05 s. The LLM warms on its first real call (`keep_alive: -1` then pins
+    it). Skippable with WELLSY_VOICE_NO_WARM=1."""
+    import numpy as np
+
+    try:
+        list(stt._asr.stream(iter([np.zeros(16000, dtype=np.float32)])))
+    except Exception:
+        pass
+    try:
+        for _ in tts._tts.stream(iter(["ready"])):
+            break
+    except Exception:
+        pass
+
+
+def build(*, start_awake: bool = False, on_decision=None, observers=None):
+    """Construct (worker, runner, wake_state, context). `observers` are Pipecat
+    observers attached to the worker (e.g. `acoustic.LatencyObserver`)."""
     from pipecat.audio.vad.silero import SileroVADAnalyzer
     from pipecat.pipeline.pipeline import Pipeline
     from pipecat.pipeline.worker import PipelineParams, PipelineWorker, ProcessorUnusablePolicy
@@ -73,15 +100,27 @@ def build(*, start_awake: bool = False, on_decision=None):
     tts = SeamTTSService(sample_rate=AUDIO_OUT_SR)
     llm = build_llm()
 
+    if os.environ.get("WELLSY_VOICE_NO_WARM") != "1":
+        _warm(stt, tts)
+
     wake_state = WakeState(awake=start_awake)
     wake_gate = build_wake_gate(wake_state, cfg_provider)
-    intent_gate = build_intent_gate(wake_state, on_decision=on_decision)
 
     context = LLMContext(messages=[{"role": "system", "content": SYSTEM_PROMPT}])
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
     )
+
+    # Vision turns (describe_scene / query_object): IntentGate captures + verifies
+    # a frame and appends it to `context`; the provenance logger, after the LLM,
+    # writes the answer line with the capture provenance folded in and drops the
+    # image from context (step 3 "on-demand only").
+    vision_pending = VisionPending()
+    intent_gate = build_intent_gate(
+        wake_state, context=context, pending=vision_pending, on_decision=on_decision
+    )
+    prov_logger = build_provenance_logger(vision_pending, context=context)
 
     pipeline = Pipeline(
         [
@@ -91,6 +130,7 @@ def build(*, start_awake: bool = False, on_decision=None):
             intent_gate,
             user_aggregator,
             llm,
+            prov_logger,
             tts,
             transport.output(),
             assistant_aggregator,
@@ -105,6 +145,7 @@ def build(*, start_awake: bool = False, on_decision=None):
             enable_metrics=True,
             enable_usage_metrics=True,
         ),
+        observers=list(observers or []),
         idle_timeout_secs=None,
         processor_unusable_policy=ProcessorUnusablePolicy.END,
     )
@@ -143,11 +184,11 @@ async def _esc_watch(worker) -> None:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
-async def run(*, start_awake: bool = False, on_decision=None) -> None:
+async def run(*, start_awake: bool = False, on_decision=None, observers=None) -> None:
     from pipecat.frames.frames import LLMRunFrame
 
     worker, runner, wake_state, context = build(
-        start_awake=start_awake, on_decision=on_decision
+        start_awake=start_awake, on_decision=on_decision, observers=observers
     )
     await runner.add_workers(worker)
 
@@ -166,7 +207,9 @@ def main(argv: list[str] | None = None) -> int:
 
     ap = argparse.ArgumentParser(prog="wellsy voice", description=__doc__)
     ap.add_argument("--awake", action="store_true", help="start awake (skip the wake phrase)")
-    ap.add_argument("--measure", action="store_true", help="run the §1 latency harness instead of a live session")
+    ap.add_argument("--measure", action="store_true", help="run the §1 latency harness (component-composed) instead of a live session")
+    ap.add_argument("--measure-acoustic", action="store_true",
+                    help="live session with the at-the-device latency observer; Ctrl+C writes the acoustic §1 table")
     ap.add_argument("--profile-cpu", metavar="SECONDS", type=float, default=None,
                     help="sample idle CPU for N seconds and exit")
     ap.add_argument("--trials", type=int, default=20, help="warm trials per path for --measure")
@@ -176,6 +219,21 @@ def main(argv: list[str] | None = None) -> int:
         from engine.voice import metrics
 
         return metrics.main(args)
+
+    if args.measure_acoustic:
+        from engine.voice import acoustic
+
+        obs = acoustic.LatencyObserver()
+        try:
+            asyncio.run(run(start_awake=args.awake, on_decision=obs.on_decision, observers=[obs]))
+        except KeyboardInterrupt:
+            pass
+        acoustic.print_summary(obs)
+        if obs.turns:
+            print(f"\nwrote {acoustic.write_results(obs)}")
+        else:
+            print("\nno turns captured — nothing written")
+        return 0
 
     try:
         asyncio.run(run(start_awake=args.awake))
