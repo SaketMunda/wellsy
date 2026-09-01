@@ -20,6 +20,11 @@ Usage:
     wellsy voice --measure       # the spec/phase1-acceptance.md §1 latency harness
     wellsy record-wake           # guided capture of wake / non-wake fixtures
     wellsy tune-wake             # sweep the wake fuzzy-match threshold against the fixtures
+    wellsy agent "<outcome>"     # run one agent outcome by typed text (LangGraph + MCP + policy gate)
+    wellsy agent "<outcome>" --yes   # ... approving every gated step (no human in the loop)
+    wellsy tools                 # list the MCP tool layer with schemas
+    wellsy audit [--plan ID]     # read the agent audit log (JSONL on disk)
+    wellsy autonomy              # autonomy levels — they rise against the audit log
 """
 
 from __future__ import annotations
@@ -285,6 +290,35 @@ def _run_tune_wake(argv: list[str]) -> None:
 
 _SUBCOMMANDS.update(
     {"voice": _run_voice, "record-wake": _run_record_wake, "tune-wake": _run_tune_wake}
+)
+
+
+def _run_agent(argv: list[str]) -> None:
+    from engine.agent.cli import run_agent_cli
+
+    raise SystemExit(run_agent_cli(argv))
+
+
+def _run_tools(argv: list[str]) -> None:
+    from engine.agent.cli import list_tools_cli
+
+    raise SystemExit(list_tools_cli(argv))
+
+
+def _run_audit(argv: list[str]) -> None:
+    from engine.agent.cli import audit_cli
+
+    raise SystemExit(audit_cli(argv))
+
+
+def _run_autonomy(argv: list[str]) -> None:
+    from engine.agent.cli import autonomy_cli
+
+    raise SystemExit(autonomy_cli(argv))
+
+
+_SUBCOMMANDS.update(
+    {"agent": _run_agent, "tools": _run_tools, "audit": _run_audit, "autonomy": _run_autonomy}
 )
 
 

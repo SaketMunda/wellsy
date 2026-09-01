@@ -1,0 +1,156 @@
+# WELLSY tool policy sidecar — step 5 Deliverable 2.
+#
+# Keyed by `<server>.<tool_name>`. One entry per tool. Fields:
+#   capability        coarse action class the autonomy ledger tracks
+#   risk              0..3  (see the risk map below)
+#   reversible        true if the action can be undone without data loss
+#   requires_approval true if a Confirm is required until autonomy promotes it
+#   decision          optional hard override: "deny" is never executed at all
+#
+# Risk map (step 5):
+#   0  all reads
+#   1  create draft, create reminder, write to scratch
+#   2  send mail, create or move a calendar event
+#   3  delete anything, shell, write outside allowed roots
+#
+# A tool with NO entry here is risk 3 and fails closed (INVARIANTS #9). The
+# acceptance suite proves this against `pim.debug_echo`, which is deliberately
+# absent.
+
+pim.calendar_list_events:
+  capability: calendar.read
+  risk: 0
+  reversible: true
+  requires_approval: false
+
+pim.calendar_get_event:
+  capability: calendar.read
+  risk: 0
+  reversible: true
+  requires_approval: false
+
+pim.calendar_create_event:
+  capability: calendar.write
+  risk: 2
+  reversible: true
+  requires_approval: true
+
+pim.calendar_move_event:
+  capability: calendar.write
+  risk: 2
+  reversible: true
+  requires_approval: true
+
+pim.reminders_list:
+  capability: reminders.read
+  risk: 0
+  reversible: true
+  requires_approval: false
+
+pim.reminders_create:
+  capability: reminders.write
+  risk: 1
+  reversible: true
+  requires_approval: false
+
+pim.reminders_complete:
+  capability: reminders.write
+  risk: 1
+  reversible: true
+  requires_approval: false
+
+pim.mail_list_messages:
+  capability: mail.read
+  risk: 0
+  reversible: true
+  requires_approval: false
+
+pim.mail_get_message:
+  capability: mail.read
+  risk: 0
+  reversible: true
+  requires_approval: false
+
+pim.mail_list_sent:
+  capability: mail.read
+  risk: 0
+  reversible: true
+  requires_approval: false
+
+pim.mail_create_draft:
+  capability: mail.draft
+  risk: 1
+  reversible: true
+  requires_approval: false
+
+pim.mail_get_draft:
+  capability: mail.read
+  risk: 0
+  reversible: true
+  requires_approval: false
+
+pim.mail_send_draft:
+  capability: mail.send
+  risk: 2
+  reversible: false
+  requires_approval: true
+
+pim.notes_list:
+  capability: notes.read
+  risk: 0
+  reversible: true
+  requires_approval: false
+
+pim.notes_get:
+  capability: notes.read
+  risk: 0
+  reversible: true
+  requires_approval: false
+
+pim.notes_create:
+  capability: notes.write
+  risk: 1
+  reversible: true
+  requires_approval: false
+
+pim.contacts_search:
+  capability: contacts.read
+  risk: 0
+  reversible: true
+  requires_approval: false
+
+pim.contacts_get:
+  capability: contacts.read
+  risk: 0
+  reversible: true
+  requires_approval: false
+
+fs.fs_allowed_roots:
+  capability: fs.read
+  risk: 0
+  reversible: true
+  requires_approval: false
+
+fs.fs_list_dir:
+  capability: fs.read
+  risk: 0
+  reversible: true
+  requires_approval: false
+
+fs.fs_read_file:
+  capability: fs.read
+  risk: 0
+  reversible: true
+  requires_approval: false
+
+fs.fs_write_file:
+  capability: fs.write
+  risk: 1
+  reversible: false
+  requires_approval: false
+
+fs.fs_delete_file:
+  capability: fs.delete
+  risk: 3
+  reversible: false
+  requires_approval: true
