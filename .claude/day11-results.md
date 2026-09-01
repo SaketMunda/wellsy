@@ -283,5 +283,5 @@ includes 1.6-3.2s of real TTS generation that wasn't there before.
   one.
 - **`debug_window.py`, the mic-contention test, `bench.mjs` re-run** —
   carried again unchanged, per the brief's explicit "do not do today" list.
-- **The wake-word rename** ("yap"→"app") — still the project owner's call,
+- **The wake-word rename** — still the project owner's call,
   still open.

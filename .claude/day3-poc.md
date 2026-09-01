@@ -71,7 +71,7 @@ survival through a brief missed detection.
   Console errors: none
   ```
 - **Direct tracker-state inspection.** Temporarily added a console.log inside
-  the detect loop (gated behind a `window.__yapDebugTracks` flag, removed
+  the detect loop (gated behind a `window.__wellsyDebugTracks` flag, removed
   before finishing this session) dumping each frame's tracks
   (`id`, `label`, `ageMs`, `missedFrames`, `bbox`). Sampled ~30 ticks over a
   live run. Observed, verbatim:

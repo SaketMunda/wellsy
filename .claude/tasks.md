@@ -292,7 +292,7 @@ complaint: wrong labels, and no way to talk back.
       `enabled` state. decisions.md D25.
 - [x] **Subtitle track shows the user's transcript** — `SubtitleTrack.tsx`
       now renders a second, visually distinct row (dimmer, italic, `>`
-      prefix) above YAP's line for the last push-to-talk transcript.
+      prefix) above WELLSY's line for the last push-to-talk transcript.
 - [x] **Latency breakdown panel** — capture→inference→track→draw→ASR→LLM→TTS,
       kept from the old Day 6 scope per the reshuffle below.
       `useDetector.ts` now separately times `updateTracks` (`trackMs`). No
@@ -329,7 +329,7 @@ complaint: wrong labels, and no way to talk back.
 - [ ] The `BED / DINING TABLE ?` hedge rendering live, amber, with the real
       `LBL nn%` confidence readout in the data card
 - [ ] Hold `T`, ask "what do you see" — the transcript appears dim/italic
-      above YAP's spoken answer in the subtitle track, sound off
+      above WELLSY's spoken answer in the subtitle track, sound off
 - [ ] Say "stop" mid-narration-line and show it actually cuts off
 - [ ] The Voice input panel block: mic status, ASR state/latency, the
       on-device-only note
@@ -502,7 +502,7 @@ See day10-results.md for the full table and decisions.md D34/D36-D39.
 - [ ] **Wake-phrase acceptance bar** (10 min false-accept window, 20-
       utterance false-reject count) — not run to the full protocol, only a
       handful of live utterances tried
-- [ ] **Wake word rename** — "yap" reliably mis-transcribes as "app"
+- [ ] **Wake word rename** — the wake word reliably mis-transcribes as "app"
       (live-confirmed); replacement deferred to the owner's judgment
 - [ ] **Full wake/press → first-spoken-word latency** — breakdown logging
       shipped but not exercised in a clean run; do this first in Day 11
@@ -590,7 +590,7 @@ See decisions.md D41-D43 and day11-results.md for the full numbers.
       questions is the next iteration, not attempted this session
 - [ ] One real Ollama timeout (30s, mid-run) — same shape as D40's
       `keep_alive` latency-spike gap, still not root-caused
-- [ ] Wake-word rename ("yap"→"app") — still the project owner's call
+- [ ] Wake-word rename — still the project owner's call
 - [ ] `debug_window.py`, mic-contention test, `bench.mjs` re-run — carried
       again, per the brief's own "do not do today" list
 
@@ -621,7 +621,7 @@ See decisions.md D44 for the full numbers.
 See decisions.md D45.
 - [x] `engine/greeting.py` — `PersonGreeter`, wired into `main.py`, fires
       once when a `person` track transitions absent→present, opens the
-      conversation-follow-up window automatically (no "hey yap" needed to
+      conversation-follow-up window automatically (no "hey wellsy" needed to
       start talking)
 - [x] Real time-of-day greeting bank (morning/afternoon/evening/night),
       randomized, JARVIS-toned — not a single fixed catchphrase

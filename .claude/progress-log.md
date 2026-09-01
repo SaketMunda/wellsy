@@ -138,7 +138,7 @@ proving each styled line traces to a real detection event. The removal of the
 demo layer is also honest content — it shows the project keeping only what the
 current story needs.
 
-**Hook:** *"YAP had two jobs running at two speeds. The eyes kept up. The
+**Hook:** *"WELLSY had two jobs running at two speeds. The eyes kept up. The
 mouth was drowning."*
 
 ### Next
@@ -456,7 +456,7 @@ forward as Day 6's first thing to check, not a fresh unknown.
 
 ## Day 6 — 2026-08-11
 
-**Goal:** Two complaints from real use that are the same complaint — YAP
+**Goal:** Two complaints from real use that are the same complaint — WELLSY
 says confidently wrong things about what it sees, and it can only talk *at*
 you. Ship "I don't know" and "ask me something," not a performance pass.
 The day's own prompt reshuffled the *original* Day 6 (WebGPU, frame

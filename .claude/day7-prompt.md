@@ -1,6 +1,6 @@
 # Day 7 — "I built the wrong thing"
 
-You are picking up YAP on Day 7. Days 1–6 have shipped. Read
+You are picking up WELLSY on Day 7. Days 1–6 have shipped. Read
 `.claude/context.md`, `.claude/decisions.md` (D1–D27), `.claude/tasks.md`,
 `.claude/architecture.md`, and — this one matters more than usual —
 `.claude/v2-architecture-research.md` and `.claude/v2-roadmap.md`, which
@@ -37,7 +37,7 @@ would not have made it stop.
 
 - **Everything lives in this repo.** Every file you create — code, notes,
   measurement output, scratch scripts — goes inside
-  `/Users/saketmunda/Work/Startup/projects/yap-hud`. Not `/tmp`, not a
+  `/Users/saketmunda/Work/Startup/projects/wellsy`. Not `/tmp`, not a
   scratchpad, not a home directory. No exceptions.
 - **No cloud, still (D10).** Nothing today calls out to a network service.
   The private server discussed in the research doc is Day 14 and is hardware

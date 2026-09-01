@@ -25,7 +25,7 @@
 The narration. Making an AI describe a scene takes ten minutes. Making it
 describe a scene *without being unbearable* is the actual work — every frame
 it'd say something, and low-confidence boxes flicker so it stutters. Solved with
-a stability gate: an object must hold steady for ~a second before YAP mentions it.
+a stability gate: an object must hold steady for ~a second before WELLSY mentions it.
 
 **The bug worth telling:**
 All my labels rendered backwards. I'd mirrored the video for a natural selfie
@@ -33,7 +33,7 @@ view, then mirrored the overlay to match — which mirrored the text too. Fix:
 mirror the *coordinates*, not the canvas.
 
 **Posts:**
-- **X:** "Day 1 of building YAP. My browser now sees. 12ms per frame, 60fps, no
+- **X:** "Day 1 of building WELLSY. My browser now sees. 12ms per frame, 60fps, no
   server, no API key. Every box is a real prediction on a real frame. 🧵"
 - **LinkedIn:** Lead with the privacy/latency angle — on-device inference is the
   interesting engineering claim, not "I used an AI model".
@@ -74,7 +74,7 @@ own 250ms sampler with a 900ms stability gate and a 4-second rate limit,
 completely decoupled from the detect loop.
 
 **Posts:**
-- **X:** "Day 2 of building YAP. It had two jobs running at two speeds — eyes
+- **X:** "Day 2 of building WELLSY. It had two jobs running at two speeds — eyes
   at 60fps, mouth trying to keep up. Fixed by teaching it to talk about
   *events*, not frames, and giving it its own clock. One line, every 4
   seconds, on purpose. 🧵"
@@ -120,7 +120,7 @@ unreachable — the fix for one problem quietly retired part of another system,
 which is the kind of thing worth stating in tradeoffs, not hiding.
 
 **Posts:**
-- **X:** "Day 3 of building YAP. Yesterday every video frame was independent —
+- **X:** "Day 3 of building WELLSY. Yesterday every video frame was independent —
   no memory. Today objects get an ID number and an age. Walk past the camera
   twice, it's still #3. 🧵"
 - **LinkedIn:** Frame it as the detection-vs-tracking distinction generally —
@@ -133,7 +133,7 @@ which is the kind of thing worth stating in tradeoffs, not hiding.
 
 ## Day 4 — "A better voice, still no cloud bill"
 
-**Concept:** Two upgrades — a local LLM for what YAP says, a local neural
+**Concept:** Two upgrades — a local LLM for what WELLSY says, a local neural
 voice for how it says it — both running entirely on-device, same promise as
 Day 1.
 
@@ -175,7 +175,7 @@ is arguably the most interesting result of the day, and it is going in the
 video, not around it.
 
 **Posts:**
-- **X:** "Day 4 of building YAP. Gave it a real brain and a real voice —
+- **X:** "Day 4 of building WELLSY. Gave it a real brain and a real voice —
   both running on-device, zero cloud calls. Watched the network tab do
   nothing while it kept talking. Also found a real bug in the new voice
   and shipped the video with the bug still in it. 🧵"
@@ -229,7 +229,7 @@ project knows neither — so instead of guessing a distance in metres, the
 HUD shows the box's honest size as a percentage of the frame.
 
 **Posts:**
-- **X:** "Day 5 of building YAP. Didn't touch the model. Added a reticle
+- **X:** "Day 5 of building WELLSY. Didn't touch the model. Added a reticle
   that locks on, a target that fades out instead of vanishing, a real
   confidence ring. Same 80-class detector as day one — just drawn like it
   knows what it's doing. 🧵"
@@ -265,7 +265,7 @@ learns to say "I'm not sure," to be corrected, and to be asked a question.
   flip-flopped now keeps one id, and if the model genuinely can't decide,
   the label reads `BED / DINING TABLE ?` instead of confidently picking one
 - Holding a key and asking "what do you see" gets a real spoken answer,
-  subtitled, with your own question shown dim and separate from YAP's reply
+  subtitled, with your own question shown dim and separate from WELLSY's reply
 - Saying "stop" actually stops it, immediately, mid-sentence
 - The telemetry panel now shows a full latency breakdown — inference,
   tracking, drawing, speech recognition, the line-writing model, the voice
@@ -290,7 +290,7 @@ engineering cost (recording, resampling, a second permission prompt) that
 the free option would have skipped entirely.
 
 **Posts:**
-- **X:** "Day 6 of building YAP. It used to confidently call my bed a dining
+- **X:** "Day 6 of building WELLSY. It used to confidently call my bed a dining
   table. Now it says 'bed, or maybe dining table — hard to say' and it's
   right that it doesn't know. Also: you can talk to it now. Hold a key, ask
   what it sees, it answers. Still zero cloud calls, even for your voice. 🧵"
@@ -456,11 +456,11 @@ running.
   `parseIntent` is a fixed regex list; off-script phrasing ("could you tell
   me what's around") gets an honest "I didn't understand that," never a
   guess. Zero LLM in this path.
-- ❌ Day 10: **ambient narration is now off by default.** YAP stays silent
+- ❌ Day 10: **ambient narration is now off by default.** WELLSY stays silent
   until asked, a rule fires, or ambient mode is explicitly turned on by
   voice ("wake"). Don't imply it narrates continuously anymore — that was
   Days 1–6's behavior, now an opt-in mode.
-- ❌ Day 10: **"yap" as a wake word has a known, live-confirmed problem** —
+- ❌ Day 10: **the wake word has a known, live-confirmed problem** —
   it's regularly mis-transcribed as "app." Say so if demoing it; a
   replacement phrase is planned but not yet chosen.
 - ❌ "It understands scenes" — it detects **objects**. It doesn't know "kitchen"
@@ -510,7 +510,7 @@ running.
   room, it does not" line — a better vocabulary is still not comprehension.
 - ❌ "It has a wake word" — not shipped. Push-to-talk only, as of Day 6. If
   a wake word ships later, describe it accurately when it does:
-  transcribe-then-match against "yap"/"hey yap", not a trained,
+  transcribe-then-match against "wellsy"/"hey wellsy", not a trained,
   low-power keyword-spotting model — it would cost real CPU continuously
   and misfire, nothing like Siri/Alexa's always-on listener.
 - ❌ "It fixed the wrong-label problem" — it fixed *half* of it. The
@@ -523,7 +523,7 @@ running.
   (`v2-roadmap.md`, Depth Anything V2). Until then the Day 5 rule stands:
   size-as-percent-of-frame, never a fabricated distance (D17).
 - ❌ "It recognises faces" / "it knows who you are" — not built yet. Planned
-  Day 12. Until then YAP has no memory of people across sessions and no
+  Day 12. Until then WELLSY has no memory of people across sessions and no
   concept of "known" vs "unknown."
 - ✅ "It has open-vocabulary detection" — shipped Day 8, in `engine/` — but
   not via MLX as originally planned. No PyPI package implements an

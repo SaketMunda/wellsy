@@ -10,11 +10,11 @@ server) or explicitly marked as not yet verified. Full technical record:
 
 ## The one-line pitch
 
-**For ten days YAP guessed at what it saw from a list of object labels. Today it actually looked — a real vision-language model reads the frame itself, catches its own two biggest documented lies from Day 10, and reads real text (receipts, stack traces, product labels) nothing in this build could read before.**
+**For ten days WELLSY guessed at what it saw from a list of object labels. Today it actually looked — a real vision-language model reads the frame itself, catches its own two biggest documented lies from Day 10, and reads real text (receipts, stack traces, product labels) nothing in this build could read before.**
 
 ## The 30-second version, if that's all there's room for
 
-Up to Day 10, YAP's brain never saw a pixel — it got a word list
+Up to Day 10, WELLSY's brain never saw a pixel — it got a word list
 (`person, glasses, blanket`) and a language model guessed a sentence from
 those words alone. That guessing produced two real, embarrassing lies:
 "you're standing next to the chair" (the person was sitting) and "you're

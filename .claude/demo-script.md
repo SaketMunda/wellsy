@@ -1,7 +1,7 @@
 # Demo Script
 
 ## The one-liner
-> YAP turns any webcam into a heads-up display that sees what's in front of it
+> WELLSY turns any webcam into a heads-up display that sees what's in front of it
 > and tells you what it sees — in real time, entirely on your own device.
 
 ---
@@ -53,7 +53,7 @@ Point at the panel.
 ## Day 2 demo flow (60–90 seconds) — "The mouth was drowning"
 
 ### 0:00 — Cold open, state the problem
-> "Yesterday YAP could see. It just couldn't stop talking about it."
+> "Yesterday WELLSY could see. It just couldn't stop talking about it."
 
 Start the camera, turn narration on, point at the telemetry panel.
 
@@ -109,7 +109,7 @@ narrated verbally ("this used to fire every frame") without staging it.
 ## Day 3 demo flow (60–90 seconds) — "It stops shaking"
 
 ### 0:00 — Cold open, name the gap
-> "Yesterday YAP saw. Every frame was a fresh guess with no memory — which is
+> "Yesterday WELLSY saw. Every frame was a fresh guess with no memory — which is
 > why the boxes shook."
 
 Start the camera. Hold a hand or object still and let a viewer see the
@@ -137,7 +137,7 @@ second person if possible).
 
 ### 1:05 — Honest close
 > "No prediction, no memory of something that fully leaves and comes back
-> later — that's a new object as far as YAP's concerned. Simple tracker, on
+> later — that's a new object as far as WELLSY's concerned. Simple tracker, on
 > purpose. What it buys: the boxes stopped shaking, and the narration finally
 > knows who it's talking about."
 
@@ -319,8 +319,8 @@ Release the key. Let the answer come back — spoken, and subtitled.
 
 > "That's a real local speech-to-text model, transcribing what I just said,
 > entirely on this machine. Watch the subtitle track—" *(point at the
-> dim, right-aligned line above YAP's answer)* "—that's my question. That's
-> YAP's answer. Both real, both on screen, sound off."
+> dim, right-aligned line above WELLSY's answer)* "—that's my question. That's
+> WELLSY's answer. Both real, both on screen, sound off."
 
 ### 1:20 — "Stop" actually stops it
 Ask a question that triggers a longer answer, then say "stop" mid-sentence.
@@ -382,7 +382,7 @@ exactly what was and wasn't verified.
 
 ### Why this demo leans on the network tab, not the speakers
 Every verification session for this project, across all four days, has run
-headless with no audio output — nobody has yet confirmed YAP is *audible*,
+headless with no audio output — nobody has yet confirmed WELLSY is *audible*,
 only that the code correctly drives `speechSynthesis`/Kokoro and produces the
 right log entries. Say this on camera rather than implying it's been heard:
 "I haven't personally listened to this talk yet — here's what I can show

@@ -7,10 +7,10 @@
 # see decisions.md D39 for why, and for openWakeWord's real cost as the
 # upgrade path.
 #
-# TODO(step4): the difflib fuzzy-match threshold was 0.72, tuned for "yap"
-# (which the ASR heard as "app"). "wellsy" has a soft /w/ onset and a medial
-# /s/ that survives a quiet mic — the threshold will need retuning against the
-# streaming ASR in step 4. Do not guess a new value here.
+# TODO(step4): the difflib fuzzy-match threshold was 0.72, tuned for the old
+# single-syllable wake word (which the ASR heard as "app"). "wellsy" has a soft
+# /w/ onset and a medial /s/ that survives a quiet mic — the threshold will need
+# retuning against the streaming ASR in step 4. Do not guess a new value here.
 #
 # Bare "yo" was historically listed behind --enable-yo (decisions.md D39: a
 # ~150ms syllable inside "you"/"your"/"yeah" can't be made both sensitive and

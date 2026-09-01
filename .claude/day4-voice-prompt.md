@@ -1,6 +1,6 @@
 # Day 4 — "Giving it a real voice" (local LLM + local TTS)
 
-You're working in the YAP repo (`yap-hud`) — a build-in-public live vision
+You're working in the WELLSY repo (`wellsy`) — a build-in-public live vision
 overlay: camera → COCO-SSD detection → HUD overlay → spoken narration, all
 running in-browser, no backend, no API keys. The `.claude/` directory is the
 project's build-in-public workspace. **Read the relevant files before editing

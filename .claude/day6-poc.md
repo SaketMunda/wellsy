@@ -49,7 +49,7 @@ page that already loads three.
    ambient queue and resets the rate-limit clock; `stop` cuts speech
    immediately and works even if narration (`enabled`) is off.
 7. **`SubtitleTrack.tsx`** — the user's own transcript renders as a second,
-   visually distinct row (dim, italic, `>` prefix) above YAP's line.
+   visually distinct row (dim, italic, `>` prefix) above WELLSY's line.
 8. **Latency breakdown panel** — inference/track/draw/ASR/LLM/TTS, each a
    real measured number. `useDetector.ts` now separately times
    `updateTracks` as `trackMs`. No fabricated capture number.

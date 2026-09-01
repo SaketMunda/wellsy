@@ -1,6 +1,6 @@
 # Day 6 — "It stops guessing, and it answers back"
 
-You are picking up YAP on Day 6. Days 1–5 have shipped. Read `.claude/context.md`,
+You are picking up WELLSY on Day 6. Days 1–5 have shipped. Read `.claude/context.md`,
 `.claude/decisions.md` (D1–D19), `.claude/tasks.md`, and `.claude/architecture.md`
 before you touch code. This document is the brief for today only.
 
@@ -10,9 +10,9 @@ before you touch code. This document is the brief for today only.
 
 Two complaints from real use, and they are the same complaint:
 
-1. **YAP says the wrong thing about what it sees.** A bed is reported as a
+1. **WELLSY says the wrong thing about what it sees.** A bed is reported as a
    `dining table`. A microphone is reported as a `tie`, or a `bottle`.
-2. **YAP can only talk *at* you.** There is no way to ask it anything. No
+2. **WELLSY can only talk *at* you.** There is no way to ask it anything. No
    "what are you looking at", no "stop", no "wake up".
 
 Both are the system asserting rather than communicating. Today it learns to
@@ -207,14 +207,14 @@ Every arrow in that chain is testable in isolation. Keep it that way.
   it costs nothing when idle, and it can't be triggered by the TV.
 - **Wake word is the stretch, and must be described honestly.** The
   achievable version is: voice-activity detection segments an utterance →
-  Whisper transcribes it → the text is matched against `"yap"` / `"hey yap"`.
+  Whisper transcribes it → the text is matched against `"wellsy"` / `"hey wellsy"`.
   That is **not** a trained wake-word model; it's transcribe-then-match, so
   it costs real CPU continuously and will misfire. Say exactly that in the
   notes rather than implying a Siri-grade always-on keyword spotter.
 - **Mic permission is a second `getUserMedia` prompt.** Handle denial the
   same way `useCamera` handles camera denial — a stated reason, not a crash.
   Everything else must keep working with the mic refused.
-- **Self-hearing.** YAP's own TTS will be picked up by the mic if you're not
+- **Self-hearing.** WELLSY's own TTS will be picked up by the mic if you're not
   careful, and it will happily answer itself. Gate listening while
   `speechSynthesis`/Kokoro is speaking — except push-to-talk, which must
   still work mid-sentence so `"stop"` can interrupt.
@@ -229,7 +229,7 @@ At minimum:
 
 | Intent | Said as | Does |
 |---|---|---|
-| `wake` | "wake up", "hey yap" | narration on |
+| `wake` | "wake up", "hey wellsy" | narration on |
 | `sleep` | "go to sleep", "be quiet", "shut up" | narration off |
 | `stop` | "stop" | `stopSpeaking()` immediately, clear the queue |
 | `describe_scene` | "what do you see", "what's in front of you" | grounded answer |
@@ -261,7 +261,7 @@ prefetch model.
 ### Wiring into the existing narrator
 
 An answer must **preempt** the narration queue and reset the rate-limit clock
-(`lastSpokeAtRef`), or YAP will answer you and then immediately talk over its
+(`lastSpokeAtRef`), or WELLSY will answer you and then immediately talk over its
 own answer with a queued observation. Route both through one speak path.
 
 ### Showing it
@@ -269,7 +269,7 @@ own answer with a queued observation. Route both through one speak path.
 The subtitle track from Day 5 already exists and is the only place most
 viewers will see any of this — **no audio has been confirmed audible on any
 machine across five days (D13)**. Show the **user's transcript** there too,
-visually distinct from YAP's line (a `>` prefix, dimmer, right-aligned —
+visually distinct from WELLSY's line (a `>` prefix, dimmer, right-aligned —
 your call, but obviously different). A silent screen recording must read as a
 conversation. Add ASR state + last transcription latency to the panel.
 

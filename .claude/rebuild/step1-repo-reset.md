@@ -5,7 +5,7 @@
 
 ## Context you need (this session has no memory of the master session)
 
-This project was called **YAP**. It is now **WELLSY**. It is a local, private,
+This project was called **WELLSY**. It is now **WELLSY**. It is a local, private,
 agentic assistant — not a camera demo. The previous build reached Day 11 and
 failed on fluency: three fully-buffered stages in series (batch STT → non-
 streaming LLM → whole-clip TTS), so latencies added instead of overlapping.
@@ -71,20 +71,20 @@ spec/               phase1-acceptance.md  (exists)
   `moonshine-onnx`, `perth`, and the `torch==2.6.0` pin it forced.** Let torch
   float to current; re-run the detector benchmark after (see acceptance).
 
-## Rename YAP → WELLSY
+## Rename the old name → WELLSY
 
 238 occurrences across ~38 files. Mechanical, but do it attentively:
 
 - Code identifiers, module paths, package name.
-- `~/.cache/yap-engine/weights` → `~/.cache/wellsy/weights`. **Move the existing
+- `~/.cache/wellsy/weights` → `~/.cache/wellsy/weights`. **Move the existing
   weights rather than re-downloading** (~570 MB of MobileCLIP-BLT + YOLOE).
-- `engine/wake_phrases.txt`: replace `hey yap` / `yappy` / `hey yo` with
-  `wellsy` / `hey wellsy`. The old wake word failed because "yap" transcribes as
+- `engine/wake_phrases.txt`: replace `hey wellsy` / `wellsy` / `hey yo` with
+  `wellsy` / `hey wellsy`. The old wake word failed because it transcribed as
   "app". "Wellsy" has a soft `/w/` onset, so the difflib fuzzy-match threshold
   (was `0.72`) **will need retuning in step 4** — leave a `TODO(step4)` marking
   it rather than guessing a new value now.
 - `.claude/` documents: rename references but **do not rewrite history**. Day
-  1–11 documents describe what was built as YAP and should keep saying so; add a
+  1–11 documents describe what was built as WELLSY and should keep saying so; add a
   one-line header noting the rename where it matters.
 
 ## Acceptance
@@ -100,7 +100,7 @@ This step passes only when all of the following hold:
    `spec/phase1-acceptance.md` §1 budget (20 ms p50 / 35 ms p95) fails this step.
    Report the torch version the number was taken on.
 4. All ported tests green. Report the count; do not silently drop tests.
-5. `grep -ri "yap" --exclude-dir=.git .` returns only intentional historical
+5. `grep -ri "wellsy" --exclude-dir=.git .` returns only intentional historical
    references in `.claude/` day documents. Zero in code.
 6. `git status` clean, one commit, message describing the reset honestly.
 

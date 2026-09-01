@@ -137,7 +137,7 @@ offline" claim for real — not just typecheck it.
   environment is headless with no speaker — even `speechSynthesis`, which
   the code correctly drives and which reported 191 available voices in this
   Chrome build, cannot be confirmed *audible* from here. Days 1–3 flagged
-  the same gap and it is still open: nobody has listened to YAP talk. This
+  the same gap and it is still open: nobody has listened to WELLSY talk. This
   needs a real browser, on real hardware, with real output, before "it
   sounds good" (or even "it makes a sound") can be claimed on camera.
 - **Mobile.** No phone was reachable this session. The model-choice

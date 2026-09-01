@@ -1,6 +1,6 @@
 # Day 8 — "It stops being wrong"
 
-You are picking up YAP on Day 8. Days 1–7 have shipped. Read
+You are picking up WELLSY on Day 8. Days 1–7 have shipped. Read
 `.claude/context.md`, `.claude/decisions.md` (D1–D29 — **D28 and D29 are
 today's foundation**), `.claude/v2-architecture-research.md` (§1d, §2a, §4,
 §7), `.claude/v2-roadmap.md`, and `.claude/day7-baseline.md` before you touch
@@ -35,7 +35,7 @@ the language was the fix, and it wasn't.
 ## Boundaries
 
 - **Everything lives in this repo.** Code, weights config, notes, measurement
-  output — all inside `/Users/saketmunda/Work/Startup/projects/yap-hud`.
+  output — all inside `/Users/saketmunda/Work/Startup/projects/wellsy`.
   Not `/tmp`, not a scratchpad. Model weights that must be cached outside the
   repo (HuggingFace cache) are the one exception; record where they land in
   `engine/README.md` so Day 15's packaging knows.

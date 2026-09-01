@@ -323,13 +323,13 @@ The perception numbers are good and none of the latency complaints point at them
 
 ---
 
-## 9. Rename: YAP → WELLSY
+## 9. Rename: the old name → WELLSY
 
 238 occurrences across ~38 files. The majority are `.claude/` documentation.
 In shipped code: 4 engine files, `wake_phrases.txt`, `package.json`,
-`index.html`, and `WEIGHTS_DIR` (`~/.cache/yap-engine`).
+`index.html`, and `WEIGHTS_DIR` (`~/.cache/wellsy`).
 
-Phonetically an improvement: "yap" collided with "app" in a single-syllable,
+Phonetically an improvement: the old name collided with "app" in a single-syllable,
 plosive-final way the ASR repeatedly mis-heard. "Wellsy" is two syllables with a
 medial `/s/` that survives a quiet microphone and has no common English
 near-neighbour. The soft `/w/` onset will want the fuzzy-match threshold retuned.

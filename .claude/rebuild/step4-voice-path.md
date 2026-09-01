@@ -83,7 +83,7 @@ device** — not at TTS invocation, not at generation completion. p50 and p95 ov
 
 ## Deliverable 5 — wake phrase retuning
 
-The name changed from YAP to WELLSY because "yap" transcribed as "app" and
+The name was changed to WELLSY because the previous single-syllable wake word transcribed as "app" and
 repeatedly mis-triggered. "Wellsy" has a soft `/w/` onset and a medial `/s/`.
 Step 1 left a `TODO(step4)` on the difflib fuzzy-match threshold (was `0.72`).
 

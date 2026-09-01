@@ -1,4 +1,4 @@
-You're working in the YAP repo (`yap-hud`) — a 7-day build-in-public live vision
+You're working in the WELLSY repo (`wellsy`) — a 7-day build-in-public live vision
 overlay (camera → COCO-SSD detection → HUD overlay → spoken narration, all
 browser-only). The `.claude/` directory is the project's build-in-public
 workspace: context.md, research.md, architecture.md, plan.md, tasks.md,
@@ -82,7 +82,7 @@ The new Day 2 gets its own content — see step 2.
 
 The plan owner is recording a Day 2 episode around this script:
 
-> "YAP had two jobs running at two speeds. Detection — the eyes — runs in the
+> "WELLSY had two jobs running at two speeds. Detection — the eyes — runs in the
 > browser at 60 frames a second. Eleven milliseconds per frame. That part was
 > never the problem."
 >
