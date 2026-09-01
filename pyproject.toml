@@ -17,9 +17,9 @@ dependencies = [
     "pyobjc-framework-ScreenCaptureKit>=10.0 ; sys_platform == 'darwin'",
     "pyobjc-framework-AVFoundation>=10.0 ; sys_platform == 'darwin'",
     # step 2 — portable inference seam
-    "onnxruntime>=1.29",  # portable runtime for the small models (ASR/TTS/VAD)
-    "httpx>=0.28",        # streaming OpenAI-compatible HTTP client (LLM/VLM backend)
-    "psutil>=7.0",        # resident-memory readout for `wellsy bench`
+    "onnxruntime>=1.29", # portable runtime for the small models (ASR/TTS/VAD)
+    "httpx>=0.28", # streaming OpenAI-compatible HTTP client (LLM/VLM backend)
+    "psutil>=7.0", # resident-memory readout for `wellsy bench`
     # step 4 — streaming voice path. Pipecat is the streaming frame pipeline,
     # turn detection (Smart Turn v3, ONNX, bundled) and barge-in; extras:
     #   local   -> pyaudio (LocalAudioTransport, portable PortAudio)
@@ -28,6 +28,23 @@ dependencies = [
     # Silero VAD and Smart Turn v3 models ship inside the pipecat wheel, so no
     # network fetch and no platform package (INVARIANTS #14).
     "pipecat-ai[local,whisper,kokoro]==1.8.1",
+    # step 5 — agent runtime. Verified 2026-09-01 (INVARIANTS #8):
+    #   langgraph 1.2.11 (2026-08-11) — interrupt() IS the approval gate (D53);
+    #     durable checkpointing at every node is what makes A11 achievable.
+    #   langchain-mcp-adapters 0.3.2 (2026-08-06) pins `mcp<2.0.0` — so the
+    #     LangGraph-compatible MCP stack is the 1.x line, NOT the 2026-07-28
+    #     rewrite (mcp 2.x). Adopting SDK v2 now would break this adapter.
+    #   mcp 1.29.1 resolved — protocol revision 2025-06-18; FastMCP server used
+    #     for engine/agent/servers/* (our own PIM + scoped-FS servers — the
+    #     community macOS Apple-app servers are 2-commit repos with no releases,
+    #     no Mail tools and no safety flags, so none clears #8; see step5-results).
+    #   langchain-openai 1.6.0 — ChatOpenAI against the same local OpenAI-compat
+    #     endpoint the voice path uses (Ollama here; vLLM/SGLang on Linux/CUDA).
+    "langgraph>=1.2.11,<2",
+    "langchain-mcp-adapters>=0.3.2,<0.4",
+    "mcp>=1.24,<2",
+    "langchain-openai>=1.6,<2",
+    "pyyaml>=6",
 ]
 
 [project.optional-dependencies]

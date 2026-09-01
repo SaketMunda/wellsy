@@ -123,6 +123,36 @@ models and `engine/inference` load on 1.29, verified in step 4.
 
 ---
 
+## Agent runtime — adopted step 5
+
+| Component | Version | Verified | Licence | Portable path | Role |
+|---|---|---|---|---|---|
+| LangGraph | 1.2.11 | 2026-09-01 | MIT | pure Python | agent state machine; `interrupt()` == the approval gate (D53) |
+| langchain-mcp-adapters | 0.3.2 | 2026-09-01 | MIT | pure Python | MCP tools → LangChain tools. **Core-pins `mcp<2.0.0`** |
+| mcp (Python SDK) | 1.29.1 | 2026-09-01 | MIT | pure Python, stdio | protocol rev **2025-06-18**. NOT the 2026-07-28 rewrite (mcp 2.x) — the adapter doesn't support it yet |
+| langchain-openai | 1.6.0 | 2026-09-01 | MIT | HTTP `/v1/chat/completions` | `ChatOpenAI` for the two model roles |
+
+MCP servers are **ours** (`engine/agent/servers/pim.py`, `fs.py`, FastMCP/stdio)
+— the community macOS Apple-app servers failed INVARIANTS #8 (2-commit repos,
+Node/bun runtime, no Mail, no safety flags). PIM backend is platform-neutral
+(`WELLSY_PIM_BACKEND`: `portable` default JSON store, `macos` `osascript`).
+
+### Two model roles (Deliverable 2b)
+
+| Role | Model (default) | Served as | Resident (`ollama ps`, ctx 4096) | Measured, 1 streamed turn (warm) |
+|---|---|---|---|---|
+| fast | `qwen2.5:3b` (**interim**) | Ollama | 2.2 GB | TTFT **0.19 s**, 88.7 tok/s, full plan JSON 0.89 s |
+| planner | `qwen3:4b` | Ollama | 3.2 GB | TTFT **33.2 s**, 64.7 tok/s — reasoning tax, **unshippable**, debt |
+| VLM | `qwen3-vl:4b` | Ollama | 3.6 GB | (step-4b VLM debt unchanged; `qwen2.5vl:3b` pulled as the non-reasoning route) |
+
+All three co-resident = **9.0 GB**. Agent-runtime python tree (models excluded):
+**204.7 MB** (runner 84.8 + pim server 60.5 + fs server 59.5). Full method and
+the Jetson Orin NX 16 GB analysis: `.claude/rebuild/step5-results.md` §7.
+`qwen2.5:3b` fast default is carried from step 4b; the current-model bench-off
+was deferred by the owner this session and is owed (INVARIANTS #8).
+
+---
+
 ## Linux / CUDA path — **UNEXECUTED**
 
 No Linux box was available for step 2. The code path exists and is chosen by
