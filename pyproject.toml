@@ -9,7 +9,16 @@ dependencies = [
     "supervision>=0.30.0",
     "ultralytics>=8.4.120",
     "clip",
+    # step 2 — portable inference seam
+    "onnxruntime>=1.29",  # portable runtime for the small models (ASR/TTS/VAD)
+    "httpx>=0.28",        # streaming OpenAI-compatible HTTP client (LLM/VLM backend)
+    "psutil>=7.0",        # resident-memory readout for `wellsy bench`
 ]
+
+[project.optional-dependencies]
+# macOS-only, opt-in, NEVER in the default install and NEVER imported at module
+# scope (INVARIANTS #14). Reached only via WELLSY_LLM_BACKEND=mlx / explicit config.
+inference-mlx = ["mlx-lm>=0.28"]
 
 [project.scripts]
 wellsy = "engine.cli:main"
@@ -22,6 +31,7 @@ clip = { git = "https://github.com/ultralytics/CLIP.git" }
 [dependency-groups]
 dev = [
     "pytest>=8.3",
+    "soundfile>=0.12",  # test/bench audio I/O for the ASR/TTS conformance fixtures
 ]
 
 # The installable/distribution name is `wellsy` and the console command is
