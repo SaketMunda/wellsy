@@ -95,6 +95,17 @@ Speak the script below. Leave ~2 s between turns. When done, Ctrl+C — a summar
 prints and `spec/results/voice-acoustic-<date>.json` is written with every raw
 turn.
 
+**Protocol notes:**
+- Run **without `--awake`** so the wake phrase is in the path (the §1 row is
+  "wake word → first audible word"). Say each item as **one breath** —
+  `"hey wellsy, what can you do"` — so onset is stamped at the wake word and it
+  is one speech segment, not two turns. Adding `--awake` skips the wake phrase
+  *and* fires a startup greeting; if you use it, discard that first greeting
+  turn.
+- The observer resets its open turn on every `UserStartedSpeakingFrame`; a pause
+  mid-utterance splits it into two turns (the first with no audio). Keep each
+  utterance continuous.
+
 **Method the rig uses (stated in the output):** all marks are on the Pipecat
 pipeline clock. "First word" = the first `TTSAudioRawFrame` handed to
 `transport.output()` for the device write (sub-audio-buffer, ~10–20 ms, ahead of
