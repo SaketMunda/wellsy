@@ -13,6 +13,8 @@ Usage:
     wellsy --seconds 60          # real camera, stops after 60s
     wellsy --synthetic           # no camera — generated moving frame
     wellsy --no-detect           # T0 only — isolates motion-gate cost
+    wellsy doctor                # check camera / mic / screen permission for this process tree
+    wellsy screen                # one-shot screen capture + degenerate-capture verification
 """
 
 from __future__ import annotations
@@ -210,7 +212,46 @@ def run_camera(
             proc.terminate()
 
 
+def _run_doctor(argv: list[str]) -> None:
+    from engine.capture import doctor
+
+    ap = argparse.ArgumentParser(prog="wellsy doctor")
+    ap.add_argument("--request", action="store_true", help="also fire the one-time OS permission prompts")
+    args = ap.parse_args(argv)
+    raise SystemExit(doctor.run(request=args.request))
+
+
+def _run_screen(argv: list[str]) -> None:
+    from engine.capture import CaptureError, capture_screen
+
+    ap = argparse.ArgumentParser(prog="wellsy screen")
+    ap.add_argument("--save", metavar="DIR", default=None, help="write each verified display PNG to DIR")
+    args = ap.parse_args(argv)
+    try:
+        result = capture_screen()
+    except CaptureError as e:
+        print(f"REFUSED: {e.reason}", file=sys.stderr)
+        if e.remedy:
+            print(e.remedy, file=sys.stderr)
+        print(f"spoken:  {e.spoken}", file=sys.stderr)
+        raise SystemExit(2)
+    print(json.dumps({"verified": result.verified, **result.provenance(),
+                      "displays": [f.label for f in result.frames]}, indent=2))
+    if args.save:
+        import cv2
+
+        Path(args.save).mkdir(parents=True, exist_ok=True)
+        for f in result.frames:
+            out = Path(args.save) / f"display_{f.index}.png"
+            cv2.imwrite(str(out), f.image)
+            print(f"wrote {out}", file=sys.stderr)
+
+
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] == "doctor":
+        return _run_doctor(sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] == "screen":
+        return _run_screen(sys.argv[2:])
     parser = argparse.ArgumentParser(prog="wellsy", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--seconds", type=float, default=None, help="stop after N seconds (default: run until Ctrl+C)")
     parser.add_argument("--camera-index", type=int, default=0)

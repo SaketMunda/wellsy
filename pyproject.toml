@@ -9,6 +9,13 @@ dependencies = [
     "supervision>=0.30.0",
     "ultralytics>=8.4.120",
     "clip",
+    # capture layer (step 3) — mss is the portable fallback; the pyobjc
+    # frameworks back the macOS ScreenCaptureKit path and are darwin-only.
+    "mss>=10.0",
+    "pyobjc-framework-Quartz>=10.0 ; sys_platform == 'darwin'",
+    "pyobjc-framework-Cocoa>=10.0 ; sys_platform == 'darwin'",
+    "pyobjc-framework-ScreenCaptureKit>=10.0 ; sys_platform == 'darwin'",
+    "pyobjc-framework-AVFoundation>=10.0 ; sys_platform == 'darwin'",
 ]
 
 [project.scripts]
