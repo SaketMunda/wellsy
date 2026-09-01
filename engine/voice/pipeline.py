@@ -7,8 +7,9 @@
                             describe_scene / query_object -> capture + verify a
                             frame, attach to context, run the VLM)
       -> user_aggregator
-      -> LLM/VLM           (streaming; text qwen3:4b by default, image turns need
-                            a VL model — set WELLSY_LLM_MODEL=qwen3-vl:4b)
+      -> LLM/VLM           (streaming; qwen2.5:3b by default — non-reasoning;
+                            image turns need a non-reasoning VL model, e.g.
+                            WELLSY_LLM_MODEL=qwen2.5vl:3b)
       -> ProvenanceLogger  (vision turns: one provenance line per answer with the
                             step-3 capture provenance folded in; drops the image)
       -> SeamTTS           (sentence-chunked; first audio before the LLM finishes)
@@ -32,10 +33,11 @@ from engine.voice.intent_gate import build_intent_gate, build_provenance_logger
 from engine.voice.vision import VisionPending
 from engine.voice.wake import WakeState, build_wake_gate
 
-# `/no_think` keeps qwen3 from spending seconds on reasoning tokens before the
-# first answer token — the voice path cannot afford it (see model-inventory.md).
+# Default LLM is qwen2.5:3b (non-reasoning — step 4b). qwen3 overrides get
+# `think:false` via extra_body in adapters.build_llm(); that build ignores it
+# today, but this prompt stays model-agnostic.
 SYSTEM_PROMPT = (
-    "/no_think You are WELLSY, a local voice assistant. You are speaking aloud, so "
+    "You are WELLSY, a local voice assistant. You are speaking aloud, so "
     "answer in one or two short spoken sentences. No lists, no markdown, no emoji. "
     "If you do not know, say so plainly."
 )
