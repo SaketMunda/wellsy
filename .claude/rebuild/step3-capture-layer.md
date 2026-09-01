@@ -43,7 +43,7 @@ and the real defect shipped underneath the fix. Do not repeat the mistake:
 ## Deliverable 1 — portable capture interface
 
 ```
-wellsy/capture/
+engine/capture/
   base.py         # CaptureSource protocol, CaptureResult, CaptureError
   camera.py       # portable (OpenCV) — largely a port from step 1
   screen/

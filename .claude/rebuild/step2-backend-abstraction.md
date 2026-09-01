@@ -25,7 +25,7 @@ Four small interfaces. Keep them genuinely small; this is a seam, not a
 framework.
 
 ```
-wellsy/inference/
+engine/inference/
   base.py        # the four protocols + BackendCapabilities
   registry.py    # runtime capability detection and selection
   backends/
@@ -70,7 +70,7 @@ allowed to become load-bearing.
 
 ## Deliverable 3 — the automated portability check
 
-A test that **fails the build** if any module under `wellsy/` outside
+A test that **fails the build** if any module under `engine/` outside
 `inference/backends/` imports a platform-exclusive package. Banned list is in
 INVARIANTS.md #14. Implement by AST-walking the source tree, not by grep, and
 not by trusting a review.

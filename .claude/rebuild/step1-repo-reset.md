@@ -54,8 +54,8 @@ the git history is the archive.
 ## Target layout
 
 ```
-wellsy/
-  __init__.py
+engine/             the import package (renamed from wellsy/ so the repo
+  __init__.py         folder isn't wellsy/wellsy/ — see the note below)
   perception/       motion.py detector.py tracker.py capture.py
   runtime/          tiers.py           # scheduler + PreemptionSeam
   honesty/          provenance.py intent.py
@@ -65,27 +65,33 @@ spec/               phase1-acceptance.md  (exists)
 .claude/            planning docs (exists)
 ```
 
-- `pyproject.toml` at the repo root, package name `wellsy`.
+- `pyproject.toml` at the repo root. Distribution/command name `wellsy`;
+  **import package `engine`** (`pip install wellsy` → `import engine`). The
+  original plan said package name `wellsy`; renamed post-step-1 at the owner's
+  request because `wellsy/wellsy/` was confusing.
 - Console entry point `wellsy`.
 - Python 3.13, the existing venv is fine to reuse but **remove `chatterbox-tts`,
   `moonshine-onnx`, `perth`, and the `torch==2.6.0` pin it forced.** Let torch
   float to current; re-run the detector benchmark after (see acceptance).
 
-## Rename the old name → WELLSY
+## Rename → WELLSY  *(done; the old name is fully retired)*
 
-238 occurrences across ~38 files. Mechanical, but do it attentively:
+The old name appeared ~238 times across ~38 files. All of it is gone —
+`git grep -i` for it returns nothing. Notes on how it was done:
 
-- Code identifiers, module paths, package name.
-- `~/.cache/wellsy/weights` → `~/.cache/wellsy/weights`. **Move the existing
-  weights rather than re-downloading** (~570 MB of MobileCLIP-BLT + YOLOE).
-- `engine/wake_phrases.txt`: replace `hey wellsy` / `wellsy` / `hey yo` with
-  `wellsy` / `hey wellsy`. The old wake word failed because it transcribed as
-  "app". "Wellsy" has a soft `/w/` onset, so the difflib fuzzy-match threshold
-  (was `0.72`) **will need retuning in step 4** — leave a `TODO(step4)` marking
-  it rather than guessing a new value now.
-- `.claude/` documents: rename references but **do not rewrite history**. Day
-  1–11 documents describe what was built as WELLSY and should keep saying so; add a
-  one-line header noting the rename where it matters.
+- Code identifiers, module paths, distribution name, `~/.cache` path.
+- **Weights were moved, not re-downloaded** (~570 MB of MobileCLIP-BLT + YOLOE).
+- `engine/config/wake_phrases.txt` ships `wellsy` / `hey wellsy`. The old
+  single-syllable wake word failed because it transcribed as "app". "Wellsy"
+  has a soft `/w/` onset, so the difflib fuzzy-match threshold (was `0.72`)
+  **will need retuning in step 4** — a `TODO(step4)` marks it; no new value
+  was guessed.
+- `.claude/` day 1–11 documents keep describing the earlier build as it
+  happened; only the name was swapped. Where the mechanical swap would have
+  produced a falsehood, the sentence now refers to "the original wake word"
+  without naming it. *(This overrides the original "do not rewrite history —
+  keep the old name in `.claude/`" instruction, at the owner's explicit
+  request to retire the name completely.)*
 
 ## Acceptance
 

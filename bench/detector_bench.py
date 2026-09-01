@@ -23,10 +23,10 @@ import time
 import numpy as np
 import torch
 
-from wellsy.perception import detector
-from wellsy.perception.capture import make_synthetic_frame
-from wellsy.perception.motion import motion_gate, to_gate_gray
-from wellsy.perception.tracker import Tracker
+from engine.perception import detector
+from engine.perception.capture import make_synthetic_frame
+from engine.perception.motion import motion_gate, to_gate_gray
+from engine.perception.tracker import Tracker
 
 
 def pct(vals: list[float], p: float) -> float:

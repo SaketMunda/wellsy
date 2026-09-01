@@ -36,16 +36,16 @@ System Settings → Privacy & Security → Camera.
 ## Layout
 
 ```
-wellsy/
-  perception/   motion.py  detector.py  tracker.py  capture.py
-  runtime/      tiers.py            # T0–T3 scheduler + PreemptionSeam
-  honesty/      provenance.py  intent.py
-  config/       prompts.txt  wake_phrases.txt
+engine/           the import package (runtime core); `pip install wellsy` → `import engine`
+  perception/     motion.py  detector.py  tracker.py  capture.py
+  runtime/        tiers.py           # T0–T3 scheduler + PreemptionSeam
+  honesty/        provenance.py  intent.py
+  config/         prompts.txt  wake_phrases.txt
   cli.py                            # the `wellsy` console entry point
-tests/          one module per surviving unit
-bench/          detector_bench.py   # perception no-regression benchmark
-spec/           phase1-acceptance.md — the definition of done
-.claude/        planning docs, rebuild steps, and the pre-rebuild build log
+tests/            one module per surviving unit
+bench/            detector_bench.py  # perception no-regression benchmark
+spec/             phase1-acceptance.md — the definition of done
+.claude/          planning docs, rebuild steps, and the pre-rebuild build log
 ```
 
 ## Model weights (not in the repo)
@@ -57,6 +57,6 @@ into it before the first load.
 
 ## Open-vocabulary prompts
 
-`wellsy/config/prompts.txt` is a plain list, one term per line, `#`-comments
+`engine/config/prompts.txt` is a plain list, one term per line, `#`-comments
 allowed. Edit it while `wellsy` is running — it's picked up on the next
 detection pass via an mtime check, no restart needed.

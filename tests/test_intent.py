@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from wellsy.honesty.intent import parse_intent
+from engine.honesty.intent import parse_intent
 
 SPEC_PATH = Path(__file__).resolve().parents[1] / "spec" / "intent-cases.json"
 CASES = json.loads(SPEC_PATH.read_text())["cases"]

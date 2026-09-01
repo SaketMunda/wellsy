@@ -22,7 +22,7 @@ deliberate, not sloppy.
 
 | # | File | Delivers | Depends on |
 |---|---|---|---|
-| 1 | `step1-repo-reset.md` | New `wellsy/` package, perception core ported, `src/` deleted, rename complete | — |
+| 1 | `step1-repo-reset.md` | New `engine/` package, perception core ported, `src/` deleted, rename complete | — |
 | 2 | `step2-backend-abstraction.md` | Portable inference interfaces + backends + cross-platform benchmark harness | 1 |
 | 3 | `step3-capture-layer.md` | Camera + screen capture with degenerate-capture verification. **Fixes the wallpaper defect.** | 1 |
 | 4 | `step4-voice-path.md` | Streaming voice on Pipecat: Silero VAD, Smart Turn, streaming ASR/TTS, real barge-in | 2, 3 |

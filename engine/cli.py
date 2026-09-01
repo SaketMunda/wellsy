@@ -25,9 +25,9 @@ from collections import deque
 from multiprocessing import Event, Process, Queue
 from pathlib import Path
 
-from wellsy.perception.capture import capture_worker
-from wellsy.perception.motion import motion_gate, to_gate_gray
-from wellsy.runtime.tiers import PreemptionSeam
+from engine.perception.capture import capture_worker
+from engine.perception.motion import motion_gate, to_gate_gray
+from engine.runtime.tiers import PreemptionSeam
 
 # How much history the gated-fraction readout (stderr) is computed over.
 STATS_WINDOW_SECONDS = 60
@@ -105,8 +105,8 @@ def run_camera(
     prompts: list[str] = []
     prompts_mtime = None
     if detect:
-        from wellsy.perception import detector
-        from wellsy.perception.tracker import Tracker
+        from engine.perception import detector
+        from engine.perception.tracker import Tracker
 
         print("[setup] loading detector...", file=sys.stderr, flush=True)
         t0 = time.monotonic()

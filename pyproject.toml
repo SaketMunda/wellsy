@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.scripts]
-wellsy = "wellsy.cli:main"
+wellsy = "engine.cli:main"
 
 [tool.uv.sources]
 # YOLOE's open-vocabulary text-prompt head needs Ultralytics' CLIP fork
@@ -24,8 +24,11 @@ dev = [
     "pytest>=8.3",
 ]
 
+# The installable/distribution name is `wellsy` and the console command is
+# `wellsy`; the import package is `engine` (the runtime core), so the repo
+# folder isn't `wellsy/wellsy/`. Like `pip install wellsy` → `import engine`.
 [tool.setuptools.packages.find]
-include = ["wellsy*"]
+include = ["engine*"]
 
 [build-system]
 requires = ["setuptools>=68"]

@@ -9,8 +9,7 @@ These are not guidelines. A change that violates one is reverted, not debated.
 
 1. **All project files live inside this repository.** Never `/tmp`, never a
    session scratchpad, never a path outside the repo. The sole exception on
-   record is model weights at `~/.cache/wellsy/weights` (formerly
-   `~/.cache/wellsy/weights`).
+   record is model weights at `~/.cache/wellsy/weights`.
 
 2. **Local-first.** No third-party cloud service receives pixels, audio, or raw
    personal files — ever. A private server the owner controls is acceptable.
