@@ -44,6 +44,24 @@ AUDIO_IN_SR = 16000   # Silero VAD + Smart Turn v3 + Whisper all want 16 kHz
 AUDIO_OUT_SR = 24000  # Kokoro native rate
 
 
+def _warm(stt, tts) -> None:
+    """Run one throwaway ASR + TTS inference so turn 1 is not the cold turn.
+    Cold faster-whisper is ~1.3 s vs ~0.26 s warm; cold Kokoro TTFA ~0.76 s vs
+    ~0.05 s. The LLM warms on its first real call (`keep_alive: -1` then pins
+    it). Skippable with WELLSY_VOICE_NO_WARM=1."""
+    import numpy as np
+
+    try:
+        list(stt._asr.stream(iter([np.zeros(16000, dtype=np.float32)])))
+    except Exception:
+        pass
+    try:
+        for _ in tts._tts.stream(iter(["ready"])):
+            break
+    except Exception:
+        pass
+
+
 def build(*, start_awake: bool = False, on_decision=None, observers=None):
     """Construct (worker, runner, wake_state, context). `observers` are Pipecat
     observers attached to the worker (e.g. `acoustic.LatencyObserver`)."""
@@ -79,6 +97,9 @@ def build(*, start_awake: bool = False, on_decision=None, observers=None):
     stt = SeamSTTService(sample_rate=AUDIO_IN_SR)
     tts = SeamTTSService(sample_rate=AUDIO_OUT_SR)
     llm = build_llm()
+
+    if os.environ.get("WELLSY_VOICE_NO_WARM") != "1":
+        _warm(stt, tts)
 
     wake_state = WakeState(awake=start_awake)
     wake_gate = build_wake_gate(wake_state, cfg_provider)

@@ -19,14 +19,29 @@ the app is restarted** — the restart kills the session that granted nothing, s
 those two run in a fresh session (or a plain Terminal.app that already has all
 three grants). Everything else is mic-only and can run now.
 
-Set the VL model for any run that exercises a vision turn:
+### Model — read before any voice run
 
-```bash
-export WELLSY_LLM_MODEL=qwen3-vl:4b
-```
+`qwen3:4b`, `qwen3-vl:4b` and `qwen3-vl:8b` on this Ollama 0.33.2 build run an
+uncontrollable reasoning pass **every turn** — re-confirmed 2026-09-01 by direct
+`curl` (`think:false` ignored; "say hi in 3 words" → 4082 thinking tokens).
+Measured in a live session: LLM turns took **8.7 s and 22 s** to first audio.
+That is the model, not the pipeline (`metrics.py --measure` composes the LLM row
+at 614 ms on `qwen2.5:3b`).
 
-(Text/deterministic turns still work on that model, just slower — that is why
-the §1 text rows were measured separately on `qwen3:4b` / `qwen2.5:3b`.)
+- **Deterministic / LLM / barge-in / stop runs — use `qwen2.5:3b`:**
+  ```bash
+  export WELLSY_LLM_MODEL=qwen2.5:3b
+  ```
+  It answers in ~50 ms TTFT, no reasoning. This is the honest pipeline number.
+- **VLM row — BLOCKED.** The only local vision models (`qwen3-vl:4b/8b`) both
+  reason for 20 s+, so the < 2500 / < 3500 ms budget cannot be met with what is
+  installed. Pull a non-reasoning VLM first, e.g.:
+  ```bash
+  ollama pull qwen2.5vl:3b   # or moondream / llava:7b / minicpm-v
+  ```
+  then run the VLM turns with `WELLSY_LLM_MODEL=qwen2.5vl:3b`. Until then the
+  VLM row stays owed with the reason recorded — do not report a 20 s number as
+  a pass or a fail of the pipeline.
 
 ---
 
@@ -65,7 +80,7 @@ wellsy voice --awake
    ```
 6. Live grounding:
    ```bash
-   WELLSY_LLM_MODEL=qwen3-vl:4b wellsy voice --awake
+   WELLSY_LLM_MODEL=qwen2.5vl:3b wellsy voice --awake  # once a non-reasoning VLM is pulled
    # say: "what's on my screen"       → must name real window contents
    # say: "read me the text on screen" → must read text genuinely visible
    ```
@@ -88,7 +103,7 @@ does).
 All three come from one live run with the observer:
 
 ```bash
-WELLSY_LLM_MODEL=qwen3-vl:4b wellsy voice --measure-acoustic
+WELLSY_LLM_MODEL=qwen2.5:3b wellsy voice --measure-acoustic
 ```
 
 Speak the script below. Leave ~2 s between turns. When done, Ctrl+C — a summary
@@ -130,11 +145,9 @@ Say each ≥ 20 times, varying which:
 - "how many days in a leap year"
 - "say something short"
 
-> Note: on `qwen3-vl:4b` (and `qwen3:4b`) the LLM row will miss the budget
-> because that build runs a reasoning pass every turn — this is the known step-4
-> finding, not the pipeline. If you want the honest pipeline number for this
-> row too, run a second `--measure-acoustic` session with
-> `WELLSY_LLM_MODEL=qwen2.5:3b` and no vision turns.
+> Runs on `qwen2.5:3b` per the model section above. `qwen3:4b` / `qwen3-vl:*`
+> miss this row by 8–22 s (reasoning pass every turn) — the model, not the
+> pipeline.
 
 **VLM path (target < 2500 / < 3500 ms)** — ≥ 20 turns, camera pointed at the
 room:
