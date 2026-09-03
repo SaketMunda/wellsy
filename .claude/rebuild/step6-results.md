@@ -115,27 +115,48 @@ pipeline is up"; it never scales `uAmplitude`.
 
 ---
 
-## Owed (next increments)
+## Increment 2 (2026-09-03, same day) — PySide6 installed, orb runs
 
-1. **Install PySide6, build the shader, run the orb on this Mac.** Confirm
-   frameless + translucent + click-through + NSPanel Spaces/fullscreen
-   behaviour (acceptance #1). Screen-record each state.
-2. **Wire the orb into a live session.** `wellsy voice --orb` and
-   `wellsy agent --orb`: attach `build_voice_observer(bus)` /
-   `agent_event_sink(bus)` and run Presence. The main-thread contention between
-   the Qt loop and the asyncio voice worker is the real design problem here
-   (Qt on main thread, voice worker in an executor).
-3. **HUD mode end to end** — `Hud.qml` exists with the approval prompt, plan +
-   per-step policy decision, and read-back panel, all bound to real `bridge.hud`
-   data. Not yet fed by the runtime or exercised (acceptance #4, #5).
-4. **Input surface** — global hotkey to summon HUD, `Esc` → the deterministic
-   stop path, typed text into the same agent entry point.
-5. **CPU budget** — `--profile-cpu` p50/p95 for orb-asleep (<1%), active (<3%),
-   HUD (<6%); re-measure §1 voice rows for zero regression (acceptance #6).
-6. **Linux/Wayland** — run under KWin/sway to validate layer-shell; run under
-   GNOME to confirm the degradation message fires (acceptance #2).
-7. **Windows** — flags path is written in `capability._windows()`; execution
-   deferred, stated here (acceptance #2 allows this).
+`uv sync --extra interface` → PySide6 **6.11.2** / Qt **6.11.2**, `pyside6-qsb`
+and `pyobjc` present. What now works, verified on this Mac:
+
+| Piece | Evidence |
+|---|---|
+| **Shader compiles** | `wellsy orb --build-shaders` → `orb.frag.qsb` (4 KB, SPIR-V + MSL/HLSL/GLSL). `--check-shaders` is the CI staleness gate. |
+| **Orb renders** | `wellsy orb` opens the QQuickView; Qt smoke walks idle→thinking→acting→awaiting_approval→refusing with no QML warnings and clean teardown. The `WELLSY_ORB_PRINT_CAP=1` line confirms the **NSPanel shim applied** (`.floating+1`, `canJoinAllSpaces \| fullScreenAuxiliary \| stationary`, non-activating). |
+| **`--orb` co-run** | `engine/interface/session.py` — `OrbSession` runs the asyncio runtime on a worker thread while Qt owns the main thread; all UI mutations cross via a thread-safe queue drained on the main-thread tick. The worker↔UI **approval relay** (`ApprovalRelay`) blocks the graph on a `threading.Event` that the QML Approve/Deny click sets. Tested headless in `tests/test_interface_session.py` (4 tests). |
+| **`wellsy agent --orb`** | wired: graph events → `agent_event_sink` → orb state; a gated step opens the approval HUD and blocks there. Live run reached `plan_node` and the orb loop drove correctly; the planner LLM itself timed out (`qwen3:4b-thinking` — the known step-5b blocker, not this step). |
+| **`wellsy voice --orb`** | wired: `build_voice_observer(bus)` as a Pipecat observer + `intent_decision_sink` as `on_decision`; orb `Esc` hops to the voice worker's event loop and queues an `InterruptionFrame` (deterministic stop). Not yet run against a live mic. |
+| **CPU budget — MET** | `wellsy orb --profile-cpu` (psutil, 250 ms windows, ÷ncpu, p50/p95, first sample dropped): asleep **p95 0.68%** (budget 1%), acting **p95 0.73%** (3%), HUD **p95 1.00%** (6%). All green. Caveat: the 160×200 window on this display; a larger orb and a busier compositor will cost more — re-profile if the orb grows. |
+
+### Still owed
+
+1. **Screen-record the orb in each state** on this Mac (acceptance #8), and
+   eyeball it over a fullscreen app / across Spaces (acceptance #1).
+2. **Live `wellsy voice --orb`** — confirm the pulse tracks real VAD/PCM
+   amplitude and `Esc` silences output within the §1 budget; re-measure the §1
+   voice rows for zero regression (acceptance #6 — the CPU half is done, the
+   latency half is not).
+3. **HUD from the agent runtime** — feed `plan` / `verify` / provenance views
+   into `sess.show_hud(...)` (only the `approval` view is wired). Exercise
+   approve **and** deny end to end into the audit log (acceptance #4, #5).
+4. **Global hotkey** to summon the HUD — needs a platform shim (macOS
+   `RegisterEventHotKey` / event tap; the click-through orb takes no key focus
+   so an in-process `QShortcut` won't see it). Structure noted, not built.
+5. **Typed text into the agent entry point** from the HUD (acceptance,
+   Deliverable 4) — the CLI path exists; the HUD has no text input yet.
+6. **Proper shader build hook** — `orb.frag.qsb` is committed so the orb runs
+   out of the box; wire `build_shaders` into a `uv`/pip build step so it is
+   regenerated on install rather than tracked.
+7. Linux/Wayland (KWin/sway + GNOME) and Windows execution — unchanged from
+   increment 1.
+
+### Not from step 6
+
+`tests/test_duplex.py::test_self_echo_filter_drops_echo_keeps_user` fails on
+this branch **with the step-6 changes stashed** — a pre-existing failure
+(`TimeoutError` in the fuzzy self-echo matcher), unrelated to the interface.
+Flagged for whoever owns step 4c.
 
 ## Honest read
 

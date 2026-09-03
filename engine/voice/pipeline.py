@@ -214,12 +214,15 @@ async def _esc_watch(worker) -> None:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
-async def run(*, start_awake: bool = False, on_decision=None, observers=None) -> None:
+async def run(*, start_awake: bool = False, on_decision=None, observers=None,
+              on_worker=None) -> None:
     from pipecat.frames.frames import LLMRunFrame
 
     worker, runner, wake_state, context = build(
         start_awake=start_awake, on_decision=on_decision, observers=observers
     )
+    if on_worker is not None:
+        on_worker(worker)
     await runner.add_workers(worker)
 
     esc = asyncio.create_task(_esc_watch(worker))
@@ -237,6 +240,8 @@ def main(argv: list[str] | None = None) -> int:
 
     ap = argparse.ArgumentParser(prog="wellsy voice", description=__doc__)
     ap.add_argument("--awake", action="store_true", help="start awake (skip the wake phrase)")
+    ap.add_argument("--orb", action="store_true",
+                    help="show the Presence orb, pulsing to the live VAD / TTS amplitude; Esc stops output")
     ap.add_argument("--measure", action="store_true", help="run the §1 latency harness (component-composed) instead of a live session")
     ap.add_argument("--measure-acoustic", action="store_true",
                     help="live session with the at-the-device latency observer; Ctrl+C writes the acoustic §1 table")
@@ -265,8 +270,50 @@ def main(argv: list[str] | None = None) -> int:
             print("\nno turns captured — nothing written")
         return 0
 
+    if args.orb:
+        return _run_with_orb(args)
+
     try:
         asyncio.run(run(start_awake=args.awake))
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
+def _run_with_orb(args) -> int:
+    """Live voice session behind the Presence orb. The orb pulses to the
+    measured VAD amplitude while you speak and the measured output PCM
+    amplitude while it speaks — nothing synthetic (INVARIANTS #6). Esc routes
+    to the deterministic InterruptionFrame stop."""
+    import asyncio as _asyncio
+
+    from pipecat.frames.frames import InterruptionFrame
+
+    from engine.interface.session import OrbSession
+    from engine.interface.taps import build_voice_observer, intent_decision_sink
+
+    holder: dict = {}
+
+    def _stop_output() -> None:
+        # called on the Qt main thread; hop to the voice worker's event loop.
+        w, loop = holder.get("worker"), holder.get("loop")
+        if w is not None and loop is not None:
+            loop.call_soon_threadsafe(
+                lambda: loop.create_task(w.queue_frames([InterruptionFrame()]))
+            )
+
+    sess = OrbSession(on_escape=_stop_output)
+    observer = build_voice_observer(sess.bus)
+    on_decision = intent_decision_sink(sess.bus)
+
+    async def _main():
+        holder["loop"] = _asyncio.get_running_loop()
+        await run(start_awake=args.awake, on_decision=on_decision,
+                  observers=[observer],
+                  on_worker=lambda w: holder.__setitem__("worker", w))
+
+    try:
+        sess.run(lambda _stop: _main())
     except KeyboardInterrupt:
         pass
     return 0

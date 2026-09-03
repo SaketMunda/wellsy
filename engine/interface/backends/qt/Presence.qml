@@ -13,7 +13,8 @@ Item {
     width: 160; height: 160
 
     // per-state palette + glow. Chosen from bridge.state (a string), not animated.
-    readonly property var palette: ({
+    readonly property string orbState: bridge ? bridge.state : "asleep"
+    readonly property var statePalette: ({
         "asleep":            { c: Qt.rgba(0.30,0.34,0.42,1), g: 0.02 },
         "idle":              { c: Qt.rgba(0.45,0.62,0.85,1), g: 0.10 },
         "listening":         { c: Qt.rgba(0.30,0.78,1.00,1), g: 0.35 },
@@ -23,7 +24,7 @@ Item {
         "refusing":          { c: Qt.rgba(1.00,0.32,0.32,1), g: 0.50 },
         "speaking":          { c: Qt.rgba(0.55,0.80,1.00,1), g: 0.40 }
     })
-    readonly property var pal: palette[bridge.state] || palette["idle"]
+    readonly property var pal: statePalette[orbState] || statePalette["idle"]
 
     // Colour eases between states (a palette cross-fade is not a lie about
     // system state — the state itself switches instantly). Amplitude does NOT
@@ -39,7 +40,7 @@ Item {
         blending: true
 
         property real uTime: 0.0
-        property real uAmplitude: bridge.reactiveAmplitude   // MEASURED, direct bind
+        property real uAmplitude: bridge ? bridge.reactiveAmplitude : 0.0   // MEASURED, direct bind
         property real uGlow: root.effectGlow
         property color uColor: root.effectColor
 
@@ -48,8 +49,8 @@ Item {
         // uTime advances only while the window is exposed AND either the orb is
         // reactive or awake-idle; asleep throttles hard (perf budget < 1%).
         FrameAnimation {
-            running: Qt.application.active || bridge.state !== "asleep"
-            onTriggered: fx.uTime += (bridge.state === "asleep" ? 0.05 : frameTime)
+            running: Qt.application.active || root.orbState !== "asleep"
+            onTriggered: fx.uTime += (root.orbState === "asleep" ? 0.05 : frameTime)
         }
     }
 
@@ -74,12 +75,11 @@ Item {
     }
 
     // a11y / debug: the reason string, shown only when HUD asks for it
-    property alias becauseText: because.text
     Text {
         id: because
-        visible: bridge.showBecause
+        visible: bridge ? bridge.showBecause : false
         anchors { top: parent.bottom; horizontalCenter: parent.horizontalCenter }
         color: "#cfd6e4"; font.pixelSize: 10
-        text: bridge.because
+        text: bridge ? bridge.because : ""
     }
 }

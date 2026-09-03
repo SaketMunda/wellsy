@@ -130,7 +130,13 @@ class QtPresenceBackend:
 
     def stop(self) -> None:
         if self._view is not None:
+            # drop the QML source first so bindings unwind before `bridge` /
+            # the context go away (avoids teardown "property of null" noise)
+            from PySide6.QtCore import QUrl
+
+            self._view.setSource(QUrl())
             self._view.close()
+            self._view = None
         if self._app is not None:
             self._app.quit()
 
