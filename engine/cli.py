@@ -25,6 +25,7 @@ Usage:
     wellsy tools                 # list the MCP tool layer with schemas
     wellsy audit [--plan ID]     # read the agent audit log (JSONL on disk)
     wellsy autonomy              # autonomy levels — they rise against the audit log
+    wellsy orb                   # the native Presence interface (step 6); --demo / --capability / --backend
 """
 
 from __future__ import annotations
@@ -320,6 +321,15 @@ def _run_autonomy(argv: list[str]) -> None:
 _SUBCOMMANDS.update(
     {"agent": _run_agent, "tools": _run_tools, "audit": _run_audit, "autonomy": _run_autonomy}
 )
+
+
+def _run_orb(argv: list[str]) -> None:
+    from engine.interface.cli import main as orb_main
+
+    raise SystemExit(orb_main(argv))
+
+
+_SUBCOMMANDS.update({"orb": _run_orb})
 
 
 def main() -> None:
