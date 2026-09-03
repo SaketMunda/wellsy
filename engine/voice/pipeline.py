@@ -1,7 +1,12 @@
 """Build and run the streaming voice pipeline.
 
     transport.input()
+      -> HalfDuplexGate     (step 4c: drops mic audio while the bot speaks + a
+                            decay tail so VAD/STT never hear the playback;
+                            InterruptionFrame/ESC always pass. Default on.)
       -> SeamSTT           (transcribes every VAD-gated utterance)
+      -> SelfEchoFilter    (step 4c: drops any transcript that fuzzy-matches
+                            something the bot just said — see EchoTextTap below)
       -> WakeGate          (asleep: only a wake phrase passes)
       -> IntentGate        (deterministic stop/wake/sleep/help — INVARIANTS #3;
                             describe_scene / query_object -> capture + verify a
@@ -13,13 +18,18 @@
       -> ProvenanceLogger  (vision turns: one provenance line per answer with the
                             step-3 capture provenance folded in; drops the image)
       -> SeamTTS           (sentence-chunked; first audio before the LLM finishes)
+      -> EchoTextTap       (step 4c: records each spoken sentence into the
+                            rolling window SelfEchoFilter reads)
       -> transport.output()
       -> assistant_aggregator
 
 VAD (Silero v5) and semantic turn detection (Smart Turn v3) are Pipecat
 defaults in 1.8.x — the fixed 600 ms silence tail of the old build is gone; the
-per-turn saving is what `metrics.py` measures. Barge-in is on by default while
-the bot is speaking; ESC is the deterministic instant stop.
+per-turn saving is what `metrics.py` measures. Open-air on speakers is
+half-duplex by default (the HalfDuplexGate); spoken barge-in during playback
+needs the wake-gated mode or AEC — see `engine/voice/duplex.py` /
+`engine/voice/aec.py` and `.claude/rebuild/step4c-results.md`. ESC is the
+deterministic instant stop and is never gated.
 """
 
 from __future__ import annotations
@@ -29,6 +39,13 @@ import os
 import sys
 
 from engine.voice.config import load_voice_config
+from engine.voice.duplex import (
+    AsrWakeProbe,
+    SelfEchoWindow,
+    build_echo_text_tap,
+    build_half_duplex_gate,
+    build_self_echo_filter,
+)
 from engine.voice.intent_gate import build_intent_gate, build_provenance_logger
 from engine.voice.vision import VisionPending
 from engine.voice.wake import WakeState, build_wake_gate
@@ -122,20 +139,33 @@ def build(*, start_awake: bool = False, on_decision=None, observers=None):
     )
     prov_logger = build_provenance_logger(vision_pending, context=context)
 
-    pipeline = Pipeline(
-        [
-            transport.input(),
-            stt,
-            wake_gate,
-            intent_gate,
-            user_aggregator,
-            llm,
-            prov_logger,
-            tts,
-            transport.output(),
-            assistant_aggregator,
-        ]
+    # --- step 4c: open-air audio -------------------------------------------- #
+    cfg = cfg_holder["cfg"]
+    echo_window = SelfEchoWindow(ttl_s=cfg.self_echo_ttl_s)
+    echo_tap = build_echo_text_tap(echo_window)
+    self_echo_filter = (
+        build_self_echo_filter(echo_window, threshold=cfg.self_echo_threshold)
+        if cfg.self_echo_reject
+        else None
     )
+
+    mode = cfg.barge_in_mode if cfg.half_duplex else "full"
+    wake_probe = None
+    if mode == "wake_gated":
+        wake_probe = AsrWakeProbe(
+            stt._asr, cfg.wake_phrases, sample_rate=AUDIO_IN_SR,
+            threshold=max(cfg.wake_threshold, 0.85),
+        )
+    half_duplex_gate = build_half_duplex_gate(
+        tail_ms=cfg.half_duplex_tail_ms, mode=mode, wake_probe=wake_probe
+    )
+
+    stages = [transport.input(), half_duplex_gate, stt]
+    if self_echo_filter is not None:
+        stages.append(self_echo_filter)
+    stages += [wake_gate, intent_gate, user_aggregator, llm, prov_logger, tts, echo_tap,
+               transport.output(), assistant_aggregator]
+    pipeline = Pipeline(stages)
 
     worker = PipelineWorker(
         pipeline,
