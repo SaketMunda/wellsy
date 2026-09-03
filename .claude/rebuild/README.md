@@ -27,8 +27,11 @@ deliberate, not sloppy.
 | 3 | `step3-capture-layer.md` | Camera + screen capture with degenerate-capture verification. **Fixes the wallpaper defect.** | 1 |
 | 4 | `step4-voice-path.md` | Streaming voice on Pipecat: Silero VAD, Smart Turn, streaming ASR/TTS, real barge-in | 2, 3 |
 | 4b | `step4b-live-verification.md` | **Owner at the machine.** A8-granted, A14 live, acoustic latency, wake tuning. Wires capture into the VLM path. | 3, 4 |
+| 4c | `step4c-echo-and-duplex.md` | **Regression + open-air audio.** Half-duplex gate, self-transcript rejection, wake-gated barge-in, AEC, audio hardware spec | 4 |
 | 5 | `step5-agent-runtime.md` | LangGraph runtime, MCP tools, policy gate, audit log, **two model roles** | 2 |
-| 6 | `step6-memory-context.md` | Memory substrate, provenance-aware writes, context engine | 5 |
+| 5b | `step5b-model-selection.md` | Planner / VLM / fast / TTS chosen on measured numbers; re-derives the hardware sizing | 4, 4b, 5 |
+| 6 | `step6-native-interface.md` | **Presence orb + Iron Man HUD.** Native Qt Quick, in-process, no webview. The interface renders measured state only. | 4, 4b, 5 |
+| 7 | `step7-memory-context.md` | Memory substrate, provenance-aware writes, context engine | 5b |
 
 Later phases — proactive engine, autonomy levels, communication modes, the
 ambient interface — are not yet written as prompts. They are scoped in
@@ -64,19 +67,33 @@ against guesses is how the current stack ended up wrong.
 
 ## Status as of 2026-09-01
 
-Steps 1–4 merged to `master`. 98 tests green, tree clean.
+Steps 1-5 merged to `master` (step 4b included). Tree clean.
 
 Ratified deviations: package `wellsy/` -> `engine/`; LLM backend is
-`openai_http` (OpenAI-compatible streaming — covers Ollama, llama-server, vLLM,
+`openai_http` (OpenAI-compatible streaming - covers Ollama, llama-server, vLLM,
 SGLang) rather than in-process llama-cpp-python; ASR is faster-whisper `base.en`
 after Qwen3-ASR was rejected on measured numbers; Pipecat's bundled
-Silero + Smart Turn v3 over the step-2 wrappers.
+Silero + Smart Turn v3 over the step-2 wrappers; MCP servers authored in-house
+(FastMCP/stdio) after the community macOS servers failed invariant #8; `mcp`
+held at `<2` by langchain-mcp-adapters 0.3.2.
 
-Open debt carried forward:
-- **Qwen3-TTS was never measured.** Kokoro was adopted without the two-candidate
-  bench-off step 2 required. Kokoro clears the latency budget, but it is flat,
-  and there is a standing requirement for expressive, human-sounding speech it
-  cannot meet. Owed, not urgent.
+**The blocking item is model selection, not the next feature.** The planner
+(`qwen3:4b`, 33 s TTFT) is unshippable, the VLM row misses at 3.0 s against a
+2.5 s budget, and the fast slot and TTS were both adopted with their bench-offs
+deferred. `step5b-model-selection.md` closes all four and re-derives the §7
+hardware sizing, which is currently arithmetic over models that are being
+replaced. Hardware is **not** being bought yet - that is the last step, after everything
+is verified. 5b still matters for the planner's 33 s, which step 6's UI will
+put on screen as a 33-second "thinking" animation. 5b and step 6 touch no
+common files and can run in parallel.
+
+Open debt carried forward beyond 5b's scope:
+- A8-granted half and the ScreenCaptureKit latency row - needs Screen Recording
+  granted to the editor's process tree and a full restart.
+- A3-A6 live against a real Calendar / Mail account (`osascript` backend).
 - faster-whisper `base.en` is English-only.
 - An in-process LLM backend must be validated before embodiment bring-up.
 - Linux/CUDA path is code-complete and **unexecuted**.
+- `InMemorySaver` -> `SqliteSaver` for cross-process resume.
+- Intermittent `recursive_mutex lock failed` at pytest teardown when pipecat
+  (anyio) and agent (stdio MCP) tests run in one process; exit code stays 0.
