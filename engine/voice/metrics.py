@@ -153,7 +153,7 @@ def _measure(trials: int) -> dict:
     from engine.inference import registry
 
     base_url = os.environ.get("WELLSY_LLM_BASE_URL", "http://localhost:11434/v1")
-    model = os.environ.get("WELLSY_LLM_MODEL", "qwen2.5:3b")  # non-reasoning; qwen3* burns 8-22 s/turn here (step 4b)
+    model = os.environ.get("WELLSY_LLM_MODEL", "qwen3:4b-instruct-2507-q4_K_M")  # non-reasoning instruct build; step 5b
     client = OpenAI(api_key=os.environ.get("WELLSY_LLM_API_KEY", "ollama"), base_url=base_url)
 
     det_pcm = _synth_pcm(DET_UTTERANCE)

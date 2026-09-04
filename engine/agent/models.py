@@ -5,17 +5,17 @@ Step 4 measured the shared LLM row at 3957 ms p50 against a 1500 ms target with
 disables it (re-verified by curl, step 4b). Reasoning is poison on the
 conversational hot path and genuinely useful in the planner. So:
 
-| Role     | Model                              | Reasoning | Budget                         |
-|----------|------------------------------------|-----------|--------------------------------|
-| fast     | WELLSY_FAST_MODEL   (qwen2.5:3b*)  | off       | §1: < 1500 ms p50 to first word|
-| planner  | WELLSY_PLANNER_MODEL (qwen3:4b)    | on        | 3-4 s ok — the fast path spoke |
+| Role     | Model (step 5b default)              | Reasoning | Budget                       |
+|----------|-------------------------------------|-----------|------------------------------|
+| fast     | WELLSY_FAST_MODEL   (4b-instruct-2507) | none    | §1: < 1500 ms p50 (meas. 21 ms) |
+| planner  | WELLSY_PLANNER_MODEL (4b-instruct-2507)| none    | 3-4 s ok (meas. 4.0 s full plan) |
 
-*`qwen2.5:3b` is an INTERIM default carried from step 4b, not the answer. It is
-a 2024-era model; adopting it because it happened to be installed is the
-stale-tech failure mode INVARIANTS #8 exists to stop. Deliverable 2b's bench-off
-of current non-reasoning instruct models for the fast slot is recorded debt in
-`.claude/rebuild/step5-results.md` — do it and record the losing numbers before
-this default is blessed.
+Step 5b bench-off (`.claude/rebuild/step5b-results.md` §2-3): `qwen3:4b`
+reasoning is ~78 s/turn and no flag or `think:"low"/"high"` level disables it on
+Ollama 0.33.2 (all measured). `qwen3:4b-instruct-2507` is non-reasoning by
+construction, clears both budgets, scores 20/20 on plan-JSON validity, and lets
+the two roles share one resident 3.2 GB model instead of two. `qwen2.5:3b` (the
+old interim fast default) is the beaten incumbent — 15 ms TTFT but 2024-era.
 
 The acknowledge-then-deliver rule: when a request needs the planner, the fast
 path emits an acknowledgement ("let me check your calendar") within the §1
@@ -31,9 +31,16 @@ from typing import Any, Literal
 
 Role = Literal["fast", "planner"]
 
+# Step 5b: both roles resolve to ONE resident model. `qwen3:4b-instruct-2507`
+# is non-reasoning by construction (no `<think>` path — the July-2025 instruct
+# build), clears the fast budget (21 ms warm TTFT) *and* the planner budget
+# (schema-valid 3-step plan in ~4.0 s, 20/20 valid), and every flag/level that
+# could bound a reasoning Qwen3 on Ollama 0.33.2 was measured non-functional
+# (`.claude/rebuild/step5b-results.md` §2). Unifying the slots saves ~2 GB
+# resident vs two models. Split them again by setting the env vars.
 _DEFAULTS = {
-    "fast": ("WELLSY_FAST_MODEL", "qwen2.5:3b"),
-    "planner": ("WELLSY_PLANNER_MODEL", "qwen3:4b"),
+    "fast": ("WELLSY_FAST_MODEL", "qwen3:4b-instruct-2507-q4_K_M"),
+    "planner": ("WELLSY_PLANNER_MODEL", "qwen3:4b-instruct-2507-q4_K_M"),
 }
 
 
