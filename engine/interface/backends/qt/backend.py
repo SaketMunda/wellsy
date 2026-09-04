@@ -64,6 +64,9 @@ class QtPresenceBackend:
         from PySide6.QtGui import QColor, QGuiApplication
         from PySide6.QtQuick import QQuickView
 
+        # registers the Wellsy.Orb.PointCloud QML type (the orb's particle item)
+        from engine.interface.backends.qt import pointcloud  # noqa: F401
+
         self._app = QGuiApplication.instance() or QGuiApplication(sys.argv or ["wellsy"])
 
         from engine.interface.backends.qt._bridge import Bridge

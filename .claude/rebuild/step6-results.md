@@ -129,8 +129,77 @@ and `pyobjc` present. What now works, verified on this Mac:
 | **`wellsy voice --orb`** | wired: `build_voice_observer(bus)` as a Pipecat observer + `intent_decision_sink` as `on_decision`; orb `Esc` hops to the voice worker's event loop and queues an `InterruptionFrame` (deterministic stop). Not yet run against a live mic. |
 | **CPU budget — MET** | `wellsy orb --profile-cpu` (psutil, 250 ms windows, ÷ncpu, p50/p95, first sample dropped): asleep **p95 0.68%** (budget 1%), acting **p95 0.73%** (3%), HUD **p95 1.00%** (6%). All green. Caveat: the 160×200 window on this display; a larger orb and a busier compositor will cost more — re-profile if the orb grows. |
 
+---
+
+## Increment 3 (2026-09-03) — the orb looks like the reference clip
+
+The owner supplied a reference (`original-c74c…mp4`, 1600×1200, 10 s): a 3D
+sphere of ~15–20k particles on latitude rings that **unravels into swirling
+ribbon-sheets and re-winds**, cyan → violet → magenta along the streams, hot
+fold-flares, additive glow — reads as "computing". The increment-2 orb was a 2D
+fbm+Fresnel disc: a different, much simpler thing. This increment rebuilds
+Deliverable 1's visual to match.
+
+**Framework dead-end, recorded (INVARIANTS #8, #13):** the intended route —
+`QtQuick3D` custom-geometry `PrimitiveType.Points` + a `CustomMaterial` vertex
+shader — **renders nothing** on the Metal RHI in PySide6 6.11.2. Every point
+collapses to one screen pixel, with a built-in `PrincipledMaterial.pointSize`
+*and* with a custom unshaded material, at 4k and 20k points, indexed or not.
+No shader-compile error; the vertex input assembly for points just doesn't
+deliver per-vertex position. Time-boxed the debugging, then pivoted.
+
+**What shipped instead:** `engine/interface/backends/qt/pointcloud.py` — a
+`QQuickPaintedItem`. The point cloud (a golden-angle sphere, ~3.2k points) is
+rotated, curl-displaced and perspective-projected in **NumPy each frame**
+(~1 ms), then drawn back-to-front as **additively-composited radial-gradient
+sprites** (`QPainter.CompositionMode_Plus`) — which gives the glow/bloom look
+for free. Colour runs cyan→violet→magenta along each ribbon; depth picks the
+sprite size bin; `awaiting_approval` freezes the morph (amber), `refusing`
+collapses inward (red). Still Qt scene graph, still in-process, no webview.
+
+The `qsb` shader build step (`build_shaders.py`, `orb.frag`, `--build-shaders`)
+is **removed** — it was real and proven in increment 2, but nothing in the
+shipping orb is a `ShaderEffect` any more, so carrying it was dead weight. If a
+working GPU points route is found later it comes back.
+
+**Honesty binding, unchanged:** `PointCloud.amplitude` ← `bridge.reactive
+Amplitude` (measured; 0 without a live VAD/PCM frame) is the only reactive
+input — it adds turbulence + brightness on top of the time-driven swirl. `tick`
+advances the swirl clock. `state` picks a per-state identity, eased in the item.
+No RNG; the displacement is deterministic in `t`. `tests/test_interface_state.py`
+still green (the honesty test is on the Python signal layer, unaffected).
+
+**CPU re-profiled** (`wellsy orb --profile-cpu`, same method as increment 2),
+adaptive repaint (asleep ~4 fps, idle ~11 fps, active ~60 fps):
+
+| state | p95 | budget | |
+|---|---|---|---|
+| asleep | 0.88 % | 1 % | OK |
+| **idle** | **1.36 %** | 1 % | **OVER by ~0.4 %** |
+| acting | 2.91 % | 3 % | OK |
+| HUD | 2.64 % | 6 % | OK |
+
+The idle miss is real and honest: a continuously-repainting `QQuickPaintedItem`
+has a ~1 % fixed floor (Qt event loop + QPainter setup) that point-count and
+frame-rate cuts don't get under. Levers, in order: (a) a working GPU point-sprite
+path (removes it entirely — the QtQuick3D bug above, or a hand-rolled
+`QSGGeometry` + custom `QSGMaterial` with a `qsb` point shader), (b) render the
+idle frame once and pause the pump when nothing changes, (c) drop idle to ~6 fps.
+Not chased further this increment.
+
+**Evidence:** `wellsy orb` renders the particle sphere; screenshotted in idle /
+thinking / acting / awaiting_approval / refusing / speaking (contact sheet in the
+session). It reads as the reference *family* — swirling gradient particle sphere
+— but is rougher: the curl field lumps vertically rather than forming the
+reference's clean concentric ribbon sheets around a round core, and the
+`awaiting_approval` amber doesn't fully land. Art-direction polish, not
+architecture.
+
 ### Still owed
 
+0. **Orb art pass** — cleaner curl field (concentric ribbons, rounder envelope),
+   the dotted-grid density of the reference, stronger per-state tint separation,
+   and close the idle CPU gap (levers above).
 1. **Screen-record the orb in each state** on this Mac (acceptance #8), and
    eyeball it over a fullscreen app / across Spaces (acceptance #1).
 2. **Live `wellsy voice --orb`** — confirm the pulse tracks real VAD/PCM

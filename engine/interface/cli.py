@@ -4,7 +4,7 @@
     wellsy orb --backend headless    # force the no-GPU backend (state as JSONL on stderr)
     wellsy orb --demo                # walk the non-reactive states (cannot fake listening/speaking)
     wellsy orb --capability          # print the honest Presence capability probe and exit
-    wellsy orb --build-shaders       # compile the .qsb shader bundle(s) and exit
+    wellsy orb --profile-cpu N --hold STATE   # CPU sample, p50/p95, exit
 """
 
 from __future__ import annotations
@@ -20,8 +20,6 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--demo", action="store_true")
     ap.add_argument("--hz", type=int, default=60)
     ap.add_argument("--capability", action="store_true", help="probe Presence capability, print, exit")
-    ap.add_argument("--build-shaders", action="store_true")
-    ap.add_argument("--check-shaders", action="store_true")
     ap.add_argument("--profile-cpu", metavar="SECONDS", type=float, default=None,
                     help="hold a state for N s, sample this process's CPU, print p50/p95, exit")
     ap.add_argument("--hold", choices=["asleep", "idle", "acting", "hud"], default="asleep",
@@ -32,10 +30,6 @@ def main(argv: list[str] | None = None) -> int:
         from engine.interface.capability import probe
         print(probe().summary())
         return 0
-
-    if args.build_shaders or args.check_shaders:
-        from engine.interface.backends.qt.build_shaders import build
-        return build(check=args.check_shaders)
 
     if args.profile_cpu is not None:
         return _profile_cpu(args.profile_cpu, args.hold, args.backend)
