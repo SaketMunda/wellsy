@@ -30,10 +30,10 @@ from PySide6.QtQuick import QQuickPaintedItem
 QML_IMPORT_NAME = "Wellsy.Orb"
 QML_IMPORT_MAJOR_VERSION = 1
 
-N_POINTS = 3200
+N_POINTS = 2800
 _RAMP = ("#2ad0fc", "#6a53f2", "#fc44b8")          # cyan · violet · magenta
 _SIZES = (2, 3, 4, 6)                               # depth bins (px) at a ~240 px orb
-_PEAK = 115                                         # per-sprite core alpha
+_PEAK = 165                                         # per-sprite core alpha
 _SIZE_REF = 240.0                                   # orb edge the base sizes are tuned for
 
 # per state: mo=unravel, tu=swirl rate, hot=flare gain, dim=brightness,
@@ -109,6 +109,31 @@ class PointCloud(QQuickPaintedItem):
         sizes = [max(1, int(round(s * scale))) for s in _SIZES]
         self._spr = [[_sprite(_RAMP[b], sizes[k], _PEAK) for k in range(4)] for b in range(3)]
         self._sizes = np.array(sizes)
+        self._backing = None          # invalidate the cached backing disc
+        self._backing_wh = (0, 0)
+
+    def _backing_disc(self, w: float, h: float) -> QImage:
+        """The soft dark disc drawn behind the points so the orb reads on any
+        wallpaper. Rendered once per size and blitted — not re-rasterised every
+        frame."""
+        wh = (int(w), int(h))
+        if getattr(self, "_backing", None) is not None and self._backing_wh == wh:
+            return self._backing
+        im = QImage(wh[0], wh[1], QImage.Format_ARGB32_Premultiplied)
+        im.fill(0)
+        p = QPainter(im)
+        p.setRenderHint(QPainter.Antialiasing)
+        cx, cy, rad = w * 0.5, h * 0.5, min(w, h) * 0.47
+        g = QRadialGradient(cx, cy, rad)
+        g.setColorAt(0.0, QColor(6, 9, 20, 170))
+        g.setColorAt(0.65, QColor(6, 9, 20, 120))
+        g.setColorAt(1.0, QColor(6, 9, 20, 0))
+        p.setBrush(g); p.setPen(Qt.NoPen)
+        p.drawEllipse(int(cx - rad), int(cy - rad), int(rad * 2), int(rad * 2))
+        p.end()
+        self._backing = im
+        self._backing_wh = wh
+        return im
 
     @Slot(float)
     def tick(self, frame_time: float) -> None:
@@ -165,8 +190,16 @@ class PointCloud(QQuickPaintedItem):
         sxo = sx - self._sizes[szb] * 0.5
         syo = sy - self._sizes[szb] * 0.5
 
+        # 1) a soft dark backing disc so the orb reads on ANY wallpaper — without
+        #    it, additive points wash out over a light background (owner feedback
+        #    2026-09-04). Cached QImage, blitted, not re-rasterised per frame.
+        painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+        painter.setOpacity(min(1.0, 0.60 + 0.4 * dim))
+        painter.drawImage(0, 0, self._backing_disc(w, h))
+
+        # 2) the particle sphere, additively composited (the glow)
         painter.setCompositionMode(QPainter.CompositionMode_Plus)
-        painter.setOpacity(min(0.98, 0.60 * dim + 0.30 * self._amp + hot * 0.20))
+        painter.setOpacity(min(1.0, 0.88 * dim + 0.25 * self._amp + hot * 0.15))
         draw = painter.drawImage
         spr = self._spr
         for k in order:

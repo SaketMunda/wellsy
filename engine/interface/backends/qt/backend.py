@@ -37,6 +37,9 @@ _ALIASES = {
     "lower-left": "bottom-left", "lower-right": "bottom-right",
     "upper-left": "top-left", "upper-right": "top-right",
     "middle": "center", "centre": "center",
+    # "get out of my way" / "move away" / "hide in a corner"
+    "away": "bottom-right", "out-of-my-way": "bottom-right",
+    "out-of-way": "bottom-right", "aside": "bottom-right", "corner": "bottom-right",
 }
 
 

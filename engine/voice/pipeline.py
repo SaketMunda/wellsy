@@ -53,10 +53,25 @@ from engine.voice.wake import WakeState, build_wake_gate
 # Default LLM is qwen2.5:3b (non-reasoning — step 4b). qwen3 overrides get
 # `think:false` via extra_body in adapters.build_llm(); that build ignores it
 # today, but this prompt stays model-agnostic.
+#
+# Identity matters (owner feedback 2026-09-04): the base models default to a
+# "I'm a text-only AI, I have no camera, I can't move" persona. WELLSY is not
+# that — she runs locally, sees through a camera and the screen, speaks aloud,
+# and has a visible presence (an orb) she can reposition. She must never deny a
+# capability she has.
 SYSTEM_PROMPT = (
-    "You are WELLSY, a local voice assistant. You are speaking aloud, so "
-    "answer in one or two short spoken sentences. No lists, no markdown, no emoji. "
-    "If you do not know, say so plainly."
+    "You are WELLSY — a local, private AI that lives on this machine, in the "
+    "spirit of JARVIS. You are not a text chatbot. You hear the user through a "
+    "microphone and speak back aloud. You can see: a live camera of the room and "
+    "the screen, on demand. You have a visible presence on screen — a glowing orb "
+    "— and you can move it to any corner when asked. You can run tools: calendar, "
+    "mail drafts, reminders, notes, files, and web search.\n"
+    "Because of this: never say you are 'text-based', never say you cannot see or "
+    "have no camera, never say you cannot move. If the user asks what you see, "
+    "answer from the camera or screen. If they ask you to move, it is already "
+    "being handled — just acknowledge briefly.\n"
+    "You are speaking aloud: reply in one or two short spoken sentences. No lists, "
+    "no markdown, no emoji. If you genuinely do not know something, say so plainly."
 )
 
 AUDIO_IN_SR = 16000   # Silero VAD + Smart Turn v3 + Whisper all want 16 kHz
@@ -81,7 +96,8 @@ def _warm(stt, tts) -> None:
         pass
 
 
-def build(*, start_awake: bool = False, on_decision=None, observers=None, handle_sigint: bool = True):
+def build(*, start_awake: bool = False, on_decision=None, observers=None,
+          handle_sigint: bool = True, on_move=None):
     """Construct (worker, runner, wake_state, context). `observers` are Pipecat
     observers attached to the worker (e.g. `acoustic.LatencyObserver`)."""
     from pipecat.audio.vad.silero import SileroVADAnalyzer
@@ -135,7 +151,8 @@ def build(*, start_awake: bool = False, on_decision=None, observers=None, handle
     # image from context (step 3 "on-demand only").
     vision_pending = VisionPending()
     intent_gate = build_intent_gate(
-        wake_state, context=context, pending=vision_pending, on_decision=on_decision
+        wake_state, context=context, pending=vision_pending, on_decision=on_decision,
+        on_move=on_move,
     )
     prov_logger = build_provenance_logger(vision_pending, context=context)
 
@@ -215,12 +232,12 @@ async def _esc_watch(worker) -> None:
 
 
 async def run(*, start_awake: bool = False, on_decision=None, observers=None,
-              on_worker=None, handle_sigint: bool = True) -> None:
+              on_worker=None, handle_sigint: bool = True, on_move=None) -> None:
     from pipecat.frames.frames import LLMRunFrame
 
     worker, runner, wake_state, context = build(
         start_awake=start_awake, on_decision=on_decision, observers=observers,
-        handle_sigint=handle_sigint,
+        handle_sigint=handle_sigint, on_move=on_move,
     )
     if on_worker is not None:
         on_worker(worker)
@@ -311,6 +328,7 @@ def _run_with_orb(args) -> int:
         holder["loop"] = _asyncio.get_running_loop()
         await run(start_awake=args.awake, on_decision=on_decision,
                   observers=[observer], handle_sigint=False,  # worker runs off the main thread
+                  on_move=sess.move_orb,   # "move to the corner" -> the orb, deterministic
                   on_worker=lambda w: holder.__setitem__("worker", w))
 
     try:

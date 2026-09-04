@@ -234,6 +234,58 @@ to a corner."
   the trade is that idle no longer visibly drifts — it comes alive the instant
   any real state fires. Honesty test still green.
 
+---
+
+## Increment 5 (2026-09-04) — identity, dynamic voice control, one entry point
+
+Owner feedback, verbatim concerns: the orb didn't move when *asked* by voice;
+WELLSY called herself "a text-based assistant" and denied having a camera / the
+ability to move; everything is command/flag-driven when it should be one dynamic
+"just run it" entry; the orb is too faint.
+
+- **Identity (`SYSTEM_PROMPT`).** Rewritten so WELLSY knows she is a local AI
+  (JARVIS-spirit) that hears via mic, speaks aloud, sees camera + screen on
+  demand, has a visible orb she can move, and runs tools. Explicit: never say
+  "text-based", never deny the camera, never deny moving. The base models
+  default to the opposite persona — this is the fix for "why is she saying she's
+  text-based / has no camera".
+- **`move_orb` — a deterministic voice intent (INVARIANTS #3 family).**
+  `parse_intent` now recognises "move to the center", "go to the bottom-right",
+  "get out of my way", … → `Intent("move_orb", object=<phrase>)`, resolved by
+  `normalize_corner`. `IntentGate` handles it *without the LLM*: calls
+  `on_move(corner)` and speaks "Moving." — so it fires the instant you finish
+  the phrase, no model latency. Wired through `build()/run(on_move=)` →
+  `_run_with_orb` passes `OrbSession.move_orb`, which queues the move onto the
+  Qt main thread (`_drain` → `backend.move_to_corner`). Note for the owner: it
+  moves on the *committed* transcript (after you stop speaking), like every
+  voice command — it can't act on partial speech.
+- **`wellsy run` — the single entry point.** Orb + always-listening voice +
+  on-demand camera/screen vision + the move intent, one process, awake by
+  default (`--no-awake` for wake-phrase gating). The granular subcommands stay
+  for development. (Bare `wellsy` is still perception-only — folding that in is a
+  rename task, not this step.)
+- **Orb visibility.** A cached soft dark backing disc is drawn behind the points
+  (SourceOver) so the additive glow reads on any wallpaper — the light/forest
+  background was washing it out. Sprite core alpha 90→165, opacity floor raised.
+  Re-profiled at 358 px: asleep 0.69 %, idle 0.66 %, acting 2.68 %, HUD 2.94 % —
+  within budget (point count trimmed 3200→2800 to hold the active row).
+- **`wellsy voice --orb` Ctrl-C** now exits instead of `zsh: suspended`
+  (SIGTSTP) — the `KeyboardInterrupt` in `OrbSession._tick` is caught.
+- Known noise, not from step 6: `objc[…] Class AVFFrameReceiver is implemented
+  in both cv2/.dylibs and av/.dylibs` — opencv-python and pyav each vendor a
+  libavdevice. Spurious; a dependency-hygiene item for later.
+
+### What this does NOT yet do (the real architectural ask)
+
+The owner's deeper point stands: WELLSY should act on free-form requests
+dynamically — "access the camera", "move", "draft an email" — without a
+hand-written intent for each. Today the voice loop only has the deterministic
+intents + a bare chat LLM; the LangGraph **agent** (tools, policy gate, memory)
+is a *separate* entry (`wellsy agent`). Converging them — the agent as the brain
+of the voice loop, every tool reachable from conversation — is the Step 7 /
+"assistant convergence" work, not a patch here. `move_orb` and the identity
+prompt are the stopgaps that make the two most jarring gaps behave until then.
+
 ### Still owed
 
 0. **Orb art pass** — cleaner curl field (concentric ribbons, rounder envelope),

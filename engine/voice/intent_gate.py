@@ -44,9 +44,10 @@ _VISION_INTENTS = ("describe_scene", "query_object")
 
 @dataclass(frozen=True)
 class Decision:
-    action: str            # "stop" | "sleep" | "wake" | "canned" | "vision" | "forward"
+    action: str            # "stop"|"sleep"|"wake"|"canned"|"vision"|"move_orb"|"forward"
     intent_type: str       # the parse_intent type, for the audit/metrics line
-    say: str | None = None  # text for action == "canned"
+    say: str | None = None  # text for action == "canned" / "move_orb"
+    arg: str | None = None  # the corner phrase for action == "move_orb"
 
 
 def decide(transcript: str) -> Decision:
@@ -58,6 +59,8 @@ def decide(transcript: str) -> Decision:
         return Decision("sleep", t)
     if t == "wake":
         return Decision("wake", t)
+    if t == "move_orb":
+        return Decision("move_orb", t, say="On it.", arg=intent.object)
     if t in _CANNED:
         return Decision("canned", t, say=_CANNED[t])
     if t in _VISION_INTENTS:
@@ -66,7 +69,8 @@ def decide(transcript: str) -> Decision:
     return Decision("forward", t)
 
 
-def build_intent_gate(wake_state, *, context=None, pending=None, on_decision=None):
+def build_intent_gate(wake_state, *, context=None, pending=None, on_decision=None,
+                      on_move=None):
     """Return an IntentGate FrameProcessor.
 
     `wake_state`  — the shared WakeState.
@@ -123,6 +127,18 @@ def build_intent_gate(wake_state, *, context=None, pending=None, on_decision=Non
                 return
             if d.action == "wake":
                 self._wake.wake()
+                return
+            if d.action == "move_orb":
+                moved = False
+                if on_move is not None:
+                    try:
+                        moved = bool(on_move(d.arg or "bottom-right"))
+                    except Exception:
+                        moved = False
+                say = "Moving." if moved else "I can't move my orb right now."
+                await self.push_frame(
+                    TTSSpeakFrame(text=say, append_to_context=False), direction
+                )
                 return
             if d.action == "canned":
                 await self.push_frame(

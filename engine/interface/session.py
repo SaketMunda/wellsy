@@ -80,6 +80,18 @@ class OrbSession:
     def hide_hud(self) -> None:
         self._q.put(("hud_hide",))
 
+    def move_orb(self, corner: str) -> bool:
+        """Queue a corner move applied on the UI (main) thread. Returns True if
+        the phrase resolves to a corner; the placement happens on the next tick."""
+        try:
+            from engine.interface.backends.qt.backend import normalize_corner
+            ok = normalize_corner(corner) is not None
+        except Exception:
+            ok = True
+        if hasattr(self._backend, "move_to_corner"):
+            self._q.put(("move", corner))
+        return ok and hasattr(self._backend, "move_to_corner")
+
     def ui_approver(self, request: dict) -> dict:
         """Pass as `run_agent(approver=...)`. Blocks the worker thread until the
         user answers in the orb HUD."""
@@ -103,14 +115,21 @@ class OrbSession:
                     self._backend.show_hud(cmd[1])
                 elif cmd[0] == "hud_hide":
                     self._backend.hide_hud()
+                elif cmd[0] == "move" and hasattr(self._backend, "move_to_corner"):
+                    self._backend.move_to_corner(cmd[1])
                 elif cmd[0] == "quit":
                     self._backend.stop()
         except queue.Empty:
             pass
 
     def _tick(self) -> None:
-        self._backend.render(derive_state(self.bus))
-        self._drain()
+        try:
+            self._backend.render(derive_state(self.bus))
+            self._drain()
+        except KeyboardInterrupt:
+            # Ctrl-C landed inside the Qt timer callback — shut down cleanly
+            # instead of bubbling a traceback / leaving the shell suspended.
+            self._backend.stop()
 
     def run(self, make_coro: Callable[[threading.Event], Any]) -> Any:
         """`make_coro(stop)` returns the coroutine to run on the worker thread.
@@ -139,7 +158,10 @@ class OrbSession:
             timer.setInterval(max(1, int(1000 / self._hz)))
             timer.timeout.connect(self._tick)
             timer.start()
-            self._backend.exec_()          # returns when ("quit",) is drained
+            try:
+                self._backend.exec_()      # returns when ("quit",) is drained
+            except KeyboardInterrupt:
+                self._backend.stop()
         else:
             period = 1.0 / self._hz
             try:
