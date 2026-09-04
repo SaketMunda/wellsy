@@ -20,11 +20,28 @@ from engine.interface.signals import SignalBus
 from engine.interface.state import derive_state
 
 
-def run_presence(bus: SignalBus, *, backend=None, hz: int = 60, stop=None, **backend_kw):
+def run_presence(bus: SignalBus, *, backend=None, hz: int = 60, stop=None,
+                 commands=None, **backend_kw):
+    """`commands` is an optional queue of strings drained on the main thread
+    each tick — e.g. "move:bottom-right" to snap the orb to a corner (the hook
+    a voice/text 'move to the corner' command lands on)."""
     backend = backend or select_backend(**backend_kw)
     backend.start()
 
+    def _drain_commands() -> None:
+        if commands is None:
+            return
+        try:
+            while True:
+                cmd = commands.get_nowait()
+                if cmd.startswith("move:") and hasattr(backend, "move_to_corner"):
+                    ok = backend.move_to_corner(cmd[5:])
+                    print(f"orb: move to {cmd[5:]} -> {'ok' if ok else 'unrecognised'}")
+        except Exception:
+            pass
+
     def tick() -> None:
+        _drain_commands()
         backend.render(derive_state(bus))
 
     # Qt backend owns the main-thread event loop; drive `tick` from a QTimer.

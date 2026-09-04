@@ -81,7 +81,7 @@ def _warm(stt, tts) -> None:
         pass
 
 
-def build(*, start_awake: bool = False, on_decision=None, observers=None):
+def build(*, start_awake: bool = False, on_decision=None, observers=None, handle_sigint: bool = True):
     """Construct (worker, runner, wake_state, context). `observers` are Pipecat
     observers attached to the worker (e.g. `acoustic.LatencyObserver`)."""
     from pipecat.audio.vad.silero import SileroVADAnalyzer
@@ -179,7 +179,7 @@ def build(*, start_awake: bool = False, on_decision=None, observers=None):
         idle_timeout_secs=None,
         processor_unusable_policy=ProcessorUnusablePolicy.END,
     )
-    runner = WorkerRunner(handle_sigint=True)
+    runner = WorkerRunner(handle_sigint=handle_sigint)
     return worker, runner, wake_state, context
 
 
@@ -215,11 +215,12 @@ async def _esc_watch(worker) -> None:
 
 
 async def run(*, start_awake: bool = False, on_decision=None, observers=None,
-              on_worker=None) -> None:
+              on_worker=None, handle_sigint: bool = True) -> None:
     from pipecat.frames.frames import LLMRunFrame
 
     worker, runner, wake_state, context = build(
-        start_awake=start_awake, on_decision=on_decision, observers=observers
+        start_awake=start_awake, on_decision=on_decision, observers=observers,
+        handle_sigint=handle_sigint,
     )
     if on_worker is not None:
         on_worker(worker)
@@ -309,7 +310,7 @@ def _run_with_orb(args) -> int:
     async def _main():
         holder["loop"] = _asyncio.get_running_loop()
         await run(start_awake=args.awake, on_decision=on_decision,
-                  observers=[observer],
+                  observers=[observer], handle_sigint=False,  # worker runs off the main thread
                   on_worker=lambda w: holder.__setitem__("worker", w))
 
     try:

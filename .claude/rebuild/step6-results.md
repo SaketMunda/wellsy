@@ -195,11 +195,50 @@ reference's clean concentric ribbon sheets around a round core, and the
 `awaiting_approval` amber doesn't fully land. Art-direction polish, not
 architecture.
 
+---
+
+## Increment 4 (2026-09-03) — size, corner placement, voice `--orb` fix
+
+Owner: "it's very tiny — make it ~25 % of the screen, and let me tell it to move
+to a corner."
+
+- **Size.** The orb window now defaults to **~25 % of the screen width**
+  (`round(screen_width * 0.25)`, clamped 300–720 px; on this Mac 358 px), and
+  the point projection was widened (`cz 2.9`, `f = min(w,h)*0.60`) so the sphere
+  fills ~85 % of that. `--size PX` / `WELLSY_ORB_SIZE` override; `--screen-
+  fraction` / `WELLSY_ORB_FRACTION` change the ratio. Sprite dots scale
+  sub-linearly with the orb so a big orb stays dense, not speckled. The auto
+  size is re-derived every launch (never persisted) so it follows a display
+  change and can't be poisoned by a stale value.
+- **Corner placement.** `backend.move_to_corner(name)` and the QML-facing
+  `bridge.moveToCorner(name)` slot snap the window to `top-left | top-right |
+  bottom-left | bottom-right | left | right | center` against
+  `QScreen.availableGeometry()` (menu-bar / dock excluded), 24 px margin,
+  persisted. `normalize_corner()` parses loose phrasing —
+  "left", "the bottom-right corner of the screen", "move it to the right
+  corner", "centre", "right-bottom" — so a voice/text command can call it
+  directly. `wellsy orb --corner bottom-right` sets it at launch; while the orb
+  runs, typing a corner name on stdin moves it (the same hook a spoken command
+  lands on). A manual drag clears the corner snap. Verified: all four corners +
+  center position correctly on a 1434×944 work area.
+- **`wellsy voice --orb` crash fixed.** Pipecat's `WorkerRunner(handle_sigint=
+  True)` calls `loop.add_signal_handler`, which raises `set_wakeup_fd only works
+  in main thread` when the voice worker runs off the main thread (which it must,
+  under `OrbSession`, because Qt owns main). `build()` / `run()` now take
+  `handle_sigint` and the orb path passes `False`; the terminal `Esc`/Ctrl-C
+  path is unaffected for the normal `wellsy voice`.
+- **CPU re-profiled at 358 px** (`--profile-cpu`, adaptive repaint: asleep +
+  idle ~2 fps near-static, active ~45 fps): asleep **0.69 %**, idle **0.68 %**,
+  acting **2.69 %**, HUD **~2.7 %** — **all within budget** now. The idle miss
+  from increment 3 is closed by treating idle like asleep (near-static repaint);
+  the trade is that idle no longer visibly drifts — it comes alive the instant
+  any real state fires. Honesty test still green.
+
 ### Still owed
 
 0. **Orb art pass** — cleaner curl field (concentric ribbons, rounder envelope),
-   the dotted-grid density of the reference, stronger per-state tint separation,
-   and close the idle CPU gap (levers above).
+   the dotted-grid density of the reference, stronger per-state tint separation.
+   Idle could regain a slow drift if a GPU point path removes the CPU floor.
 1. **Screen-record the orb in each state** on this Mac (acceptance #8), and
    eyeball it over a fullscreen app / across Spaces (acceptance #1).
 2. **Live `wellsy voice --orb`** — confirm the pulse tracks real VAD/PCM

@@ -13,15 +13,17 @@ import Wellsy.Orb
 
 Item {
     id: root
-    width: 170; height: 200
+    // The QQuickView sizes this to the window (backend picks ~25% of the
+    // screen). Everything below is relative, so the orb scales with it.
+    width: 260; height: 300
 
     readonly property string orbState: bridge ? bridge.state : "asleep"
+    readonly property real gripBand: 40
 
     PointCloud {
         id: cloud
-        width: 170; height: 170
-        anchors.top: parent.top
-        anchors.horizontalCenter: parent.horizontalCenter
+        anchors { left: parent.left; right: parent.right; top: parent.top }
+        height: parent.height - root.gripBand
         state: root.orbState
         amplitude: bridge ? bridge.reactiveAmplitude : 0.0   // MEASURED, direct bind
         opacity: 1.0
@@ -35,10 +37,10 @@ Item {
         property double last: 0
         running: true
         repeat: true
-        // asleep barely moves; idle drifts gently at ~15 fps; anything the user
-        // is actually interacting with gets the full ~60 fps.
-        interval: root.orbState === "asleep" ? 220
-                : (root.orbState === "idle" ? 90 : 16)
+        // The orb is a large software-rastered particle cloud, so repaint rate
+        // is the CPU lever: asleep is near-static (~2 fps), idle drifts gently
+        // (~8 fps), and only states the user is actually engaging with run fast.
+        interval: (root.orbState === "asleep" || root.orbState === "idle") ? 450 : 22
         onTriggered: {
             var now = Date.now() / 1000.0
             var dt = last > 0 ? Math.min(0.25, now - last) : interval / 1000.0

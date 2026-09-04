@@ -32,8 +32,9 @@ QML_IMPORT_MAJOR_VERSION = 1
 
 N_POINTS = 3200
 _RAMP = ("#2ad0fc", "#6a53f2", "#fc44b8")          # cyan · violet · magenta
-_SIZES = (2, 3, 4, 6)                               # depth bins (px)
-_PEAK = 90                                          # per-sprite core alpha
+_SIZES = (2, 3, 4, 6)                               # depth bins (px) at a ~240 px orb
+_PEAK = 115                                         # per-sprite core alpha
+_SIZE_REF = 240.0                                   # orb edge the base sizes are tuned for
 
 # per state: mo=unravel, tu=swirl rate, hot=flare gain, dim=brightness,
 # tint=(r,g,b) 0..1 pulled toward. Frozen sphere for awaiting_approval; inward
@@ -75,7 +76,9 @@ class PointCloud(QQuickPaintedItem):
         th = i * 2.399963  # golden angle
         self._P = np.stack([r * np.cos(th), y, r * np.sin(th)], 1).astype(np.float32)
         self._u = ((th / (2.0 * math.pi)) % 1.0).astype(np.float32)
-        self._spr = [[_sprite(_RAMP[b], s, _PEAK) for s in _SIZES] for b in range(3)]
+        self._spr_scale = 0.0
+        self._spr: list[list[QImage]] = []
+        self._rebuild_sprites(1.0)
 
         self._t = 0.0
         self._amp = 0.0
@@ -98,10 +101,19 @@ class PointCloud(QQuickPaintedItem):
         self._amp = max(0.0, min(1.0, float(a)))
     amplitude = Property(float, _get_amp, _set_amp)
 
+    def _rebuild_sprites(self, scale: float) -> None:
+        """Re-render the 3 colours × 4 depth-bin sprites at `scale`. Cheap (12
+        tiny QImages); done only when the orb size changes materially so a big
+        orb gets proportionally bigger dots, not a sparse speckle."""
+        self._spr_scale = scale
+        sizes = [max(1, int(round(s * scale))) for s in _SIZES]
+        self._spr = [[_sprite(_RAMP[b], sizes[k], _PEAK) for k in range(4)] for b in range(3)]
+        self._sizes = np.array(sizes)
+
     @Slot(float)
     def tick(self, frame_time: float) -> None:
         """Advance the clock and ease params toward the current state. Called by
-        a QML FrameAnimation. `frame_time` is real seconds since the last frame
+        a QML Timer. `frame_time` is real seconds since the last frame
         (time-driven swirl is the one allowed clock; amplitude is separate)."""
         self._t += frame_time
         tgt = self._target_vec(self._state)
@@ -113,6 +125,12 @@ class PointCloud(QQuickPaintedItem):
     def paint(self, painter: QPainter) -> None:
         w = self.width() or 300.0
         h = self.height() or 300.0
+        # keep dot size proportional to the orb (sub-linear so a big orb reads
+        # as a dense sphere, not a handful of blobs)
+        want = max(0.8, min(2.4, (min(w, h) / _SIZE_REF) ** 0.6))
+        if abs(want - self._spr_scale) > 0.12:
+            self._rebuild_sprites(want)
+
         t = self._t
         mo, tu, hot, dim, tr, tg, tb = self._cur
 
@@ -132,7 +150,9 @@ class PointCloud(QQuickPaintedItem):
               + (amt * ribbon * field).astype(np.float32)
 
         z = p[:, 2]
-        cz, f = 4.1, min(w, h) * 0.40
+        # camera pulled in + wide focal so the sphere fills ~85% of the item
+        # (the item is sized to ~25% of the screen; the orb should look it)
+        cz, f = 2.9, min(w, h) * 0.60
         sx = w * 0.5 + p[:, 0] / (cz - z) * f
         sy = h * 0.5 - p[:, 1] / (cz - z) * f
 
@@ -142,11 +162,11 @@ class PointCloud(QQuickPaintedItem):
         cb = np.clip((uu * 3).astype(int), 0, 2)
         order = np.argsort(z)                          # back → front
 
-        sxo = sx - np.array(_SIZES)[szb] * 0.5
-        syo = sy - np.array(_SIZES)[szb] * 0.5
+        sxo = sx - self._sizes[szb] * 0.5
+        syo = sy - self._sizes[szb] * 0.5
 
         painter.setCompositionMode(QPainter.CompositionMode_Plus)
-        painter.setOpacity(min(0.95, 0.42 * dim + 0.32 * self._amp + hot * 0.18))
+        painter.setOpacity(min(0.98, 0.60 * dim + 0.30 * self._amp + hot * 0.20))
         draw = painter.drawImage
         spr = self._spr
         for k in order:

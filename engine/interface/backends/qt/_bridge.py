@@ -12,7 +12,7 @@ class Bridge(QObject):
     changed = Signal()
     hudChanged = Signal()
 
-    def __init__(self, *, on_drag, on_persist, on_approval, on_escape):
+    def __init__(self, *, on_drag, on_persist, on_approval, on_escape, on_corner=None):
         super().__init__()
         self._state = "asleep"
         self._amp = 0.0
@@ -24,6 +24,7 @@ class Bridge(QObject):
         self._on_persist = on_persist
         self._on_approval = on_approval
         self._on_escape = on_escape
+        self._on_corner = on_corner
 
     # ---- called from Python (backend) ---- #
     def update(self, state: str, amplitude: float, because: str) -> None:
@@ -74,3 +75,9 @@ class Bridge(QObject):
         if self._on_escape:
             self._on_escape()
         self.hideHud()
+
+    @Slot(str, result=bool)
+    def moveToCorner(self, name: str) -> bool:
+        """Snap the orb to a screen corner — the target for a 'move to the
+        bottom-right' voice/text command. Returns True if `name` was understood."""
+        return bool(self._on_corner and self._on_corner(name))
