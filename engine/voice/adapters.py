@@ -134,18 +134,20 @@ class SeamTTSService(TTSService):
 
 
 def build_llm():
-    """Pipecat `OpenAILLMService` on the local server. Default `qwen2.5:3b`:
-    on Ollama 0.33.2 every `qwen3` / `qwen3-vl` build ignores `think:false` and
-    burns 8-22 s/turn on a reasoning pass (re-confirmed 2026-09-01 by curl;
-    step 4b), which blows the §1 budget the voice path exists to meet.
-    `qwen2.5:3b` answers in ~50 ms TTFT with no reasoning — the honest pipeline
-    number. Override with `WELLSY_LLM_MODEL` (e.g. a non-reasoning VLM like
-    `qwen2.5vl:3b` for image turns) / `WELLSY_LLM_BASE_URL`."""
+    """Pipecat `OpenAILLMService` on the local server. Default
+    `qwen3:4b-instruct-2507-q4_K_M` (step 5b): non-reasoning by construction —
+    the `-instruct` build has no `<think>` path, so it sidesteps the Ollama
+    0.33.2 problem where every hybrid/thinking `qwen3*` build burns ~78 s/turn
+    on a reasoning pass that no flag or `think:"low"` level disables (all
+    measured, `.claude/rebuild/step5b-results.md` §2). 21 ms warm TTFT — the
+    honest pipeline number, same model the agent's fast+planner roles use.
+    Override with `WELLSY_LLM_MODEL` (e.g. `qwen3-vl:2b-instruct-q4_K_M` for
+    image turns) / `WELLSY_LLM_BASE_URL`."""
 
     from pipecat.services.openai.llm import OpenAILLMService
 
     base_url = os.environ.get("WELLSY_LLM_BASE_URL", "http://localhost:11434/v1")
-    model = os.environ.get("WELLSY_LLM_MODEL", "qwen2.5:3b")
+    model = os.environ.get("WELLSY_LLM_MODEL", "qwen3:4b-instruct-2507-q4_K_M")
     # `keep_alive: -1` pins the model resident so the ~10-16 s cold reload does
     # not tax every idle-gap turn. `think` / `enable_thinking` are still sent so
     # a qwen3 override behaves as well as that build allows (it currently
