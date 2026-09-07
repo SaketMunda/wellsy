@@ -96,6 +96,13 @@ def test_window_ttl_expires_old_utterances():
 # --------------------------------------------------------------------------- #
 # processors under run_test                                                    #
 # --------------------------------------------------------------------------- #
+#
+# start_timeout=10.0 (harness default 1.0): step 6b diagnosis — the earlier
+# intermittent `TimeoutError` here was pipecat's run_test giving the pipeline
+# task only 1.0 s to emit its StartFrame ack, which a machine under the step-6
+# load (two LLMs pinned keep_alive:-1 + the orb repainting) could miss. The
+# self-echo matcher itself is fine: is_self_echo() on the exact failing strings
+# returns the right verdict in ~0.2 ms (see step6-results.md increment 7).
 
 
 def test_self_echo_filter_drops_echo_keeps_user():
@@ -118,7 +125,7 @@ async def _self_echo_filter_drops_echo_keeps_user():
         TranscriptionFrame("I can't share deep.", "", "t0", finalized=True),   # echo
         TranscriptionFrame("what's the weather like", "", "t1", finalized=True),  # user
     ]
-    down, _up = await run_test(flt, frames_to_send=frames_in)
+    down, _up = await run_test(flt, frames_to_send=frames_in, start_timeout=10.0)
     kept = [f.text for f in down if isinstance(f, TranscriptionFrame)]
     assert kept == ["what's the weather like"]
     assert suppressed and suppressed[0][0] == "I can't share deep."
@@ -138,7 +145,7 @@ async def _echo_text_tap_populates_window():
         TTSTextFrame("Paris is the capital", aggregated_by="sentence"),
         TTSSpeakFrame("Going to sleep."),
     ]
-    down, _up = await run_test(tap, frames_to_send=frames_in)
+    down, _up = await run_test(tap, frames_to_send=frames_in, start_timeout=10.0)
     # frames pass through untouched
     assert sum(isinstance(f, (TTSTextFrame, TTSSpeakFrame)) for f in down) == 2
     assert window.recent() == ["Paris is the capital", "Going to sleep."]
@@ -182,7 +189,7 @@ async def _gate_mutes_mic_while_bot_speaks_and_unmutes_after_tail():
         SleepFrame(sleep=0.3),
         _audio_frame(),                       # tail elapsed: passes
     ]
-    down, _up = await run_test(gate, frames_to_send=frames_in)
+    down, _up = await run_test(gate, frames_to_send=frames_in, start_timeout=10.0)
 
     audio_out = sum(isinstance(f, InputAudioRawFrame) for f in down)
     assert audio_out == 2, f"expected 2 mic frames through, got {audio_out}"
@@ -206,7 +213,7 @@ async def _gate_never_swallows_the_stop_path():
         BotStartedSpeakingFrame(),
         InterruptionFrame(),      # ESC / deterministic stop — must pass even while muted
     ]
-    down, _up = await run_test(gate, frames_to_send=frames_in)
+    down, _up = await run_test(gate, frames_to_send=frames_in, start_timeout=10.0)
     assert any(isinstance(f, InterruptionFrame) for f in down)
 
 
@@ -221,6 +228,6 @@ async def _gate_full_mode_never_mutes():
     transitions = []
     gate = build_half_duplex_gate(tail_ms=100, mode="full", on_transition=transitions.append)
     frames_in = [BotStartedSpeakingFrame(), _audio_frame(), _audio_frame()]
-    down, _up = await run_test(gate, frames_to_send=frames_in)
+    down, _up = await run_test(gate, frames_to_send=frames_in, start_timeout=10.0)
     assert sum(isinstance(f, InputAudioRawFrame) for f in down) == 2
     assert transitions == []

@@ -1,1 +1,3 @@
 [streaming] openai_http: first answer delta @ 65 ms; remaining 39 of 40 deltas (166 chars) streamed over the next 264 ms — a non-streaming path would have withheld all 40 until +264 ms
+[streaming] openai_http: first answer delta @ 40 ms; remaining 24 of 25 deltas (101 chars) streamed over the next 162 ms — a non-streaming path would have withheld all 25 until +162 ms
+[streaming] openai_http: first answer delta @ 59 ms; remaining 31 of 32 deltas (133 chars) streamed over the next 214 ms — a non-streaming path would have withheld all 32 until +214 ms
