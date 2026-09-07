@@ -34,10 +34,13 @@ can be added later without changing the interface.
 
 | Model | Served as | Version / digest | Verified | Licence | Notes |
 |---|---|---|---|---|---|
-| Qwen2.5 3B | Ollama `qwen2.5:3b` | 2026-09-01 | Apache-2.0 | **voice-path LLM default** (`adapters.build_llm`, `metrics.py`). Non-reasoning: ~50 ms TTFT, composed §1 LLM row 614 ms. Chosen because every `qwen3*` build below burns 8-22 s/turn on this Ollama (next row). |
-| Qwen3-VL 4B | Ollama `qwen3-vl:4b` | digest `1343d82ebee3`, 3.3 GB | 2026-09-01 | Apache-2.0 | `openai_http` standalone default; VLM via `images=`. **Not usable in the voice loop**: ignores `think:false` on Ollama 0.33.2 (re-confirmed by curl 2026-09-01, step 4b — "say hi in 3 words" → 4082 thinking tokens), 8-22 s to first audio measured live. VLM §1 row is BLOCKED until a non-reasoning local VLM (`qwen2.5vl:3b` / moondream / llava) is pulled. |
-| Qwen3-VL 8B | Ollama `qwen3-vl:8b` | digest `901cae732162`, 6.1 GB | 2026-09-01 | Apache-2.0 | available; same reasoning-tax problem as 4B |
-| Qwen3 4B | Ollama `qwen3:4b` / MLX `mlx-community/Qwen3-4B-4bit` | Ollama `359d7dd4bcda` 2.5 GB · MLX rev `main`, 4-bit, ~2.3 GB | 2026-09-01 | Apache-2.0 | MLX-vs-server head-to-head; Ollama build reasons uncontrollably (~43 s for a 3-word answer) so it is not the voice default |
+| Qwen3 4B Instruct 2507 | Ollama `qwen3:4b-instruct-2507-q4_K_M` | digest `0edcdef34593`, 2.5 GB | 2026-09-03 | Apache-2.0 | **step 5b default for agent `fast` + `planner` AND the voice-path LLM** (`models.py`, `adapters.build_llm`, `metrics.py`). Non-reasoning *by construction* (the `-instruct` build has no `<think>` path). Warm TTFT 21 ms (fast turn) / 32 ms (planner prompt); full schema-valid 3-step plan in ~4.0 s; **20/20 plan-JSON validity**; 3.2 GB resident (`ollama ps`, ctx 4096). One model, two agent roles. |
+| Qwen3-VL 2B Instruct | Ollama `qwen3-vl:2b-instruct-q4_K_M` | digest `ea422f1e7365`, 1.9 GB | 2026-09-03 | Apache-2.0 | **step 5b `openai_http` / VLM default** (`DEFAULT_MODEL`), VLM via `images=`. Non-reasoning `-instruct` build — retires the `qwen3-vl:4b` hybrid reasoning-tax debt. 2.0 GB resident; first-capture image processing ~1.8 s (768 px synthetic, `coldTTFT−load`); transcribed every line incl. 0.5-scale small print, matching `qwen2.5vl:3b`. **Owed: real-vision-path resolution sweep (step 5b debt D3).** |
+| Qwen2.5 3B | Ollama `qwen2.5:3b` | 2026-09-01 | Apache-2.0 | **Beaten incumbent** (step 5b fast bench-off). 15 ms warm TTFT, 2.0 GB — faster/lighter than the winner but 2024-era (INVARIANTS #8). Kept pulled as a fallback. |
+| Qwen2.5-VL 3B | Ollama `qwen2.5vl:3b` | digest `fb90415cde1e`, 3.2 GB | 2026-09-03 | Apache-2.0 | Step-5 interim VLM, **beaten** by `qwen3-vl:2b-instruct` (4.1 GB resident vs 2.0, 91 vs 140 tok/s, same legibility). Fallback. |
+| Qwen3-VL 4B | Ollama `qwen3-vl:4b` (+ `4b-instruct` on the shelf) | digest `1343d82ebee3`, 3.3 GB | 2026-09-01 | Apache-2.0 | Hybrid `4b` reasons uncontrollably on Ollama 0.33.2 (step 4b). `qwen3-vl:4b-instruct` (3.3 GB) is the non-reasoning fallback if D3 finds `2b-instruct` loses dense-UI text. |
+| Qwen3 4B (hybrid / thinking-2507) | Ollama `qwen3:4b`, `qwen3:4b-thinking-2507-q4_K_M` | `359d7dd4bcda` / — | 2026-09-03 | Apache-2.0 | **Rejected for the planner.** ~78 s/turn, 4756 reasoning tokens/turn. `think:"low"` accepted by the API but **byte-identical** think-token count — no flag or effort level disables reasoning on this stack (step 5b §2). |
+| Qwen3-VL 8B | Ollama `qwen3-vl:8b` | digest `901cae732162`, 6.1 GB | 2026-09-01 | Apache-2.0 | available; same reasoning-tax problem as hybrid 4B |
 
 **`wellsy bench --modality llm` (trials 20, `/no_think` prompt, cold):**
 
@@ -50,8 +53,12 @@ Read this as the INVARIANTS #14 trade-off, measured: MLX is ~24× faster to
 first token on this dev machine — and exists on no other platform, which is
 exactly why it is opt-in and never auto-selected. `openai_http` p95 is a real
 30 s Ollama outlier on `qwen3-vl:4b` (a vision model paying prompt-processing
-cost); `qwen3:4b` text-only would be the fairer server comparison and is left
-for the master session to run if wanted (`WELLSY_LLM_MODEL=qwen3:4b`).
+cost).
+
+**Superseded for role selection by step 5b** — `wellsy bench --modality llm`
+now runs a per-slot candidate set (`--slot planner|fast|vlm`); current winners
+and losers are in `.claude/rebuild/step5b-results.md` §2-4. The row above stays
+as the MLX-vs-server INVARIANTS #14 datapoint.
 
 **Streaming proof (`tests/test_llm_streaming.py`, acceptance #3), cold:**
 
@@ -137,19 +144,21 @@ MCP servers are **ours** (`engine/agent/servers/pim.py`, `fs.py`, FastMCP/stdio)
 Node/bun runtime, no Mail, no safety flags). PIM backend is platform-neutral
 (`WELLSY_PIM_BACKEND`: `portable` default JSON store, `macos` `osascript`).
 
-### Two model roles (Deliverable 2b)
+### Model roles — step 5b winners (n≥20 warm unless noted; `spec/results/llm-bench-*.jsonl`)
 
-| Role | Model (default) | Served as | Resident (`ollama ps`, ctx 4096) | Measured, 1 streamed turn (warm) |
+| Role | Model (default) | Resident (`ollama ps`, ctx 4096) | Warm TTFT p50 / p95 | Notes |
 |---|---|---|---|---|
-| fast | `qwen2.5:3b` (**interim**) | Ollama | 2.2 GB | TTFT **0.19 s**, 88.7 tok/s, full plan JSON 0.89 s |
-| planner | `qwen3:4b` | Ollama | 3.2 GB | TTFT **33.2 s**, 64.7 tok/s — reasoning tax, **unshippable**, debt |
-| VLM | `qwen3-vl:4b` | Ollama | 3.6 GB | (step-4b VLM debt unchanged; `qwen2.5vl:3b` pulled as the non-reasoning route) |
+| fast **+** planner | `qwen3:4b-instruct-2507-q4_K_M` | **3.2 GB** (one model, both roles) | 21 / 24 ms (fast) · 32 / 47 ms (planner) | non-reasoning; full plan 4.0 s; 20/20 plan-valid |
+| VLM | `qwen3-vl:2b-instruct-q4_K_M` | **2.0 GB** | ~1.8 s first-capture proc (768 px proxy) | non-reasoning; D3 sweep owed |
 
-All three co-resident = **9.0 GB**. Agent-runtime python tree (models excluded):
-**204.7 MB** (runner 84.8 + pim server 60.5 + fs server 59.5). Full method and
-the Jetson Orin NX 16 GB analysis: `.claude/rebuild/step5-results.md` §7.
-`qwen2.5:3b` fast default is carried from step 4b; the current-model bench-off
-was deferred by the owner this session and is owed (INVARIANTS #8).
+**Both co-resident (measured together) = 5.2 GB** — down from step-5's 9.0 GB
+for three models. Agent-runtime python tree unchanged: **204.7 MB**. Re-derived
+Jetson Orin NX 16 GB analysis (now **fits, all roles resident**):
+`.claude/rebuild/step5b-results.md` §5, which **supersedes `step5-results.md` §7**.
+
+Losers with numbers: `qwen2.5:3b` (fast, 15 ms but 2024-era), `qwen3:4b` /
+`qwen3:4b-thinking-2507` (planner, ~78 s/turn, `think:"low"` non-functional),
+`qwen2.5vl:3b` (VLM, 4.1 GB / 91 tok/s). Full table: step 5b results §2-4.
 
 ---
 

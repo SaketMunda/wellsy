@@ -370,7 +370,24 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--trials", type=int, default=20, help="timed warm trials (>= 20 for acceptance)")
     ap.add_argument("--warmup", type=int, default=3)
     ap.add_argument("--out", default=None, help="override the .jsonl output path")
+    ap.add_argument("--slot", choices=["planner", "fast", "vlm", "all"], default="all",
+                    help="llm only: which model role to bench (step 5b)")
+    ap.add_argument("--candidate", default=None, help="llm only: a single model id")
     args = ap.parse_args(argv)
+
+    # `--modality llm` is the per-slot model bench-off (step 5b Deliverable 1),
+    # not the old single composite row. `--backend` still forces the legacy
+    # backend-regression path for the llm modality.
+    if args.modality == "llm" and not args.backend:
+        from engine.inference import llm_bench
+
+        llm_argv = ["--slot", args.slot, "--trials", str(args.trials),
+                    "--warmup", str(args.warmup)]
+        if args.candidate:
+            llm_argv += ["--candidate", args.candidate]
+        if args.out:
+            llm_argv += ["--out", args.out]
+        return llm_bench.run(llm_argv)
 
     modalities = list(registry.MODALITIES) if args.modality == "all" else [args.modality]
     snapshot = registry.describe()

@@ -12,10 +12,12 @@
                             describe_scene / query_object -> capture + verify a
                             frame, attach to context, run the VLM)
       -> user_aggregator
-      -> LLM/VLM           (streaming SeamLLMService; qwen2.5:3b text by default,
-                            non-reasoning; a vision turn flips it to the VL model
-                            (qwen3-vl:2b-instruct / WELLSY_VLM_MODEL) and back. If
-                            no VL model is pulled the gate says so, no image sent)
+      -> LLM/VLM           (streaming SeamLLMService; qwen3:4b-instruct-2507 text
+                            by default — non-reasoning `-instruct` build, step 5b.
+                            A vision turn flips it to the VL model
+                            (qwen3-vl:2b-instruct-q4_K_M / WELLSY_VLM_MODEL) and
+                            back; if no VL model is pulled the gate says so, no
+                            image sent)
       -> ProvenanceLogger  (vision turns: one provenance line per answer with the
                             step-3 capture provenance folded in; drops the image)
       -> SeamTTS           (sentence-chunked; first audio before the LLM finishes)
@@ -51,9 +53,9 @@ from engine.voice.intent_gate import build_intent_gate, build_provenance_logger
 from engine.voice.vision import VisionPending
 from engine.voice.wake import WakeState, build_wake_gate
 
-# Default LLM is qwen2.5:3b (non-reasoning — step 4b). qwen3 overrides get
-# `think:false` via extra_body in adapters.build_llm(); that build ignores it
-# today, but this prompt stays model-agnostic.
+# Default LLM is qwen3:4b-instruct-2507 (non-reasoning `-instruct` build —
+# step 5b; the hybrid/thinking qwen3 builds ignore every think flag/level on
+# Ollama 0.33.2 and burn ~78 s/turn). This prompt stays model-agnostic.
 #
 # Identity matters (owner feedback 2026-09-04): the base models default to a
 # "I'm a text-only AI, I have no camera, I can't move" persona. WELLSY is not

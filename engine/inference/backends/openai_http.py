@@ -20,7 +20,7 @@ client never leaves localhost unless pointed elsewhere on purpose.
 
 Config (env var > constructor arg > default):
     WELLSY_LLM_BASE_URL   default http://localhost:11434/v1
-    WELLSY_LLM_MODEL      default qwen3-vl:4b
+    WELLSY_LLM_MODEL      default qwen3-vl:2b-instruct-q4_K_M
 """
 
 from __future__ import annotations
@@ -41,8 +41,13 @@ from engine.inference.base import (
 )
 
 DEFAULT_BASE_URL = "http://localhost:11434/v1"
-DEFAULT_MODEL = "qwen3-vl:4b"
-VERIFIED = "2026-09-01"  # Ollama 0.33.2 /v1 streaming verified on this date
+# Step 5b: the non-reasoning `-instruct` VLM build. `qwen3-vl:4b` (hybrid)
+# reasoned uncontrollably (~4 s to first audio, step 4b); `2b-instruct` is
+# non-reasoning by construction, 2.0 GB resident, matched the 3B incumbent on a
+# legibility spot-check (`.claude/rebuild/step5b-results.md` §4). The full
+# real-vision-path resolution sweep is owed (debt D3).
+DEFAULT_MODEL = "qwen3-vl:2b-instruct-q4_K_M"
+VERIFIED = "2026-09-03"  # Ollama 0.33.2 /v1 streaming re-verified, step 5b
 
 
 def _base_url(explicit: str | None = None) -> str:

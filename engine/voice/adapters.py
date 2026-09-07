@@ -189,22 +189,24 @@ def build_llm():
     """A `SeamLLMService` on the local server — one OpenAI-compatible LLM stage
     that flips to a vision model for a single image turn and back.
 
-    Default text model `qwen2.5:3b`: on Ollama 0.33.2 every `qwen3` / `qwen3-vl`
-    build ignores `think:false` and burns 8-22 s/turn on a reasoning pass
-    (re-confirmed 2026-09-01 by curl; step 4b), which blows the §1 budget the
-    voice path exists to meet. `qwen2.5:3b` answers in ~50 ms TTFT with no
-    reasoning — the honest pipeline number.
+    Default text model `qwen3:4b-instruct-2507-q4_K_M` (step 5b): non-reasoning
+    by construction — the `-instruct` build has no `<think>` path, so it
+    sidesteps the Ollama 0.33.2 problem where every hybrid/thinking `qwen3*`
+    build burns ~78 s/turn on a reasoning pass that no flag or `think:"low"`
+    level disables (measured, `.claude/rebuild/step5b-results.md` §2). 21 ms warm
+    TTFT — the honest pipeline number, same model the agent's fast+planner roles
+    use.
 
     Vision turns (`describe_scene` / `query_object`) need a VL model; default
-    `qwen2.5vl:3b` (non-reasoning — same reason as the text model), co-resident
-    with the text model. The name is resolved against what is actually pulled
-    (a quant suffix is fine); if nothing matches the vision path says so plainly
-    rather than crashing. Override with `WELLSY_LLM_MODEL` / `WELLSY_VLM_MODEL` /
+    `qwen3-vl:2b-instruct-q4_K_M` (step 5b), co-resident with the text model.
+    The name is resolved against what is actually pulled (a quant suffix is
+    fine); if nothing matches the vision path says so plainly rather than
+    crashing. Override with `WELLSY_LLM_MODEL` / `WELLSY_VLM_MODEL` /
     `WELLSY_LLM_BASE_URL`."""
 
     base_url = os.environ.get("WELLSY_LLM_BASE_URL", "http://localhost:11434/v1")
-    model = os.environ.get("WELLSY_LLM_MODEL", "qwen2.5:3b")
-    vlm_req = os.environ.get("WELLSY_VLM_MODEL", "qwen2.5vl:3b")
+    model = os.environ.get("WELLSY_LLM_MODEL", "qwen3:4b-instruct-2507-q4_K_M")
+    vlm_req = os.environ.get("WELLSY_VLM_MODEL", "qwen3-vl:2b-instruct-q4_K_M")
     vlm_resolved = _resolve_ollama_model(base_url, vlm_req)
     vlm_model = vlm_resolved or vlm_req          # a name to carry even when absent
     vlm_ok = vlm_resolved is not None
