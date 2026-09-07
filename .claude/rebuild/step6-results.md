@@ -311,6 +311,42 @@ prompt are the stopgaps that make the two most jarring gaps behave until then.
 7. Linux/Wayland (KWin/sway + GNOME) and Windows execution — unchanged from
    increment 1.
 
+## Increment 6 (2026-09-04) — orb contrast on a light wallpaper; two `wellsy run` crashes
+
+Owner ran `wellsy run` over a photo wallpaper (redwood forest) and hit three things:
+
+1. **Orb washed out on a light/busy background.** The cached dark backing disc
+   (`_backing_disc`) alone stops at its own radius. Added a *shaped* second layer:
+   every 4th projected particle also gets a wide (3.1×) soft near-black blob
+   blitted `SourceOver` before the additive pass, so the cloud darkens the
+   wallpaper in its own silhouette. Strengthened the disc (alpha 170→205, radius
+   0.47→0.52), particle core alpha 165→195, additive floor raised. Paid for with
+   `N_POINTS` 2800→2500 and active repaint 45→38 fps. Re-profiled, all within the
+   step-6 CPU gate: asleep p50 0.58 / p95 0.75 %, acting p50 2.64 / p95 2.83 %
+   (budget 3 %), HUD p50 2.65 / p95 2.84 % (budget 6 %).
+
+2. **A screen/camera question killed the whole session.** `describe_scene`
+   appended an image to the shared `LLMContext` and re-ran the *one* LLM stage —
+   which was the text-only `qwen2.5:3b`. Ollama returned `400 "model does not
+   support multimodal requests"`, pipecat's `ProcessorUnusablePolicy.END` marked
+   the LLM dead, and the session tore down. Fix: `adapters.SeamLLMService` — one
+   OpenAI-compatible stage, two models. `IntentGate` calls `use_vlm(True)` right
+   before the image `LLMRunFrame`; `ProvenanceLogger` calls `use_vlm(False)` once
+   the answer ends (or on an `ErrorFrame`). The VL model
+   (`WELLSY_VLM_MODEL`, default `qwen2.5vl:3b`) is resolved against what Ollama
+   actually has pulled (`/api/tags`, quant-suffix tolerant). If nothing matches,
+   `vlm_ok` is False and the gate refuses the vision turn out loud — *"I can see,
+   but my vision model isn't loaded right now."* — and sends no image. No image
+   ever reaches a text-only model again.
+
+3. **`Ctrl+C` left `zsh: suspended`, not a clean exit.** `_esc_watch` read stdin
+   with a blocking `sys.stdin.read(1)` on the default executor. That read can't be
+   cancelled, so when the pipeline ended on its own (the 400 above) `asyncio.run`
+   hung forever in `shutdown_default_executor()` waiting for a keystroke, the orb
+   `exec_()` never returned, and the process could only be stopped with `Ctrl+Z`.
+   Rewrote `_esc_watch` on `loop.add_reader` — non-blocking `os.read`, reader
+   removed and the tty restored in `finally`, nothing left pending at shutdown.
+
 ### Not from step 6
 
 `tests/test_duplex.py::test_self_echo_filter_drops_echo_keeps_user` fails on

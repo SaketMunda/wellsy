@@ -40,7 +40,7 @@ Item {
         // The orb is a large software-rastered particle cloud, so repaint rate
         // is the CPU lever: asleep is near-static (~2 fps), idle drifts gently
         // (~8 fps), and only states the user is actually engaging with run fast.
-        interval: (root.orbState === "asleep" || root.orbState === "idle") ? 450 : 22
+        interval: (root.orbState === "asleep" || root.orbState === "idle") ? 450 : 26
         onTriggered: {
             var now = Date.now() / 1000.0
             var dt = last > 0 ? Math.min(0.25, now - last) : interval / 1000.0

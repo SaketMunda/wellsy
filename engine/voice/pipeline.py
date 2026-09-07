@@ -12,9 +12,10 @@
                             describe_scene / query_object -> capture + verify a
                             frame, attach to context, run the VLM)
       -> user_aggregator
-      -> LLM/VLM           (streaming; qwen2.5:3b by default — non-reasoning;
-                            image turns need a non-reasoning VL model, e.g.
-                            WELLSY_LLM_MODEL=qwen2.5vl:3b)
+      -> LLM/VLM           (streaming SeamLLMService; qwen2.5:3b text by default,
+                            non-reasoning; a vision turn flips it to the VL model
+                            (qwen3-vl:2b-instruct / WELLSY_VLM_MODEL) and back. If
+                            no VL model is pulled the gate says so, no image sent)
       -> ProvenanceLogger  (vision turns: one provenance line per answer with the
                             step-3 capture provenance folded in; drops the image)
       -> SeamTTS           (sentence-chunked; first audio before the LLM finishes)
@@ -152,9 +153,9 @@ def build(*, start_awake: bool = False, on_decision=None, observers=None,
     vision_pending = VisionPending()
     intent_gate = build_intent_gate(
         wake_state, context=context, pending=vision_pending, on_decision=on_decision,
-        on_move=on_move,
+        on_move=on_move, llm=llm,
     )
-    prov_logger = build_provenance_logger(vision_pending, context=context)
+    prov_logger = build_provenance_logger(vision_pending, context=context, llm=llm)
 
     # --- step 4c: open-air audio -------------------------------------------- #
     cfg = cfg_holder["cfg"]
@@ -202,7 +203,13 @@ def build(*, start_awake: bool = False, on_decision=None, observers=None,
 
 async def _esc_watch(worker) -> None:
     """Raw-tty ESC -> deterministic instant stop (the old build's 114 ms path).
-    No-op when stdin is not a tty."""
+    No-op when stdin is not a tty.
+
+    Uses `loop.add_reader`, not a blocking `stdin.read` on the default executor:
+    that read cannot be cancelled, so on shutdown `asyncio.run` would block
+    forever in `shutdown_default_executor()` waiting for a keystroke — the orb
+    then hangs the process and Ctrl+C only gets you `zsh: suspended`
+    (owner log 2026-09-04)."""
     if not sys.stdin.isatty():
         return
     try:
@@ -211,23 +218,40 @@ async def _esc_watch(worker) -> None:
     except ImportError:
         return  # non-POSIX (Windows console) — ESC stop is a convenience, not the safety path
 
+    import os
+
     from pipecat.frames.frames import InterruptionFrame
 
     loop = asyncio.get_running_loop()
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
+    done = asyncio.Event()
+
+    def _on_readable() -> None:
+        try:
+            ch = os.read(fd, 64)
+        except (BlockingIOError, InterruptedError):
+            return
+        except OSError:
+            done.set()
+            return
+        if not ch:                       # EOF (stdin closed)
+            done.set()
+            return
+        if b"\x1b" in ch or b"q" in ch:
+            loop.create_task(worker.queue_frames([InterruptionFrame()]))
+
     try:
         tty.setcbreak(fd)
-        while True:
-            ch = await loop.run_in_executor(None, sys.stdin.read, 1)
-            if not ch:
-                await asyncio.sleep(0.05)
-                continue
-            if ch == "\x1b" or ch == "q":
-                await worker.queue_frames([InterruptionFrame()])
+        loop.add_reader(fd, _on_readable)
+        await done.wait()                # until cancelled at shutdown
     except asyncio.CancelledError:
         pass
     finally:
+        try:
+            loop.remove_reader(fd)
+        except Exception:
+            pass
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 

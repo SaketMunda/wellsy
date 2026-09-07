@@ -30,10 +30,10 @@ from PySide6.QtQuick import QQuickPaintedItem
 QML_IMPORT_NAME = "Wellsy.Orb"
 QML_IMPORT_MAJOR_VERSION = 1
 
-N_POINTS = 2800
+N_POINTS = 2500
 _RAMP = ("#2ad0fc", "#6a53f2", "#fc44b8")          # cyan · violet · magenta
 _SIZES = (2, 3, 4, 6)                               # depth bins (px) at a ~240 px orb
-_PEAK = 165                                         # per-sprite core alpha
+_PEAK = 195                                         # per-sprite core alpha
 _SIZE_REF = 240.0                                   # orb edge the base sizes are tuned for
 
 # per state: mo=unravel, tu=swirl rate, hot=flare gain, dim=brightness,
@@ -60,6 +60,25 @@ def _sprite(hex_color: str, size: int, peak: int) -> QImage:
     c0 = QColor(hex_color); c0.setAlpha(peak); g.setColorAt(0.0, c0)
     c1 = QColor(hex_color); c1.setAlpha(int(peak * 0.35)); g.setColorAt(0.45, c1)
     c2 = QColor(hex_color); c2.setAlpha(0); g.setColorAt(1.0, c2)
+    p.setBrush(g); p.setPen(Qt.NoPen)
+    p.drawEllipse(0, 0, size, size)
+    p.end()
+    return im
+
+
+def _dark_sprite(size: int) -> QImage:
+    """A soft near-black blob, wider than the colour sprite. Blitted (SourceOver)
+    under a fraction of the points so the cloud keeps local contrast on a bright
+    or busy wallpaper — the backing disc alone washes out past its own radius
+    (owner feedback 2026-09-04, forest wallpaper)."""
+    im = QImage(size, size, QImage.Format_ARGB32_Premultiplied)
+    im.fill(0)
+    p = QPainter(im)
+    p.setRenderHint(QPainter.Antialiasing)
+    g = QRadialGradient(size / 2, size / 2, size / 2)
+    g.setColorAt(0.0, QColor(2, 4, 10, 155))
+    g.setColorAt(0.5, QColor(2, 4, 10, 66))
+    g.setColorAt(1.0, QColor(2, 4, 10, 0))
     p.setBrush(g); p.setPen(Qt.NoPen)
     p.drawEllipse(0, 0, size, size)
     p.end()
@@ -109,6 +128,9 @@ class PointCloud(QQuickPaintedItem):
         sizes = [max(1, int(round(s * scale))) for s in _SIZES]
         self._spr = [[_sprite(_RAMP[b], sizes[k], _PEAK) for k in range(4)] for b in range(3)]
         self._sizes = np.array(sizes)
+        dsizes = [max(5, int(round(s * scale * 3.1))) for s in _SIZES]
+        self._dark = [_dark_sprite(dsizes[k]) for k in range(4)]
+        self._dsizes = np.array(dsizes)
         self._backing = None          # invalidate the cached backing disc
         self._backing_wh = (0, 0)
 
@@ -123,11 +145,12 @@ class PointCloud(QQuickPaintedItem):
         im.fill(0)
         p = QPainter(im)
         p.setRenderHint(QPainter.Antialiasing)
-        cx, cy, rad = w * 0.5, h * 0.5, min(w, h) * 0.47
+        cx, cy, rad = w * 0.5, h * 0.5, min(w, h) * 0.52
         g = QRadialGradient(cx, cy, rad)
-        g.setColorAt(0.0, QColor(6, 9, 20, 170))
-        g.setColorAt(0.65, QColor(6, 9, 20, 120))
-        g.setColorAt(1.0, QColor(6, 9, 20, 0))
+        g.setColorAt(0.00, QColor(4, 7, 16, 205))
+        g.setColorAt(0.45, QColor(5, 8, 18, 150))
+        g.setColorAt(0.75, QColor(6, 9, 20, 66))
+        g.setColorAt(1.00, QColor(6, 9, 20, 0))
         p.setBrush(g); p.setPen(Qt.NoPen)
         p.drawEllipse(int(cx - rad), int(cy - rad), int(rad * 2), int(rad * 2))
         p.end()
@@ -189,18 +212,31 @@ class PointCloud(QQuickPaintedItem):
 
         sxo = sx - self._sizes[szb] * 0.5
         syo = sy - self._sizes[szb] * 0.5
+        dxo = sx - self._dsizes[szb] * 0.5
+        dyo = sy - self._dsizes[szb] * 0.5
+
+        draw = painter.drawImage
 
         # 1) a soft dark backing disc so the orb reads on ANY wallpaper — without
         #    it, additive points wash out over a light background (owner feedback
         #    2026-09-04). Cached QImage, blitted, not re-rasterised per frame.
         painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
-        painter.setOpacity(min(1.0, 0.60 + 0.4 * dim))
-        painter.drawImage(0, 0, self._backing_disc(w, h))
+        painter.setOpacity(min(1.0, 0.62 + 0.38 * dim))
+        draw(0, 0, self._backing_disc(w, h))
+
+        # 1b) per-point dark matte, every third point (stride 3). Gives the cloud
+        #     a body that darkens a bright/busy wallpaper in its own shape, past
+        #     where the backing disc has faded (forest-wallpaper feedback). The
+        #     sprite is wide (3.1x) so every fourth point still covers; the
+        #     thinned count keeps the extra blits off the CPU budget.
+        painter.setOpacity(min(1.0, 0.55 + 0.4 * dim))
+        dark = self._dark
+        for k in order[::4]:
+            draw(QPointF(dxo[k], dyo[k]), dark[szb[k]])
 
         # 2) the particle sphere, additively composited (the glow)
         painter.setCompositionMode(QPainter.CompositionMode_Plus)
-        painter.setOpacity(min(1.0, 0.88 * dim + 0.25 * self._amp + hot * 0.15))
-        draw = painter.drawImage
+        painter.setOpacity(min(1.0, 0.98 * dim + 0.25 * self._amp + hot * 0.15))
         spr = self._spr
         for k in order:
             draw(QPointF(sxo[k], syo[k]), spr[cb[k]][szb[k]])

@@ -18,6 +18,7 @@ from typing import Any, AsyncGenerator
 import numpy as np
 
 from pipecat.frames.frames import Frame, TranscriptionFrame, TTSAudioRawFrame
+from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.services.settings import STTSettings, TTSSettings
 from pipecat.services.stt_service import SegmentedSTTService
 from pipecat.services.tts_service import TTSService
@@ -133,19 +134,80 @@ class SeamTTSService(TTSService):
         return out
 
 
-def build_llm():
-    """Pipecat `OpenAILLMService` on the local server. Default `qwen2.5:3b`:
-    on Ollama 0.33.2 every `qwen3` / `qwen3-vl` build ignores `think:false` and
-    burns 8-22 s/turn on a reasoning pass (re-confirmed 2026-09-01 by curl;
-    step 4b), which blows the §1 budget the voice path exists to meet.
-    `qwen2.5:3b` answers in ~50 ms TTFT with no reasoning — the honest pipeline
-    number. Override with `WELLSY_LLM_MODEL` (e.g. a non-reasoning VLM like
-    `qwen2.5vl:3b` for image turns) / `WELLSY_LLM_BASE_URL`."""
+class SeamLLMService(OpenAILLMService):
+    """One LLM stage, two models. The pipeline has a single LLM processor
+    (step 4b); `IntentGate` calls `use_vlm(True)` right before it emits the
+    image `LLMRunFrame`, and `ProvenanceLogger` calls `use_vlm(False)` once the
+    answer ends and the image is dropped from context. `vlm_ok` is False when no
+    VL model is pulled — `use_vlm(True)` is then a no-op and the gate refuses
+    the vision turn honestly (never sends an image the text model 400s on)."""
 
-    from pipecat.services.openai.llm import OpenAILLMService
+    def __init__(self, *, text_model: str, vlm_model: str, vlm_ok: bool, **kw) -> None:
+        super().__init__(**kw)
+        self._text_model = text_model
+        self._vlm_model = vlm_model
+        self.vlm_ok = bool(vlm_ok)
+
+    def use_vlm(self, on: bool) -> None:
+        target = self._vlm_model if (on and self.vlm_ok) else self._text_model
+        if self._settings.model != target:
+            self._settings.model = target
+            self.set_full_model_name(target)
+
+
+def _resolve_ollama_model(base_url: str, model: str) -> str | None:
+    """Return the actual pulled tag on the local OpenAI-compatible server
+    (Ollama) that satisfies `model`, or None if nothing does. Matches an exact
+    tag, a ":latest" elision, or a quant suffix (`qwen3-vl:2b-instruct` ->
+    `qwen3-vl:2b-instruct-q4_K_M`). Any failure -> None, and the vision path
+    then degrades to an honest "my vision model isn't loaded" instead of sending
+    an image to a text-only model — which 400s and, under pipecat's
+    unusable-processor policy, tears the whole session down (owner log
+    2026-09-04)."""
+    import json as _json
+    import urllib.request
+
+    root = base_url.rstrip("/")
+    if root.endswith("/v1"):
+        root = root[:-3].rstrip("/")
+    try:
+        with urllib.request.urlopen(root + "/api/tags", timeout=1.5) as r:
+            names = [m.get("name", "") for m in _json.loads(r.read()).get("models", [])]
+    except Exception:
+        return None
+    if model in names:
+        return model
+    if f"{model}:latest" in names:
+        return f"{model}:latest"
+    for n in names:                              # quant suffix, shortest match first
+        if n.startswith(model + "-"):
+            return n
+    return None
+
+
+def build_llm():
+    """A `SeamLLMService` on the local server — one OpenAI-compatible LLM stage
+    that flips to a vision model for a single image turn and back.
+
+    Default text model `qwen2.5:3b`: on Ollama 0.33.2 every `qwen3` / `qwen3-vl`
+    build ignores `think:false` and burns 8-22 s/turn on a reasoning pass
+    (re-confirmed 2026-09-01 by curl; step 4b), which blows the §1 budget the
+    voice path exists to meet. `qwen2.5:3b` answers in ~50 ms TTFT with no
+    reasoning — the honest pipeline number.
+
+    Vision turns (`describe_scene` / `query_object`) need a VL model; default
+    `qwen2.5vl:3b` (non-reasoning — same reason as the text model), co-resident
+    with the text model. The name is resolved against what is actually pulled
+    (a quant suffix is fine); if nothing matches the vision path says so plainly
+    rather than crashing. Override with `WELLSY_LLM_MODEL` / `WELLSY_VLM_MODEL` /
+    `WELLSY_LLM_BASE_URL`."""
 
     base_url = os.environ.get("WELLSY_LLM_BASE_URL", "http://localhost:11434/v1")
     model = os.environ.get("WELLSY_LLM_MODEL", "qwen2.5:3b")
+    vlm_req = os.environ.get("WELLSY_VLM_MODEL", "qwen2.5vl:3b")
+    vlm_resolved = _resolve_ollama_model(base_url, vlm_req)
+    vlm_model = vlm_resolved or vlm_req          # a name to carry even when absent
+    vlm_ok = vlm_resolved is not None
     # `keep_alive: -1` pins the model resident so the ~10-16 s cold reload does
     # not tax every idle-gap turn. `think` / `enable_thinking` are still sent so
     # a qwen3 override behaves as well as that build allows (it currently
@@ -155,8 +217,9 @@ def build_llm():
         "think": False,
         "chat_template_kwargs": {"enable_thinking": False},
     }
-    return OpenAILLMService(
+    return SeamLLMService(
         api_key=os.environ.get("WELLSY_LLM_API_KEY", "ollama"),
         base_url=base_url,
-        settings=OpenAILLMService.Settings(model=model, extra={"extra_body": extra_body}),
+        settings=SeamLLMService.Settings(model=model, extra={"extra_body": extra_body}),
+        text_model=model, vlm_model=vlm_model, vlm_ok=vlm_ok,
     )
