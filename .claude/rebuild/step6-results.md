@@ -333,8 +333,10 @@ Owner ran `wellsy run` over a photo wallpaper (redwood forest) and hit three thi
    OpenAI-compatible stage, two models. `IntentGate` calls `use_vlm(True)` right
    before the image `LLMRunFrame`; `ProvenanceLogger` calls `use_vlm(False)` once
    the answer ends (or on an `ErrorFrame`). The VL model
-   (`WELLSY_VLM_MODEL`, default `qwen2.5vl:3b`) is resolved against what Ollama
-   actually has pulled (`/api/tags`, quant-suffix tolerant). If nothing matches,
+   (`WELLSY_VLM_MODEL`, default `qwen3-vl:2b-instruct-q4_K_M` — step 6b corrected
+   this line; the increment-6 code always used the qwen3-vl tag, only this prose
+   was stale) is resolved against what Ollama actually has pulled (`/api/tags`,
+   quant-suffix tolerant). If nothing matches,
    `vlm_ok` is False and the gate refuses the vision turn out loud — *"I can see,
    but my vision model isn't loaded right now."* — and sends no image. No image
    ever reaches a text-only model again.
@@ -364,3 +366,177 @@ looks cheap: the value-noise `fbm` in the shader is the cheap 4-octave hash kind
 — it will band on a large orb. The reference-quality look wants simplex/curl
 noise and probably a real sphere mesh with a Fresnel term, not a 2D disc field.
 That is a deliberate hold until the orb renders and the CPU budget is known.
+
+---
+
+## Increment 7 (2026-09-07) — step 6b consolidation: land on top of 5b, re-measure
+
+Executed against `.claude/rebuild/step6b-consolidation.md`. Machine: M4 Pro,
+24 GB, macOS 15.5. Branch `rebuild/step6b-consolidation` off `master` @
+`05f1061`.
+
+### The merge — already landed, verified correct
+
+The step-6 branch was merged to `master` as **PR #12** (`05f1061`) before this
+session opened; the branch had already taken `git merge master` (`68bac71`,
+"Merge branch 'master' … # Conflicts: adapters.py, pipeline.py") and increment 6
+was committed inside that PR, not left loose. So Deliverables 1 and 2 were done
+by the merge — this increment's job on them was to **audit** that they resolved
+the way step 6b required, not redo them.
+
+| Collision | Required resolution | What `master` actually has | Verdict |
+|---|---|---|---|
+| `engine/voice/adapters.py` | keep step 6's `SeamLLMService` + `_resolve_ollama_model`; take 5b's models + rationale into the docstring | `build_llm()` returns `SeamLLMService`; text default `qwen3:4b-instruct-2507-q4_K_M`, VLM default `qwen3-vl:2b-instruct-q4_K_M`; docstring carries the 5b measured rationale (non-reasoning `-instruct`, 21 ms warm TTFT, step 5b §2) | **correct** |
+| `engine/voice/pipeline.py` | step 6's identity `SYSTEM_PROMPT` body; 5b model names in the comments | `SYSTEM_PROMPT` is the increment-5 JARVIS-identity text; header + preamble name `qwen3:4b-instruct-2507` and `qwen3-vl:2b-instruct-q4_K_M` | **correct** |
+
+Both required defaults are true after the merge:
+
+- text / fast / planner → `qwen3:4b-instruct-2507-q4_K_M`
+- VLM → `qwen3-vl:2b-instruct-q4_K_M`
+
+`engine/agent/models.py`, `spec/model-inventory.md`,
+`engine/inference/backends/openai_http.py` came from master's side and needed no
+hand-editing (checked, not assumed). `grep -rn "qwen2\.5" engine/ spec/`
+(excluding `spec/results/`) returns **only** prose that labels `qwen2.5:3b` /
+`qwen2.5vl:3b` as the beaten incumbent / interim baseline / bench candidate /
+pulled fallback — no live default anywhere.
+
+`_resolve_ollama_model()` verified against the running server's `/api/tags`
+(not assumed): `qwen3-vl:2b-instruct-q4_K_M` → itself (exact), bare
+`qwen3-vl:2b-instruct` → `qwen3-vl:2b-instruct-q4_K_M` (quant-suffix
+tolerance), `nope:1b` → `None`. Both 5b tags are pulled on this box verbatim,
+so the tolerance is headroom, not load-bearing, for the shipped defaults.
+
+**Untracked-file dispositions (Deliverable 1):**
+- `original-c74…mp4` — **not in the tree**: not tracked, not in the working
+  dir, no `.gitignore` entry needed because it is simply gone. Satisfies "a
+  7.8 MB binary does not go into the tree under a hash name." The reference clip
+  now lives only on the owner's disk; if art-direction work needs it back it
+  goes under a named `spec/reference/` path, not a hash.
+- `spec/results/streaming-2026-09-03.txt`, `streaming-2026-09-04.txt` — tracked
+  (landed in PR #12), alongside a third `streaming-2026-09-07.txt`.
+
+### Deliverable 3 — the red duplex test: **stale harness, not a product bug**
+
+`tests/test_duplex.py::test_self_echo_filter_drops_echo_keeps_user` is **green
+on `master`** — 5/5 in isolation (0.49 s each), green in the full suite. It was
+red only on the pre-merge step-6 branch.
+
+Diagnosed by calling the matcher directly, outside the pipecat harness, with the
+test's exact strings (step 6b's instruction):
+
+```
+is_self_echo("I can't share deep.", [spoken], threshold=0.8)
+  -> (True, 0.919, "<spoken>")        0.210 ms
+is_self_echo("what's the weather like", [spoken], threshold=0.8)
+  -> (False, 0.488, "")               0.271 ms
+1000x is_self_echo(...)               145 ms total  (~0.14 ms/call)
+```
+
+No hang, no pathological slowness, correct verdicts. The matcher is fine — so
+the step-4c "tested" claim for the self-echo filter **stands**, and there is
+**no correction to `step4c-results.md`** (it never carried a numbered result
+that this invalidates; the failure was only ever *flagged*, in increment 6
+above).
+
+Root cause: `pipecat.tests.utils.run_test` has `start_timeout=1.0` — the
+pipeline task gets 1.0 s to emit its `StartFrame` ack or `run_test` raises
+`TimeoutError`. Under the step-6 branch's load (two LLMs pinned
+`keep_alive:-1` + the orb's `QQuickPaintedItem` repainting) that startup
+window could be missed; on an unloaded tree the test starts in ~0.1 s. It is a
+harness-timing flake, not the filter.
+
+**Fix:** `start_timeout=10.0` on the five `run_test` calls in
+`tests/test_duplex.py`, with a comment recording the diagnosis. Generous
+headroom; it only bites if startup genuinely stalls, so it does not slow the
+passing case.
+
+### Deliverable 4 — re-measure
+
+**1. CPU profile** — `wellsy orb --profile-cpu 20 --hold STATE`, qt backend,
+this M4 Pro, Ollama up with both 5b models pulled. (Resident-but-idle Ollama
+models burn ~0 CPU — they hold RAM, not cores — so the orb profile is
+representative of the 5b steady state; the 5.2 GB is a memory fact, not a CPU
+one.) psutil `cpu_percent` / 250 ms windows / ÷ncpu, first sample dropped,
+n = 77–79 per row.
+
+| state | increment 6 p50 / p95 | **6b p50 / p95** | budget | verdict |
+|---|---|---|---|---|
+| asleep | 0.58 / 0.75 % | **0.62 / 0.78 %** | 1 % | OK |
+| idle | ~0.66 % (inc 5) | **0.52 / 0.77 %** | 1 % | OK |
+| acting | 2.64 / 2.83 % | **0.74 / 2.84 %** | 3 % | OK |
+| HUD | 2.65 / 2.84 % | **0.73 / 2.88 %** | 6 % | OK |
+
+Every row passes. No points were trimmed and no frame-rate was cut for this
+pass — the numbers are within a few hundredths of a percent of increment 6, as
+expected since the model change is RAM, not CPU.
+
+**2. §1 fast row** — `wellsy voice --measure --trials 20` against
+`qwen3:4b-instruct-2507-q4_K_M`, Ollama warm. Component-composed harness (not
+the live mic→speaker path):
+
+| path | p50 | p95 | n |
+|---|---|---|---|
+| deterministic (asr + tts_ttfa) | 563.5 ms | 571.8 ms | 20 |
+| **llm (asr + llm_ttft + tts_ttfa)** | **615.0 ms** | **622.3 ms** | 20 |
+
+Warm `llm_ttft` ≈ 43 ms (615 − 260 asr − 312 tts). Cold `llm_ttft` 16 737 ms
+(one-time model load). Streaming overlap: first PCM 1142–1313 ms vs `llm_done`
+2169–2401 ms — first PCM lands before the LLM finishes 3/3. 5b **projected**
+~633 ms p50 from component numbers; **measured 615 ms p50** through the compose
+harness — beats the projection. Written to
+`spec/results/voice-latency-2026-09-07-qwen3-4b-instruct-2507-q4_K_M.json`.
+
+**Owed, not closed:** the *real* end-to-end — wake → first PCM sample at the
+output device, orb co-running, timestamped at the device, n ≥ 20 — needs
+`wellsy voice --measure-acoustic` in a live session with a mic and a speaker.
+This session is non-interactive; that measurement is carried forward
+(step-6 "Still owed" #2, latency half).
+
+**3. One live `wellsy run`** — **not performed.** It needs a person speaking to
+a microphone (the screen question, the move command, Ctrl-C). A non-interactive
+session cannot stand in for it. This is the acceptance that matters and it is
+still open — carried forward as the top owed item.
+
+**Full suite: 190 passed** (12.5 s), up from step 6's 186 (+4, the interface
+session/signals additions). `tests/test_portability.py` and the honesty test in
+`tests/test_interface_state.py` green (22 passed together).
+
+### Acceptance status (step 6b)
+
+- [x] Increment 6 committed (in PR #12); mp4 and the two `streaming-*.txt` each
+      have a recorded disposition.
+- [x] `master` merged in; both model defaults are the 5b winners;
+      `SeamLLMService` and the identity prompt both survive. (Landed in PR #12;
+      audited here.)
+- [x] Red duplex test diagnosed — **stale harness (`run_test` `start_timeout`),
+      not a product bug** — fixed with `start_timeout=10.0`; verdict written
+      here; no `step4c-results.md` correction warranted.
+- [x] Full suite green, count reported (190).
+- [x] CPU profile re-run against the 5b model set; every row passes, no trade
+      taken.
+- [x] §1 fast row measured at n = 20, p50/p95, method recorded — **via the
+      component-compose harness**; the device-timestamped end-to-end is still
+      owed and named.
+- [ ] **One live `wellsy run`** — not done in this non-interactive session.
+      Owed.
+- [x] `step6-results.md` updated; PR to `master` opened.
+
+### Still owed (carried from step 6, minus what 6b actually closed)
+
+Nothing on step 6's list was fully closed by 6b — 6b was the merge, the audit,
+and the re-measure, not new interface work. The list stands:
+
+0. Orb art pass — cleaner curl field, reference density, per-state tint.
+1. Screen-record the orb in each state on this Mac; eyeball over a fullscreen
+   app / across Spaces.
+2. Live `wellsy voice --orb` / `wellsy run` — confirm the pulse tracks real
+   VAD/PCM, `Esc` silences within budget, **and the device-timestamped §1
+   latency rows** (the CPU half is done as of 6b; the latency half is measured
+   only through the compose harness).
+3. HUD from the agent runtime — `plan` / `verify` / provenance into
+   `sess.show_hud(...)`; approve **and** deny end to end into the audit log.
+4. Global hotkey to summon the HUD (platform shim).
+5. Typed text into the agent entry point from the HUD.
+6. Proper shader build hook (or leave `orb.frag.qsb` tracked, deliberately).
+7. Linux/Wayland (KWin/sway + GNOME) and Windows execution.
