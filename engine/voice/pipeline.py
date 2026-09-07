@@ -12,9 +12,12 @@
                             describe_scene / query_object -> capture + verify a
                             frame, attach to context, run the VLM)
       -> user_aggregator
-      -> LLM/VLM           (streaming; qwen3:4b-instruct-2507 by default —
-                            non-reasoning `-instruct` build, step 5b; image
-                            turns: WELLSY_LLM_MODEL=qwen3-vl:2b-instruct-q4_K_M)
+      -> LLM/VLM           (streaming SeamLLMService; qwen3:4b-instruct-2507 text
+                            by default — non-reasoning `-instruct` build, step 5b.
+                            A vision turn flips it to the VL model
+                            (qwen3-vl:2b-instruct-q4_K_M / WELLSY_VLM_MODEL) and
+                            back; if no VL model is pulled the gate says so, no
+                            image sent)
       -> ProvenanceLogger  (vision turns: one provenance line per answer with the
                             step-3 capture provenance folded in; drops the image)
       -> SeamTTS           (sentence-chunked; first audio before the LLM finishes)
@@ -53,10 +56,25 @@ from engine.voice.wake import WakeState, build_wake_gate
 # Default LLM is qwen3:4b-instruct-2507 (non-reasoning `-instruct` build —
 # step 5b; the hybrid/thinking qwen3 builds ignore every think flag/level on
 # Ollama 0.33.2 and burn ~78 s/turn). This prompt stays model-agnostic.
+#
+# Identity matters (owner feedback 2026-09-04): the base models default to a
+# "I'm a text-only AI, I have no camera, I can't move" persona. WELLSY is not
+# that — she runs locally, sees through a camera and the screen, speaks aloud,
+# and has a visible presence (an orb) she can reposition. She must never deny a
+# capability she has.
 SYSTEM_PROMPT = (
-    "You are WELLSY, a local voice assistant. You are speaking aloud, so "
-    "answer in one or two short spoken sentences. No lists, no markdown, no emoji. "
-    "If you do not know, say so plainly."
+    "You are WELLSY — a local, private AI that lives on this machine, in the "
+    "spirit of JARVIS. You are not a text chatbot. You hear the user through a "
+    "microphone and speak back aloud. You can see: a live camera of the room and "
+    "the screen, on demand. You have a visible presence on screen — a glowing orb "
+    "— and you can move it to any corner when asked. You can run tools: calendar, "
+    "mail drafts, reminders, notes, files, and web search.\n"
+    "Because of this: never say you are 'text-based', never say you cannot see or "
+    "have no camera, never say you cannot move. If the user asks what you see, "
+    "answer from the camera or screen. If they ask you to move, it is already "
+    "being handled — just acknowledge briefly.\n"
+    "You are speaking aloud: reply in one or two short spoken sentences. No lists, "
+    "no markdown, no emoji. If you genuinely do not know something, say so plainly."
 )
 
 AUDIO_IN_SR = 16000   # Silero VAD + Smart Turn v3 + Whisper all want 16 kHz
@@ -81,7 +99,8 @@ def _warm(stt, tts) -> None:
         pass
 
 
-def build(*, start_awake: bool = False, on_decision=None, observers=None):
+def build(*, start_awake: bool = False, on_decision=None, observers=None,
+          handle_sigint: bool = True, on_move=None):
     """Construct (worker, runner, wake_state, context). `observers` are Pipecat
     observers attached to the worker (e.g. `acoustic.LatencyObserver`)."""
     from pipecat.audio.vad.silero import SileroVADAnalyzer
@@ -135,9 +154,10 @@ def build(*, start_awake: bool = False, on_decision=None, observers=None):
     # image from context (step 3 "on-demand only").
     vision_pending = VisionPending()
     intent_gate = build_intent_gate(
-        wake_state, context=context, pending=vision_pending, on_decision=on_decision
+        wake_state, context=context, pending=vision_pending, on_decision=on_decision,
+        on_move=on_move, llm=llm,
     )
-    prov_logger = build_provenance_logger(vision_pending, context=context)
+    prov_logger = build_provenance_logger(vision_pending, context=context, llm=llm)
 
     # --- step 4c: open-air audio -------------------------------------------- #
     cfg = cfg_holder["cfg"]
@@ -179,13 +199,19 @@ def build(*, start_awake: bool = False, on_decision=None, observers=None):
         idle_timeout_secs=None,
         processor_unusable_policy=ProcessorUnusablePolicy.END,
     )
-    runner = WorkerRunner(handle_sigint=True)
+    runner = WorkerRunner(handle_sigint=handle_sigint)
     return worker, runner, wake_state, context
 
 
 async def _esc_watch(worker) -> None:
     """Raw-tty ESC -> deterministic instant stop (the old build's 114 ms path).
-    No-op when stdin is not a tty."""
+    No-op when stdin is not a tty.
+
+    Uses `loop.add_reader`, not a blocking `stdin.read` on the default executor:
+    that read cannot be cancelled, so on shutdown `asyncio.run` would block
+    forever in `shutdown_default_executor()` waiting for a keystroke — the orb
+    then hangs the process and Ctrl+C only gets you `zsh: suspended`
+    (owner log 2026-09-04)."""
     if not sys.stdin.isatty():
         return
     try:
@@ -194,32 +220,53 @@ async def _esc_watch(worker) -> None:
     except ImportError:
         return  # non-POSIX (Windows console) — ESC stop is a convenience, not the safety path
 
+    import os
+
     from pipecat.frames.frames import InterruptionFrame
 
     loop = asyncio.get_running_loop()
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
+    done = asyncio.Event()
+
+    def _on_readable() -> None:
+        try:
+            ch = os.read(fd, 64)
+        except (BlockingIOError, InterruptedError):
+            return
+        except OSError:
+            done.set()
+            return
+        if not ch:                       # EOF (stdin closed)
+            done.set()
+            return
+        if b"\x1b" in ch or b"q" in ch:
+            loop.create_task(worker.queue_frames([InterruptionFrame()]))
+
     try:
         tty.setcbreak(fd)
-        while True:
-            ch = await loop.run_in_executor(None, sys.stdin.read, 1)
-            if not ch:
-                await asyncio.sleep(0.05)
-                continue
-            if ch == "\x1b" or ch == "q":
-                await worker.queue_frames([InterruptionFrame()])
+        loop.add_reader(fd, _on_readable)
+        await done.wait()                # until cancelled at shutdown
     except asyncio.CancelledError:
         pass
     finally:
+        try:
+            loop.remove_reader(fd)
+        except Exception:
+            pass
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
-async def run(*, start_awake: bool = False, on_decision=None, observers=None) -> None:
+async def run(*, start_awake: bool = False, on_decision=None, observers=None,
+              on_worker=None, handle_sigint: bool = True, on_move=None) -> None:
     from pipecat.frames.frames import LLMRunFrame
 
     worker, runner, wake_state, context = build(
-        start_awake=start_awake, on_decision=on_decision, observers=observers
+        start_awake=start_awake, on_decision=on_decision, observers=observers,
+        handle_sigint=handle_sigint, on_move=on_move,
     )
+    if on_worker is not None:
+        on_worker(worker)
     await runner.add_workers(worker)
 
     esc = asyncio.create_task(_esc_watch(worker))
@@ -237,6 +284,8 @@ def main(argv: list[str] | None = None) -> int:
 
     ap = argparse.ArgumentParser(prog="wellsy voice", description=__doc__)
     ap.add_argument("--awake", action="store_true", help="start awake (skip the wake phrase)")
+    ap.add_argument("--orb", action="store_true",
+                    help="show the Presence orb, pulsing to the live VAD / TTS amplitude; Esc stops output")
     ap.add_argument("--measure", action="store_true", help="run the §1 latency harness (component-composed) instead of a live session")
     ap.add_argument("--measure-acoustic", action="store_true",
                     help="live session with the at-the-device latency observer; Ctrl+C writes the acoustic §1 table")
@@ -265,8 +314,51 @@ def main(argv: list[str] | None = None) -> int:
             print("\nno turns captured — nothing written")
         return 0
 
+    if args.orb:
+        return _run_with_orb(args)
+
     try:
         asyncio.run(run(start_awake=args.awake))
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
+def _run_with_orb(args) -> int:
+    """Live voice session behind the Presence orb. The orb pulses to the
+    measured VAD amplitude while you speak and the measured output PCM
+    amplitude while it speaks — nothing synthetic (INVARIANTS #6). Esc routes
+    to the deterministic InterruptionFrame stop."""
+    import asyncio as _asyncio
+
+    from pipecat.frames.frames import InterruptionFrame
+
+    from engine.interface.session import OrbSession
+    from engine.interface.taps import build_voice_observer, intent_decision_sink
+
+    holder: dict = {}
+
+    def _stop_output() -> None:
+        # called on the Qt main thread; hop to the voice worker's event loop.
+        w, loop = holder.get("worker"), holder.get("loop")
+        if w is not None and loop is not None:
+            loop.call_soon_threadsafe(
+                lambda: loop.create_task(w.queue_frames([InterruptionFrame()]))
+            )
+
+    sess = OrbSession(on_escape=_stop_output)
+    observer = build_voice_observer(sess.bus)
+    on_decision = intent_decision_sink(sess.bus)
+
+    async def _main():
+        holder["loop"] = _asyncio.get_running_loop()
+        await run(start_awake=args.awake, on_decision=on_decision,
+                  observers=[observer], handle_sigint=False,  # worker runs off the main thread
+                  on_move=sess.move_orb,   # "move to the corner" -> the orb, deterministic
+                  on_worker=lambda w: holder.__setitem__("worker", w))
+
+    try:
+        sess.run(lambda _stop: _main())
     except KeyboardInterrupt:
         pass
     return 0

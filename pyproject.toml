@@ -52,6 +52,18 @@ dependencies = [
 # scope (INVARIANTS #14). Reached only via WELLSY_LLM_BACKEND=mlx / explicit config.
 inference-mlx = ["mlx-lm>=0.28"]
 
+# step 6 — the native interface. Portable (macOS/Linux/Windows from one wheel),
+# so NOT platform-exclusive and allowed in the core; kept an extra only so the
+# headless runtime / CI / the humanoid endgame don't pull a GPU toolkit.
+# Verified current 2026-09-03 (INVARIANTS #8): PySide6 6.11.2 (Qt 6.11.2),
+# released 2026-08-18. `pyobjc` is the macOS NSPanel shim, darwin-only, behind
+# engine/interface/backends/qt/ (a sanctioned dir). LayerShellQt for Wayland is
+# a distro/Qt-plugin package, not on PyPI — probed at runtime, reported honestly.
+interface = [
+    "pyside6>=6.11.2,<6.12",
+    "pyobjc-framework-Cocoa>=10.0 ; sys_platform == 'darwin'",
+]
+
 [project.scripts]
 wellsy = "engine.cli:main"
 

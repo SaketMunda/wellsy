@@ -31,6 +31,7 @@ deliberate, not sloppy.
 | 5 | `step5-agent-runtime.md` | LangGraph runtime, MCP tools, policy gate, audit log, **two model roles** | 2 |
 | 5b | `step5b-model-selection.md` | Planner / VLM / fast / TTS chosen on measured numbers; re-derives the hardware sizing | 4, 4b, 5 |
 | 6 | `step6-native-interface.md` | **Presence orb + Iron Man HUD.** Native Qt Quick, in-process, no webview. The interface renders measured state only. | 4, 4b, 5 |
+| 6b | `step6b-consolidation.md` | **Merge, don't design.** Land step 6 on top of 5b, resolve the model-default collision, fix the red duplex test, re-measure. | 4c, 5b, 6 |
 | 7 | `step7-memory-context.md` | Memory substrate, provenance-aware writes, context engine | 5b |
 
 Later phases — proactive engine, autonomy levels, communication modes, the

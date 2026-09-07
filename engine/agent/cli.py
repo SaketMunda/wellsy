@@ -48,13 +48,18 @@ def run_agent_cli(argv: list[str]) -> int:
     ap.add_argument("--yes", action="store_true", help="approve every gated step without prompting (no human in the loop)")
     ap.add_argument("--json", action="store_true", help="emit the AgentResult as JSON on stdout")
     ap.add_argument("--no-models", action="store_true", help="fail instead of calling the planner LLM (debug)")
+    ap.add_argument("--orb", action="store_true",
+                    help="show the Presence orb; gated steps prompt in the orb HUD, not the terminal")
     args = ap.parse_args(argv)
 
-    approver = auto_approver if args.yes else _cli_approver
-    res = asyncio.run(run_agent(
-        args.outcome, approver=approver, on_event=_event_printer,
-        use_models=not args.no_models,
-    ))
+    if args.orb:
+        res = _run_with_orb(args)
+    else:
+        approver = auto_approver if args.yes else _cli_approver
+        res = asyncio.run(run_agent(
+            args.outcome, approver=approver, on_event=_event_printer,
+            use_models=not args.no_models,
+        ))
 
     if args.json:
         print(json.dumps({
@@ -68,6 +73,35 @@ def run_agent_cli(argv: list[str]) -> int:
               f"{len(res.step_results)} step(s) · see `wellsy audit --plan {res.plan_id}`]",
               file=sys.stderr)
     return 0 if res.status in ("ok", "clarify") else 1
+
+
+def _run_with_orb(args):
+    """`wellsy agent "<outcome>" --orb` — run the loop behind the Presence orb.
+    The orb's state tracks the graph (planning -> acting -> done); a gated step
+    opens the approval HUD and blocks there until Approve/Deny is clicked."""
+    from engine.interface.session import OrbSession
+    from engine.interface.taps import agent_event_sink
+
+    sess = OrbSession()
+    sink = agent_event_sink(sess.bus)
+
+    def on_event(ev: dict) -> None:
+        sink(ev)
+        _event_printer(ev)
+
+    approver = auto_approver if args.yes else sess.ui_approver
+
+    def make_coro(_stop):
+        return run_agent(args.outcome, approver=approver, on_event=on_event,
+                         use_models=not args.no_models)
+
+    try:
+        return sess.run(make_coro)
+    except Exception as e:  # planner/tool failure — report, don't dump a traceback
+        from engine.agent.runner import AgentResult
+
+        return AgentResult(outcome=args.outcome, plan_id="-",
+                           report=f"The run failed before completing: {type(e).__name__}: {e}")
 
 
 def list_tools_cli(argv: list[str]) -> int:

@@ -25,6 +25,8 @@ Usage:
     wellsy tools                 # list the MCP tool layer with schemas
     wellsy audit [--plan ID]     # read the agent audit log (JSONL on disk)
     wellsy autonomy              # autonomy levels — they rise against the audit log
+    wellsy orb                   # just the native Presence interface (step 6); --demo / --capability / --backend
+    wellsy run                   # THE assistant: orb + always-listening voice + on-demand camera/screen vision
 """
 
 from __future__ import annotations
@@ -320,6 +322,32 @@ def _run_autonomy(argv: list[str]) -> None:
 _SUBCOMMANDS.update(
     {"agent": _run_agent, "tools": _run_tools, "audit": _run_audit, "autonomy": _run_autonomy}
 )
+
+
+def _run_orb(argv: list[str]) -> None:
+    from engine.interface.cli import main as orb_main
+
+    raise SystemExit(orb_main(argv))
+
+
+def _run_all(argv: list[str]) -> None:
+    """`wellsy run` — the whole assistant in one process: the on-screen orb +
+    always-listening voice + on-demand camera/screen vision. This is the
+    default way to use WELLSY; the other subcommands are for development.
+    Extra args pass through to `wellsy voice` (e.g. `--no-awake`)."""
+    from engine.voice import pipeline
+
+    passthrough = list(argv)
+    if "--no-awake" in passthrough:
+        passthrough.remove("--no-awake")           # wake-phrase gated
+    elif "--awake" not in passthrough:
+        passthrough.append("--awake")              # default: live immediately
+    if "--orb" not in passthrough:
+        passthrough.append("--orb")
+    raise SystemExit(pipeline.main(passthrough))
+
+
+_SUBCOMMANDS.update({"orb": _run_orb, "run": _run_all})
 
 
 def main() -> None:

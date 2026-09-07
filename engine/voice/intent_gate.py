@@ -44,9 +44,10 @@ _VISION_INTENTS = ("describe_scene", "query_object")
 
 @dataclass(frozen=True)
 class Decision:
-    action: str            # "stop" | "sleep" | "wake" | "canned" | "vision" | "forward"
+    action: str            # "stop"|"sleep"|"wake"|"canned"|"vision"|"move_orb"|"forward"
     intent_type: str       # the parse_intent type, for the audit/metrics line
-    say: str | None = None  # text for action == "canned"
+    say: str | None = None  # text for action == "canned" / "move_orb"
+    arg: str | None = None  # the corner phrase for action == "move_orb"
 
 
 def decide(transcript: str) -> Decision:
@@ -58,6 +59,8 @@ def decide(transcript: str) -> Decision:
         return Decision("sleep", t)
     if t == "wake":
         return Decision("wake", t)
+    if t == "move_orb":
+        return Decision("move_orb", t, say="On it.", arg=intent.object)
     if t in _CANNED:
         return Decision("canned", t, say=_CANNED[t])
     if t in _VISION_INTENTS:
@@ -66,7 +69,8 @@ def decide(transcript: str) -> Decision:
     return Decision("forward", t)
 
 
-def build_intent_gate(wake_state, *, context=None, pending=None, on_decision=None):
+def build_intent_gate(wake_state, *, context=None, pending=None, on_decision=None,
+                      on_move=None, llm=None):
     """Return an IntentGate FrameProcessor.
 
     `wake_state`  — the shared WakeState.
@@ -75,6 +79,11 @@ def build_intent_gate(wake_state, *, context=None, pending=None, on_decision=Non
                     intents fall back to a plain text forward.
     `pending`     — a `vision.VisionPending` shared with the provenance logger.
     `on_decision(Decision, transcript)` — optional metrics/audit hook.
+    `llm`         — the `SeamLLMService`; for a vision turn the gate flips it to
+                    the VL model before the `LLMRunFrame` (the provenance logger
+                    flips it back). If it has no VL model pulled (`vlm_ok` is
+                    False) the gate refuses the vision turn plainly rather than
+                    sending an image the text model 400s on.
 
     Factory so this module imports without Pipecat."""
 
@@ -124,6 +133,18 @@ def build_intent_gate(wake_state, *, context=None, pending=None, on_decision=Non
             if d.action == "wake":
                 self._wake.wake()
                 return
+            if d.action == "move_orb":
+                moved = False
+                if on_move is not None:
+                    try:
+                        moved = bool(on_move(d.arg or "bottom-right"))
+                    except Exception:
+                        moved = False
+                say = "Moving." if moved else "I can't move my orb right now."
+                await self.push_frame(
+                    TTSSpeakFrame(text=say, append_to_context=False), direction
+                )
+                return
             if d.action == "canned":
                 await self.push_frame(
                     TTSSpeakFrame(text=d.say or "", append_to_context=False), direction
@@ -132,13 +153,43 @@ def build_intent_gate(wake_state, *, context=None, pending=None, on_decision=Non
             if d.action == "vision":
                 await self._handle_vision(frame, direction, LLMContext, LLMRunFrame, TTSSpeakFrame)
                 return
-            # forward: let it flow to the aggregator / text LLM
+            # forward: let it flow to the aggregator / text LLM. Defensively
+            # make sure the LLM stage is on the text model (a vision turn that
+            # errored before the provenance logger could flip it back would
+            # otherwise leave it on the VL model).
+            if llm is not None:
+                try:
+                    llm.use_vlm(False)
+                except Exception:
+                    pass
             await self.push_frame(frame, direction)
 
         async def _handle_vision(self, frame, direction, LLMContext, LLMRunFrame, TTSSpeakFrame):
             if context is None or pending is None:
                 # No VLM wiring (bare unit test / degraded mode) — text forward.
                 await self.push_frame(frame, direction)
+                return
+
+            if llm is not None and not getattr(llm, "vlm_ok", True):
+                # The prompt says she can see, and she can — but no VL model is
+                # pulled on the local server. Say so plainly, write the audit
+                # line, forward nothing. Never send an image to the text model:
+                # it 400s and pipecat's unusable-processor policy then ends the
+                # whole session (owner log 2026-09-04).
+                say = "I can see, but my vision model isn't loaded right now."
+                try:
+                    provenance.log_answer(
+                        transcript=frame.text, answer=say, source="refused",
+                        frame_source=vision.route(frame.text), tracks=[],
+                        frame_age_ms=None, llm_ms=None,
+                        capture={"captureVerified": False,
+                                 "captureRefusedReason": "no VL model pulled on the local server"},
+                    )
+                except Exception:
+                    pass
+                await self.push_frame(
+                    TTSSpeakFrame(text=say, append_to_context=False), direction
+                )
                 return
 
             loop = asyncio.get_running_loop()
@@ -180,28 +231,39 @@ def build_intent_gate(wake_state, *, context=None, pending=None, on_decision=Non
                     )
                 )
             pending.arm(cap, frame.text, msg)
+            if llm is not None:
+                llm.use_vlm(True)          # flip to the VL model for this turn
             await self.push_frame(LLMRunFrame(), direction)
 
     return IntentGate()
 
 
-def build_provenance_logger(pending, *, context=None):
+def build_provenance_logger(pending, *, context=None, llm=None):
     """A FrameProcessor placed after the LLM and before TTS. When `pending` is
     armed (a vision turn is in flight), it accumulates the assistant's streamed
     text and, on `LLMFullResponseEndFrame`, writes exactly one
     `provenance.log_answer` line with the step-3 capture provenance folded in,
     then drops the image message from context (screen/camera content is
-    retained only as that line — step 3 "on-demand only")."""
+    retained only as that line — step 3 "on-demand only"). It also flips `llm`
+    back to the text model — the gate flipped it to the VL model for this turn."""
 
     import time
 
     from pipecat.frames.frames import (
+        ErrorFrame,
         Frame,
         LLMFullResponseEndFrame,
         LLMFullResponseStartFrame,
         LLMTextFrame,
     )
     from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+
+    def _back_to_text() -> None:
+        if llm is not None:
+            try:
+                llm.use_vlm(False)
+            except Exception:
+                pass
 
     class ProvenanceLogger(FrameProcessor):
         def __init__(self) -> None:
@@ -221,6 +283,11 @@ def build_provenance_logger(pending, *, context=None):
                 self._collecting = False
                 if pending.armed:
                     self._log(time, "".join(self._buf).strip())
+                _back_to_text()
+            elif isinstance(frame, ErrorFrame):
+                # a mid-vision-turn failure — don't strand the LLM stage on the
+                # VL model
+                _back_to_text()
 
             await self.push_frame(frame, direction)
 

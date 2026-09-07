@@ -26,7 +26,7 @@ class Intent:
 
     def to_dict(self) -> dict:
         d: dict = {"type": self.type}
-        if self.type == "query_object":
+        if self.type in ("query_object", "move_orb"):
             d["object"] = self.object
         if self.type == "unknown":
             d["transcript"] = self.transcript
@@ -57,6 +57,19 @@ _QUERY = re.compile(r"(?:do you see|can you see|is there|are there)\s+(.+?)\??$"
 # model — canned, not understood.
 _PRESENCE = re.compile(r"\b(are you there|you there|are you listening|are you awake)\b")
 _THANKS = re.compile(r"\b(thanks|thank you|thankyou|appreciate it)\b")
+# Move the on-screen orb. Deterministic, like stop/wake/sleep — it drives the UI,
+# never the model. Matches "move to the center", "go to the bottom right",
+# "get out of the way" (-> a default corner). The corner phrase is captured in
+# .object and resolved by engine.interface.backends.qt.backend.normalize_corner.
+_MOVE_ORB = re.compile(
+    r"\b(move|go|jump|snap|shift|get)\b[^.?!]*?\b("
+    r"top[- ]?left|top[- ]?right|bottom[- ]?left|bottom[- ]?right|"
+    r"upper[- ]?left|upper[- ]?right|lower[- ]?left|lower[- ]?right|"
+    r"left[- ]?bottom|right[- ]?bottom|left[- ]?top|right[- ]?top|"
+    r"left[- ]corner|right[- ]corner|top[- ]corner|bottom[- ]corner|"
+    r"out of (?:the|my) way|"
+    r"cent(?:er|re)|middle|top|bottom|left|right|corner|away)\b"
+)
 _DETERMINER = re.compile(r"^(a|an|the|any)\s+")
 _TRIM_PUNCT = re.compile(r"[.!?]+$")
 _WHITESPACE = re.compile(r"\s+")
@@ -90,6 +103,9 @@ def parse_intent(transcript: str) -> Intent:
         return Intent("presence")
     if _THANKS.search(text):
         return Intent("thanks")
+    m = _MOVE_ORB.search(text)
+    if m:
+        return Intent("move_orb", object=m.group(2))
     if _DESCRIBE.search(text) or _SCREEN.search(text):
         return Intent("describe_scene")
 
