@@ -32,12 +32,33 @@ deliberate, not sloppy.
 | 5b | `step5b-model-selection.md` | Planner / VLM / fast / TTS chosen on measured numbers; re-derives the hardware sizing | 4, 4b, 5 |
 | 6 | `step6-native-interface.md` | **Presence orb + Iron Man HUD.** Native Qt Quick, in-process, no webview. The interface renders measured state only. | 4, 4b, 5 |
 | 6b | `step6b-consolidation.md` | **Merge, don't design.** Land step 6 on top of 5b, resolve the model-default collision, fix the red duplex test, re-measure. | 4c, 5b, 6 |
-| 7 | `step7-memory-context.md` | Memory substrate, provenance-aware writes, context engine | 5b |
+| 5c | `step5c-model-rebaseline.md` | **The 2026 set, measured.** Qwen3.5 / Gemma 4 / YOLOE-26 against the incumbents; the one-model collapse test; closes 5b's owed D3; re-derives §1 + §7 a third time | 5b, 6b |
+| 6c | `step6c-live-verification.md` | **Owner at the machine.** The first live `wellsy run`. Device-timestamped §1. Orb on video. Measure, don't fix. | 6b |
+| 7 | `step7-memory-context.md` | Memory substrate, provenance-aware writes, context engine | 5b, **5c** |
+| 8 | `step8-system1-decisions.md` | **System-One decision layer.** Jev-hosted primary + local fallback; typed calibrated decisions; intent without a parser per capability; the egress log | 5c, 9 |
+| 9 | `step9-assistant-convergence.md` | **The shipping blocker.** The agent becomes the brain of the voice loop — every tool reachable by speaking. Spoken approvals, read-back, HUD from the runtime. | 5c, 6c |
+| 10 | *not yet written* | **Expressive TTS** — the standing ask. Bench-off per `.claude/v2-roadmap.md`; the rebuild shipped the Kokoro fallback. | 5c |
+
+**Numbers are topics, not execution order** (4c and 5b already interleave).
+Current order:
+
+> **6c → 5c → 9 → 8 → 7 → 10**
+
+6c first because it needs no code and closes the oldest owed acceptance. 5c
+second because step 7's context engine and step 9's routing are both designed
+*against* a model's context window and latency — building either on the outgoing
+set is how the 33-second planner nearly became step 6's loading animation.
+
+**9 before 8**, reordered 2026-10-12 for shipping speed: convergence is what
+turns two demos into a product, and it can route on the planner's own
+tool-calling. Step 8 then makes that routing cheap and supplies the confidence
+number — an optimisation of a working thing rather than a prerequisite for it.
+
+Step 10 is deliberately **not written yet** — its candidate set depends on what
+headroom 5c leaves.
 
 Later phases — proactive engine, autonomy levels, communication modes, the
-ambient interface — are not yet written as prompts. They are scoped in
-`.claude/roadmap-phase1.md` and will be rewritten against reality once step 6
-lands.
+ambient interface — are scoped in `.claude/roadmap-phase1.md`.
 
 ## Decisions already made — do not relitigate in a step session
 
@@ -49,6 +70,8 @@ lands.
 | D51 | Production target #1 is **Linux / ARM64 / CUDA** (Jetson-class), because the endgame is a humanoid body. macOS is a development convenience. |
 | D53 | Agent runtime is **LangGraph** — its `interrupt()` primitive *is* the approval gate. |
 | D54 | Interface is a **client of the runtime**, not the product. Phase 1 scope: control surface, approvals, audit viewer, perception state. Native (PySide6 + Qt Quick), never a webview. The ambient showpiece is deferred. |
+| D55 | ~~Jev rejected for the core~~ **AMENDED 2026-10-12 by owner override: online APIs are permitted.** Jev becomes step 8's primary backend; a local backend stays as the proven fallback (a body with no network must still decide), `stop` stays local on its 617 ms budget, and the egress log is built now even though the guardrail is deferred. Original reasoning and the accepted costs are both in `decisions.md`. |
+| D55-orig | *(superseded)* **Jev was rejected for the core** — hosted API only, no weights, no rationale returned, and the `state` payload is exactly the personal data that may never leave the device. Its *System-One pattern* is adopted locally (step 8). `GLiFormer` does not verify; nothing from that source chain enters the tree. |
 
 ## Hardware — deferred, deliberately
 
@@ -66,35 +89,79 @@ by decisions not made until step 5:
 and throughput requirements at the end of step 5, not before. Sizing a box
 against guesses is how the current stack ended up wrong.
 
-## Status as of 2026-09-01
+## Status as of 2026-10-12
 
-Steps 1-5 merged to `master` (step 4b included). Tree clean.
+**`master` @ `57c11bc`. Tree clean. 190 tests green. Last commit 2026-09-07 —
+five weeks idle.**
 
-Ratified deviations: package `wellsy/` -> `engine/`; LLM backend is
-`openai_http` (OpenAI-compatible streaming - covers Ollama, llama-server, vLLM,
-SGLang) rather than in-process llama-cpp-python; ASR is faster-whisper `base.en`
-after Qwen3-ASR was rejected on measured numbers; Pipecat's bundled
-Silero + Smart Turn v3 over the step-2 wrappers; MCP servers authored in-house
-(FastMCP/stdio) after the community macOS servers failed invariant #8; `mcp`
-held at `<2` by langchain-mcp-adapters 0.3.2.
+Merged: steps 1-6 plus 4b, 4c, 5b, 6b. The shipped stack:
 
-**The blocking item is model selection, not the next feature.** The planner
-(`qwen3:4b`, 33 s TTFT) is unshippable, the VLM row misses at 3.0 s against a
-2.5 s budget, and the fast slot and TTS were both adopted with their bench-offs
-deferred. `step5b-model-selection.md` closes all four and re-derives the §7
-hardware sizing, which is currently arithmetic over models that are being
-replaced. Hardware is **not** being bought yet - that is the last step, after everything
-is verified. 5b still matters for the planner's 33 s, which step 6's UI will
-put on screen as a 33-second "thinking" animation. 5b and step 6 touch no
-common files and can run in parallel.
+| Slot | Running | Measured |
+|---|---|---|
+| Detector (T1) | `yoloe-11s-seg.pt`, open-vocab, PyTorch/MPS | 13.49 / 23.95 ms fast path |
+| Planner + fast (unified) | `qwen3:4b-instruct-2507-q4_K_M` | 32 ms warm TTFT, 3.99 s full plan, 20/20 plan-valid |
+| VLM | `qwen3-vl:2b-instruct-q4_K_M` | ~1.8 s first-capture |
+| Co-resident | both pinned `keep_alive:-1` | **5.2 GB** -> Orin NX 16 GB fits |
+| Interface | PySide6 / Qt Quick particle orb | 0.62 % asleep, 2.84 % p95 acting |
+| Agent | LangGraph >=1.2.11, 24 tools, policy gate, audit log | — |
+| Voice | composed wake -> first word | 615 ms p50 (n=20) |
 
-Open debt carried forward beyond 5b's scope:
-- A8-granted half and the ScreenCaptureKit latency row - needs Screen Recording
-  granted to the editor's process tree and a full restart.
+Ratified deviations (unchanged): package `wellsy/` -> `engine/`; LLM backend is
+`openai_http` (OpenAI-compatible streaming - Ollama, llama-server, vLLM, SGLang)
+rather than in-process llama-cpp-python; ASR is faster-whisper `base.en` after
+Qwen3-ASR was rejected on measured numbers; Pipecat's bundled Silero + Smart
+Turn v3 over the step-2 wrappers; MCP servers authored in-house (FastMCP/stdio)
+after the community macOS servers failed invariant #8; `mcp` held at `<2` by
+langchain-mcp-adapters 0.3.2.
+
+### The two things blocking everything else
+
+**1. Nothing has ever been run live.** Every latency number in this repo came
+from a file-injection or component-compose harness. `wellsy run` has never been
+exercised by a human with a microphone and a speaker. That is how the step-4
+echo regression shipped — the harness had no speaker in the room. **Step 6c.**
+
+**2. The model set is five weeks stale, and 5b's central finding may be
+obsolete.** 5b proved across seven attempts that no flag makes a hybrid Qwen3
+non-reasoning; Qwen3.5's small sizes are now reported to have reasoning off by
+default, with native multimodality and 262K context against our 4096. None of it
+is verified. **Step 5c** — and step 7 must not start before it, because a
+context engine built for 4096 tokens is different software from one built for
+262K.
+
+### Open debt carried forward
+
+- **Live `wellsy run`** - never performed (step 6c).
+- **Device-timestamped §1 latency** - the 615 ms is composed, not measured at
+  the output device (step 6c).
+- **Spoken barge-in** - *"Wellsy, stop"* mid-answer does not work; the ESC key
+  does. AEC is a seam only, no ERLE measured (step 4c debt).
+- **HUD from the agent runtime** - only the `approval` view is wired; deny has
+  never been exercised end to end into the audit log.
+- **5b's owed D3** - dense real-UI VLM legibility at 512 px, never measured on a
+  real screenshot (folded into step 5c).
+- Orb art pass; global hotkey; typed text into the HUD.
+- A8-granted half and the ScreenCaptureKit latency row.
 - A3-A6 live against a real Calendar / Mail account (`osascript` backend).
 - faster-whisper `base.en` is English-only.
 - An in-process LLM backend must be validated before embodiment bring-up.
-- Linux/CUDA path is code-complete and **unexecuted**.
+- **Linux/CUDA path is code-complete and unexecuted** - and it is production
+  target #1 (D51).
 - `InMemorySaver` -> `SqliteSaver` for cross-process resume.
 - Intermittent `recursive_mutex lock failed` at pytest teardown when pipecat
   (anyio) and agent (stdio MCP) tests run in one process; exit code stays 0.
+- Dependency hygiene: opencv-python and pyav both vendor libavdevice
+  (`AVFFrameReceiver` duplicate-class warning).
+
+### Documentation warts, recorded rather than fixed
+
+- `step7-memory-context.md` was titled `# Step 6 —` from before renumbering;
+  corrected 2026-10-12.
+- The D-series is split: **D1-D46 in `.claude/decisions.md`, D47-D54 in
+  `.claude/stack-teardown.md` §12**, resuming at D55 in `decisions.md`.
+- `day12-brief.md` is still the bug-centric draft the owner rejected. It has not
+  been rewritten.
+- `spec/results/voice-latency-2026-09-07-*.json` carries a stale `notes` line
+  predicting the LLM row *will miss* 1500 ms; the same file measures 615 ms.
+- `step6-results.md` increment 7 back-calculates warm TTFT as ~43 ms where the
+  results file measures 53.5 ms.
