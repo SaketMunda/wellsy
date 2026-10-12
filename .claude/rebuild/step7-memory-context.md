@@ -1,4 +1,4 @@
-# Step 6 — Memory substrate, provenance-aware writes, context engine
+# Step 7 — Memory substrate, provenance-aware writes, context engine
 
 **Read first:** `.claude/rebuild/INVARIANTS.md` (#6, #10, #11),
 `spec/phase1-acceptance.md` **A1, A2**. **Depends on step 5.**

@@ -2275,3 +2275,129 @@ capturing real wake-latency numbers). The fix is a direct, evidenced
 response to the owner's real report and passes the existing 47-test suite,
 but the owner is the one who can confirm on real hardware whether the
 distortion is actually gone.
+
+---
+
+### D55 — Jev (TypeSafe AI) rejected for the core; its System-One *pattern* adopted locally
+**Decided:** 2026-10-12
+**Note on numbering:** D47–D54 are defined in `.claude/stack-teardown.md` §12,
+not here. This file stops at D46 and resumes at D55. That split is a
+discoverability wart, recorded so the next session does not re-derive it.
+
+**What Jev is.** TypeSafe AI's first public model (released 2026-09-15), pitched
+as a "System One" decision model rather than a text generator. You pass program
+`state` plus predefined typed questions — Choice (pick from options), Score (a
+range), or a yes/no — and it returns a typed value per question with a
+**calibrated probability** your code thresholds on. It is non-autoregressive:
+it does not emit tokens sequentially, it computes outputs in a single pass.
+Vendor-reported 70–500 ms end-to-end, $0.042 per million input tokens with
+output tokens free.
+
+**Why it is rejected for the core — four independent reasons, any one fatal:**
+
+1. **It is a hosted API and only a hosted API.** `POST /v1/systemone`, early
+   access behind a waitlist. No published weights, no parameter count, no
+   self-hosted or on-prem build. The standing constraint on this project is that
+   no third-party cloud service ever receives pixels, audio, or raw personal
+   files — and the `state` payload for a WELLSY decision (what the owner just
+   said, what is on screen, whether to send this mail) *is* precisely that data.
+   Zero-retention enterprise terms do not change what crosses the wire.
+2. **Invariant #14.** A hosted endpoint is the most platform-exclusive
+   dependency available: no network, no agent. The endgame is a humanoid body
+   that must decide with no guarantee of connectivity. A decision layer on the
+   far side of an HTTP call cannot be in the core.
+3. **It returns no rationale.** A probability with no reasoning cannot be
+   audited. That collides directly with the audit log and with invariants #6 and
+   #10 — the project's entire differentiator is that every claim is traceable to
+   something measured.
+4. **It is not more accurate.** 67.8% on TypeSafe's own benchmark against 74.1%
+   (GPT-5.6 Sol) and 73.1% (Claude Opus 5). Vendor-reported, no independent
+   reproduction found. The pitch is cost and latency at a narrow job, not
+   capability — and cost is irrelevant to a local-only stack.
+
+**What is adopted: the shape of the thing.** The architecture Jev demonstrates is
+genuinely well matched to this codebase, and it is implementable locally today:
+
+- `parse_intent` currently needs a **hand-written intent per capability**. That
+  is the owner's own standing complaint from step 6 increment 5 — WELLSY should
+  act on free-form requests without a bespoke parser for each. A
+  label-conditioned zero-shot classifier does that in one forward pass.
+- The policy gate's allow / deny / escalate becomes a **thresholded calibrated
+  probability** instead of an LLM assertion — strictly more honest, and it is
+  the natural source for the `confidence` field step 7's memory rows require.
+- Invariant #11 (an inference is never auto-promoted to a fact) needs a
+  *number* to threshold on. This supplies it.
+
+**The local candidates, verified to exist:** GLiClass (Knowledgator,
+arXiv 2508.07662) — bidirectional-encoder sequence classification, 187M–399M
+params, ~10× faster than cross-encoders, runs on CPU and consumer hardware; and
+GLiNER2's schema-driven extraction interface (arXiv 2507.18546), which is close
+to Jev's declare-a-schema contract. Scoped as step 8.
+
+**Cost of this choice:** we build and prove the calibration ourselves — a vendor
+shipping a calibrated model is doing real work we now owe. No SLA, no support.
+Accuracy unknown until measured on our own decisions, and a miscalibrated gate
+is worse than no gate.
+
+**Explicitly not adopted, and why it is named here:** several aggregator sites
+describe a self-hosted Jev-compatible server (`jeff`) "powered by the GLiFormer
+400M encoder." **"GLiFormer" does not verify** — the name returns nothing in
+search, and those sites are low-quality SEO pages that disagree with each other
+on basic facts. Per invariant #8, nothing from that chain enters the tree.
+
+### D55 (amended) — Owner override: online APIs are permitted; Jev is back on the table
+**Amended:** 2026-10-12, same day, by the owner.
+
+**The override, as given:** *"We can go online and use API for JEV, there is no
+limitation of using online services, since we have moved ahead in the technology
+and we can build a guardrail and firewall kind of thing to restrict unnecessary
+things to be sent online, we can work on that later. Our main goal is to be on
+latest tech and ship our WELLSY as fast as we can as we are 1 month behind."*
+
+This supersedes D55's reasons **1** (hosted-only) and **3** (no rationale) as
+*blocking* objections. They are downgraded to costs, carried below. The
+no-third-party-cloud constraint that governed D1 through D54 no longer applies
+as an absolute; an egress-control layer is planned but deliberately deferred.
+
+**What stays true regardless of the override — these are functional, not
+policy:**
+
+1. **`stop` cannot go behind a network hop.** The deterministic intents
+   (`stop`, `wake`, `sleep`, `move_orb`) hold a measured 617/700 ms end-to-end
+   budget, and `stop` is a safety control. Network jitter and a cold TLS
+   handshake are not budgetable. They stay local and model-free. This is the
+   same rule step 8 already carried, now for latency rather than privacy.
+2. **The humanoid endgame still needs an offline path.** D51 makes
+   Linux/ARM64/CUDA production target #1 because the endgame is a body. A body
+   that cannot decide without connectivity is not shippable. So the decision
+   seam keeps a local backend — not as the default, but as a fallback that is
+   proven to work, because retrofitting one later is the expensive order.
+3. **Access is not confirmed.** Jev is early-access behind a waitlist. It is
+   reported reachable via **OpenRouter** and **Vercel AI Gateway**, which may
+   bypass it. Step 8 therefore opens by establishing whether we can call it at
+   all, before any integration work.
+4. **The egress record is built now, the policy later.** Deferring the guardrail
+   is fine; deferring the *log of what crossed the wire* is not, because the
+   guardrail cannot be written later against data nobody captured. Step 8 logs
+   every outbound payload. That is cheap now and is the thing that makes "we
+   will do it later" actually possible later.
+
+**Costs accepted by the override, recorded so they are not rediscovered:**
+- Pixels, audio-derived transcripts and personal state may now leave the device.
+  The privacy claim that was a genuine differentiator (D1) weakens, and the
+  public narrative changes with it.
+- A decision with no returned rationale still cannot be fully audited
+  (invariants #6, #10). The audit row will record the question, the inputs, the
+  returned value and its probability — but not *why*. That is a real reduction
+  in explainability and it is now a known one.
+- Vendor dependency: pricing is unproven and possibly subsidised, the model is
+  proprietary and can change under us without notice, and the benchmark figures
+  (67.8% vs 74.1% GPT-5.6) are vendor-reported with no independent reproduction.
+- Invariant #14 is not violated — a hosted HTTP call is platform-neutral — but
+  the spirit of it (no single point of failure outside the core) is, which is
+  why point 2 above is non-negotiable.
+
+**Net effect on the plan:** step 8's seam is unchanged in shape; its *primary*
+backend becomes Jev-hosted, with the local encoder path (GLiClass / GLiNER2)
+retained as the proven fallback. The GLiFormer warning stands — that model name
+still does not verify and nothing from that source chain enters the tree.
