@@ -151,6 +151,22 @@ class OrbSession:
         th = threading.Thread(target=worker, name="orb-async", daemon=True)
         th.start()
 
+        # Ctrl-C: Qt's event loop swallows KeyboardInterrupt raised inside a
+        # timer callback (step 6c live run: four presses, four tracebacks, no
+        # exit). Handle SIGINT ourselves — stop the voice worker and quit the
+        # UI on the next tick. The handler runs on the main thread between
+        # bytecodes, and the tick timer keeps Python running at the UI rate.
+        import signal
+
+        def _on_sigint(_sig, _frm) -> None:
+            stop.set()
+            self._q.put(("quit",))
+
+        try:
+            prev_sigint = signal.signal(signal.SIGINT, _on_sigint)
+        except ValueError:            # not the main thread (tests) — keep the default
+            prev_sigint = None
+
         if hasattr(self._backend, "exec_"):
             from PySide6.QtCore import QTimer
 
@@ -173,7 +189,10 @@ class OrbSession:
             self._drain()          # apply any final hud_hide / quit
             self._backend.stop()
 
-        th.join(timeout=3.0)
+        stop.set()                     # UI closed by any route -> voice worker stops too
+        if prev_sigint is not None:
+            signal.signal(signal.SIGINT, prev_sigint)
+        th.join(timeout=5.0)
         if "error" in box:
             raise box["error"]
         return box.get("result")

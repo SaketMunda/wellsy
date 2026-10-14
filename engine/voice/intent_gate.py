@@ -126,6 +126,14 @@ def build_intent_gate(wake_state, *, context=None, pending=None, on_decision=Non
                 return
             if d.action == "sleep":
                 self._wake.sleep()
+                if context is not None:
+                    # so a later "did you hear me singing?" gets the truth, not
+                    # "I don't have a sense of hearing" (step 6c second live run)
+                    context.add_message({"role": "developer", "content": (
+                        "You were just put to sleep. Until the user wakes you, you "
+                        "ignore everything said: you hear it through the microphone "
+                        "but do not listen. Anything said while you slept, you did not hear."
+                    )})
                 await self.push_frame(
                     TTSSpeakFrame(text="Going to sleep.", append_to_context=False), direction
                 )
@@ -220,7 +228,15 @@ def build_intent_gate(wake_state, *, context=None, pending=None, on_decision=Non
 
             # Verified capture — attach to the shared context and run the VLM.
             msg = await LLMContext.create_image_message(
-                format="image/jpeg", size=cap.size, image=cap.jpegs[0], text=frame.text
+                format="image/jpeg", size=cap.size, image=cap.jpegs[0],
+                text=(
+                    f'The user asks: "{frame.text}"\n('
+                    # quoted as the user's words — unquoted, the 2B VL model
+                    # answered "what I am wearing" with "I'm wearing ..."
+                    + ("This is the user's screen. " if cap.frame_source == "screen"
+                       else "This is your camera, looking at the user and their room. ")
+                    + "Answer aloud in two short spoken sentences. No lists, no markdown.)"
+                ),
             )
             context.add_message(msg)
             for extra in cap.jpegs[1:]:
@@ -313,12 +329,13 @@ def build_provenance_logger(pending, *, context=None, llm=None):
                 )
             except Exception:
                 pass
-            if context is not None and pending.image_message is not None:
+            if context is not None:
+                # every image message, not just the primary display's — the
+                # "(additional display)" frames used to stay in context forever
                 try:
-                    target = pending.image_message
-                    context.transform_messages(
-                        lambda msgs: [m for m in msgs if m is not target]
-                    )
+                    from engine.voice.adapters import strip_image_messages
+
+                    context.transform_messages(strip_image_messages)
                 except Exception:
                     pass
             pending.disarm()

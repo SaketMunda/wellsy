@@ -44,6 +44,11 @@ from difflib import SequenceMatcher
 
 from loguru import logger
 
+from engine.honesty.intent import parse_intent
+
+# intents a user may legitimately repeat straight after WELLSY suggested them
+_NEVER_ECHO = frozenset({"stop", "sleep", "wake", "move_orb", "describe_scene", "query_object"})
+
 _PUNCT_KEEP = str.maketrans({c: " " for c in "\"'.,!?;:()[]{}—–-…"})
 
 
@@ -169,6 +174,14 @@ def build_self_echo_filter(window: SelfEchoWindow, *, threshold: float = 0.8,
 
             if isinstance(frame, TranscriptionFrame) and direction == FrameDirection.DOWNSTREAM:
                 spoken = window.recent()
+                # A deterministic command is never dropped as echo. Step 6c
+                # live run: WELLSY said 'say "move to the bottom right"', the
+                # user said exactly that, and the filter ate it (score 1.00).
+                # The half-duplex gate already keeps playback out of the mic;
+                # an echoed command slipping past it is harmless next to a
+                # user's command being ignored.
+                if spoken and parse_intent(frame.text).type in _NEVER_ECHO:
+                    spoken = []
                 if spoken:
                     echo, score, matched = is_self_echo(
                         frame.text, spoken, threshold=threshold, min_words=min_words

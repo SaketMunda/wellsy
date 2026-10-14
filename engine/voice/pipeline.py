@@ -65,14 +65,19 @@ from engine.voice.wake import WakeState, build_wake_gate
 SYSTEM_PROMPT = (
     "You are WELLSY — a local, private AI that lives on this machine, in the "
     "spirit of JARVIS. You are not a text chatbot. You hear the user through a "
-    "microphone and speak back aloud. You can see: a live camera of the room and "
-    "the screen, on demand. You have a visible presence on screen — a glowing orb "
-    "— and you can move it to any corner when asked. You can run tools: calendar, "
-    "mail drafts, reminders, notes, files, and web search.\n"
-    "Because of this: never say you are 'text-based', never say you cannot see or "
-    "have no camera, never say you cannot move. If the user asks what you see, "
-    "answer from the camera or screen. If they ask you to move, it is already "
-    "being handled — just acknowledge briefly.\n"
+    "microphone and speak back aloud. You can look through a camera at the room, "
+    "or at the screen, when the user asks you to. You have a visible presence on "
+    "screen — a glowing orb — that moves to a corner on the user's spoken command.\n"
+    "Never call yourself 'text-based'.\n"
+    "Honesty about your senses and actions is absolute:\n"
+    "- You only see when an image is attached to the user's message. If there is "
+    "no image, you have NOT looked: never claim to see the user, the room, the "
+    "camera, or the screen, and never say the camera is on. Say you haven't "
+    "looked, and that they can ask 'what do you see' or 'what's on my screen'.\n"
+    "- You cannot move the orb yourself; a separate command does that before you "
+    "are asked. If a request to move reaches you, the move did NOT happen. Never "
+    "say you moved. Tell them to say, for example, 'move to the bottom right'.\n"
+    "- Never claim any action happened unless you were told it did.\n"
     "You are speaking aloud: reply in one or two short spoken sentences. No lists, "
     "no markdown, no emoji. If you genuinely do not know something, say so plainly."
 )
@@ -159,6 +164,27 @@ def build(*, start_awake: bool = False, on_decision=None, observers=None,
     )
     prov_logger = build_provenance_logger(vision_pending, context=context, llm=llm)
 
+    def _recover_after_llm_failure() -> None:
+        # a failed vision turn must not leave its images in context — every
+        # later turn would carry them and fail the same way
+        from engine.voice.adapters import strip_image_messages
+
+        context.transform_messages(strip_image_messages)
+        vision_pending.disarm()
+
+    llm.on_failure = _recover_after_llm_failure
+
+    # step 6c: on a turn with no image, a sentence claiming to see / to have
+    # moved is replaced before TTS — the prompt asks, this enforces
+    from loguru import logger
+
+    from engine.voice.claim_guard import build_claim_guard
+
+    claim_guard = build_claim_guard(
+        vision_pending,
+        on_replace=lambda orig, fixed: logger.warning(f"ClaimGuard replaced {orig!r} -> {fixed!r}"),
+    )
+
     # --- step 4c: open-air audio -------------------------------------------- #
     cfg = cfg_holder["cfg"]
     echo_window = SelfEchoWindow(ttl_s=cfg.self_echo_ttl_s)
@@ -183,7 +209,7 @@ def build(*, start_awake: bool = False, on_decision=None, observers=None,
     stages = [transport.input(), half_duplex_gate, stt]
     if self_echo_filter is not None:
         stages.append(self_echo_filter)
-    stages += [wake_gate, intent_gate, user_aggregator, llm, prov_logger, tts, echo_tap,
+    stages += [wake_gate, intent_gate, user_aggregator, llm, prov_logger, claim_guard, tts, echo_tap,
                transport.output(), assistant_aggregator]
     pipeline = Pipeline(stages)
 
@@ -350,15 +376,31 @@ def _run_with_orb(args) -> int:
     observer = build_voice_observer(sess.bus)
     on_decision = intent_decision_sink(sess.bus)
 
-    async def _main():
-        holder["loop"] = _asyncio.get_running_loop()
-        await run(start_awake=args.awake, on_decision=on_decision,
-                  observers=[observer], handle_sigint=False,  # worker runs off the main thread
-                  on_move=sess.move_orb,   # "move to the corner" -> the orb, deterministic
-                  on_worker=lambda w: holder.__setitem__("worker", w))
+    async def _main(stop):
+        loop = _asyncio.get_running_loop()
+        holder["loop"] = loop
+
+        async def _cancel_on_stop():
+            # Ctrl-C / orb closed -> end the voice pipeline cleanly, instead of
+            # leaving it running into interpreter shutdown ("cannot schedule
+            # new futures after shutdown", step 6c live run)
+            await loop.run_in_executor(None, stop.wait)
+            w = holder.get("worker")
+            if w is not None:
+                await w.cancel()
+
+        watcher = _asyncio.create_task(_cancel_on_stop())
+        try:
+            await run(start_awake=args.awake, on_decision=on_decision,
+                      observers=[observer], handle_sigint=False,  # worker runs off the main thread
+                      on_move=sess.move_orb,   # "move to the corner" -> the orb, deterministic
+                      on_worker=lambda w: holder.__setitem__("worker", w))
+        finally:
+            stop.set()                 # releases the executor thread in _cancel_on_stop
+            watcher.cancel()
 
     try:
-        sess.run(lambda _stop: _main())
+        sess.run(lambda stop: _main(stop))
     except KeyboardInterrupt:
         pass
     return 0
