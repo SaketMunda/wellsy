@@ -17,7 +17,7 @@ unless noted. **No Linux/CUDA numbers exist yet — that path is unexecuted (see
 | Runtime | Version | Verified | Licence | Portable path | Role |
 |---|---|---|---|---|---|
 | ONNX Runtime | 1.29.0 | 2026-09-01 | MIT | CPU + CoreML EP (macOS); CUDA/TensorRT/ROCm/DirectML EP elsewhere | Small models — VAD now; ASR/TTS when wired |
-| Ollama (local server) | 0.33.2 | 2026-09-01 | MIT | HTTP `/v1/chat/completions`, streaming; runs on Linux/Win/macOS | LLM/VLM host for the `openai_http` backend |
+| Ollama (local server) | **0.40.3** (was 0.33.2) | 2026-10-14 | MIT | HTTP `/v1/chat/completions`, streaming; runs on Linux/Win/macOS | LLM/VLM host for the `openai_http` backend. **Since 0.40.0, MLX is the default runner on Apple Silicon for Qwen3.5 / Gemma 4 / Qwen3.6** (INVARIANTS #14): pin `-q4_K_M` GGUF tags (runner `llamacpp`), never bare tags. `ollama ps` under-reports some runners; plan on runner RSS (step 5c §1.3). |
 | mlx-lm / mlx | 0.31.3 / 0.32.2 | 2026-09-01 | MIT / MIT | **none — Apple Silicon only** | `mlx` LLM backend: opt-in, never default (INVARIANTS #14) |
 | httpx | 0.28.1 | 2026-09-01 | BSD-3-Clause | pure Python | transport for `openai_http` |
 
@@ -34,13 +34,15 @@ can be added later without changing the interface.
 
 | Model | Served as | Version / digest | Verified | Licence | Notes |
 |---|---|---|---|---|---|
-| Qwen3 4B Instruct 2507 | Ollama `qwen3:4b-instruct-2507-q4_K_M` | digest `0edcdef34593`, 2.5 GB | 2026-09-03 | Apache-2.0 | **step 5b default for agent `fast` + `planner` AND the voice-path LLM** (`models.py`, `adapters.build_llm`, `metrics.py`). Non-reasoning *by construction* (the `-instruct` build has no `<think>` path). Warm TTFT 21 ms (fast turn) / 32 ms (planner prompt); full schema-valid 3-step plan in ~4.0 s; **20/20 plan-JSON validity**; 3.2 GB resident (`ollama ps`, ctx 4096). One model, two agent roles. |
-| Qwen3-VL 2B Instruct | Ollama `qwen3-vl:2b-instruct-q4_K_M` | digest `ea422f1e7365`, 1.9 GB | 2026-09-03 | Apache-2.0 | **step 5b `openai_http` / VLM default** (`DEFAULT_MODEL`), VLM via `images=`. Non-reasoning `-instruct` build — retires the `qwen3-vl:4b` hybrid reasoning-tax debt. 2.0 GB resident; first-capture image processing ~1.8 s (768 px synthetic, `coldTTFT−load`); transcribed every line incl. 0.5-scale small print, matching `qwen2.5vl:3b`. **Owed: real-vision-path resolution sweep (step 5b debt D3).** |
+| Qwen3 4B Instruct 2507 | Ollama `qwen3:4b-instruct-2507-q4_K_M` | digest `0edcdef34593`, 2.5 GB | 2026-10-14 | Apache-2.0 | **Re-measured on Ollama 0.40.3 (step 5c):** planner 3.91 / 3.97 s, 20/20; fast TTFT 24.2 / 26.7 ms; 3.0 GB `ps` / 3.1 GB RSS at 4K, 12 GB at 64K (pure attention). **step 5b default for agent `fast` + `planner` AND the voice-path LLM** (`models.py`, `adapters.build_llm`, `metrics.py`). Non-reasoning *by construction* (the `-instruct` build has no `<think>` path). Warm TTFT 21 ms (fast turn) / 32 ms (planner prompt); full schema-valid 3-step plan in ~4.0 s; **20/20 plan-JSON validity**; 3.2 GB resident (`ollama ps`, ctx 4096). One model, two agent roles. |
+| Qwen3-VL 2B Instruct | Ollama `qwen3-vl:2b-instruct-q4_K_M` | digest `ea422f1e7365`, 1.9 GB | 2026-10-14 | Apache-2.0 | **`openai_http` / VLM default** (`DEFAULT_MODEL`), VLM via `images=`. Non-reasoning `-instruct` build. **Step 5c D3 (real dense UI, new image each turn, through `vision._to_jpeg`):** 1024 px → 1056 tokens, first word **2120 / 2197 ms**, legibility 9/6/9 of 18; below 1024 px the server scales up to the same 1056-token floor (no time saved, 0–3/18 legible). 5b's "~1.8 s" was cache-inflated. Resident 1.9 GB `ollama ps` / **2.8 GB runner RSS**. |
+| **Qwen3.5 4B** | Ollama **`qwen3.5:4b-q4_K_M`** (GGUF, runner `llamacpp`) | digest `d8b0f5e9760c`, 3.3 GB, 4.2B, ctx 262,144 | 2026-10-14 | Apache-2.0 | **Measured, recommended, not yet default (step 5c).** Natively multimodal (vision projector in the same pull). **Thinks by default** (card + `ollama show`; 3922–4066 thinking tok/turn, 0/5 plans with no flag). Off-switch: native `think:false`; on `/v1` **only `reasoning_effort:"none"`**. WELLSY's current `think:false` + `chat_template_kwargs` are ignored there, so a string-only swap is silent. Reasoning off: planner **3.47 / 3.47 s, 20/20**; fast TTFT 70.9 / 85.9 ms; VLM 1024 px 604 tokens, **2018 / 2197 ms**, 8/10 grounded answers. 3.0 GB `ps` / 3.7 GB RSS at 4K; 4.6 GB RSS at 32K. One model for fast + planner + VLM = −2.1 GB. The swap (with `reasoning_effort`, and removal of `SeamLLMService`'s flip) is step 9's. |
 | Qwen2.5 3B | Ollama `qwen2.5:3b` | 2026-09-01 | Apache-2.0 | **Beaten incumbent** (step 5b fast bench-off). 15 ms warm TTFT, 2.0 GB — faster/lighter than the winner but 2024-era (INVARIANTS #8). Kept pulled as a fallback. |
 | Qwen2.5-VL 3B | Ollama `qwen2.5vl:3b` | digest `fb90415cde1e`, 3.2 GB | 2026-09-03 | Apache-2.0 | Step-5 interim VLM, **beaten** by `qwen3-vl:2b-instruct` (4.1 GB resident vs 2.0, 91 vs 140 tok/s, same legibility). Fallback. |
 | Qwen3-VL 4B | Ollama `qwen3-vl:4b` (+ `4b-instruct` on the shelf) | digest `1343d82ebee3`, 3.3 GB | 2026-09-01 | Apache-2.0 | Hybrid `4b` reasons uncontrollably on Ollama 0.33.2 (step 4b). `qwen3-vl:4b-instruct` (3.3 GB) is the non-reasoning fallback if D3 finds `2b-instruct` loses dense-UI text. |
-| Qwen3 4B (hybrid / thinking-2507) | Ollama `qwen3:4b`, `qwen3:4b-thinking-2507-q4_K_M` | `359d7dd4bcda` / — | 2026-09-03 | Apache-2.0 | **Rejected for the planner.** ~78 s/turn, 4756 reasoning tokens/turn. `think:"low"` accepted by the API but **byte-identical** think-token count — no flag or effort level disables reasoning on this stack (step 5b §2). |
+| Qwen3 4B (hybrid / thinking-2507) | Ollama `qwen3:4b`, `qwen3:4b-thinking-2507-q4_K_M` | `359d7dd4bcda` / — | 2026-10-14 | Apache-2.0 | **Rejected for the planner.** ~78 s/turn, 4756 reasoning tokens/turn. `think:"low"` accepted by the API but **byte-identical** think-token count — re-confirmed on Ollama 0.40.3 (step 5c). Hybrid + `think:false` on 0.40.3 empties the `thinking` field but **reasons in `content`** (4947 tok, 0/5 plans): still no working flag. |
 | Qwen3-VL 8B | Ollama `qwen3-vl:8b` | digest `901cae732162`, 6.1 GB | 2026-09-01 | Apache-2.0 | available; same reasoning-tax problem as hybrid 4B |
+| Gemma 4 E4B | Ollama `gemma4:e4b` | digest `c6eb396dbd59`, 9.6 GB on disk, 8.0B | 2026-10-14 | Apache-2.0 | **Rejected (step 5c).** Plan JSON invalid **0/20** (drops the final `}` every time at temp 0); slowest planner (4.76 s); `ollama ps` 3.2 ↔ 9.0 GB between loads, 4.6 GB runner RSS. |
 
 **`wellsy bench --modality llm` (trials 20, `/no_think` prompt, cold):**
 
@@ -134,7 +136,7 @@ models and `engine/inference` load on 1.29, verified in step 4.
 
 | Component | Version | Verified | Licence | Portable path | Role |
 |---|---|---|---|---|---|
-| LangGraph | 1.2.11 | 2026-09-01 | MIT | pure Python | agent state machine; `interrupt()` == the approval gate (D53) |
+| LangGraph | 1.2.11 (prebuilt 1.1.0) | 2026-10-14 | MIT | pure Python | agent state machine; `interrupt()` == the approval gate (D53). Provides `pre_model_hook`/`post_model_hook` (on `create_react_agent` only), `add_node(defer=, cache_policy=)`, `InMemoryCache`; WELLSY's hand-built `StateGraph` gets the hook seam as a node before the model node (5c §6). |
 | langchain-mcp-adapters | 0.3.2 | 2026-09-01 | MIT | pure Python | MCP tools → LangChain tools. **Core-pins `mcp<2.0.0`** |
 | mcp (Python SDK) | 1.29.1 | 2026-09-01 | MIT | pure Python, stdio | protocol rev **2025-06-18**. NOT the 2026-07-28 rewrite (mcp 2.x) — the adapter doesn't support it yet |
 | langchain-openai | 1.6.0 | 2026-09-01 | MIT | HTTP `/v1/chat/completions` | `ChatOpenAI` for the two model roles |
@@ -148,8 +150,14 @@ Node/bun runtime, no Mail, no safety flags). PIM backend is platform-neutral
 
 | Role | Model (default) | Resident (`ollama ps`, ctx 4096) | Warm TTFT p50 / p95 | Notes |
 |---|---|---|---|---|
-| fast **+** planner | `qwen3:4b-instruct-2507-q4_K_M` | **3.2 GB** (one model, both roles) | 21 / 24 ms (fast) · 32 / 47 ms (planner) | non-reasoning; full plan 4.0 s; 20/20 plan-valid |
-| VLM | `qwen3-vl:2b-instruct-q4_K_M` | **2.0 GB** | ~1.8 s first-capture proc (768 px proxy) | non-reasoning; D3 sweep owed |
+| fast **+** planner | `qwen3:4b-instruct-2507-q4_K_M` | **3.0 GB** `ps` / 3.1 GB RSS (one model, both roles) | 24 / 27 ms (fast) · 31 / 33 ms (planner) | non-reasoning; full plan 3.9 s; 20/20 plan-valid (5c, Ollama 0.40.3) |
+| VLM | `qwen3-vl:2b-instruct-q4_K_M` | **1.9 GB** `ps` / 2.8 GB RSS | **2120 / 2197 ms** first word, new 1024 px dense-UI image | non-reasoning; D3 closed in 5c |
+
+**Step 5c, measured together (ctx 4096): 4.9 GB `ollama ps`, 5.9 GB runner RSS**
+(5b's 5.2 GB was `ps`). The recommended collapse to `qwen3.5:4b-q4_K_M` is
+3.7 GB RSS at 4K and 4.6 GB at 32K; see `.claude/rebuild/step5c-results.md`
+§5, which **supersedes step 5b §2–§5**. Orin NX 16 GB re-derived: fits
+(~8.3 GB working set as shipped).
 
 **Both co-resident (measured together) = 5.2 GB** — down from step-5's 9.0 GB
 for three models. Agent-runtime python tree unchanged: **204.7 MB**. Re-derived
@@ -159,6 +167,21 @@ Jetson Orin NX 16 GB analysis (now **fits, all roles resident**):
 Losers with numbers: `qwen2.5:3b` (fast, 15 ms but 2024-era), `qwen3:4b` /
 `qwen3:4b-thinking-2507` (planner, ~78 s/turn, `think:"low"` non-functional),
 `qwen2.5vl:3b` (VLM, 4.1 GB / 91 tok/s). Full table: step 5b results §2-4.
+
+---
+
+## Perception — adopted step 5c
+
+| Model | Runtime | Version | Verified | Licence | Live (gate open, 8 Hz, 1080p) |
+|---|---|---|---|---|---|
+| **YOLOE-26s seg** (`yoloe-26s-seg.pt`, ~31 MB) + text encoder `mobileclip2_b.ts` (~254 MB) | ultralytics 8.4.137 (needs ≥ 8.4.0), PyTorch MPS | YOLO26 arch, NMS-free | 2026-10-14 | AGPL-3.0 (package metadata) | T0+T1 **32.14 / 35.85 · 31.36 / 33.89 ms** (two runs); cold first call 328–547 ms; process RSS 952 MB. Text embedding runs on MPS directly (no float64 failure). |
+| YOLOE-11s seg (`yoloe-11s-seg.pt`) + `mobileclip_blt.ts` (~570 MB) | same | — | 2026-10-14 | AGPL-3.0 | **Beaten incumbent.** T0+T1 33.91 / 39.05 · 31.59 / 37.30 ms; cold 330–370 ms; 1066 MB RSS; one early phone false positive; MPS float64 text-encoder failure still present. |
+
+Both miss the §1 live p50 (< 20 ms). The same detector back-to-back runs
+~16 ms; with the 8 Hz idle gap, 40 ms. The cost is the GPU idling between
+calls, not the model (step 5c §4.3). LVIS minival text-prompt mAP 30.8 vs
+27.5 per the Ultralytics docs; on WELLSY's own clip, both find glasses and a
+held phone on ~95–100 % of ticks once T1 runs.
 
 ---
 

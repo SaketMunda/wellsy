@@ -42,6 +42,8 @@ def capture_worker(
     camera_index: int = 0,
     synthetic: bool = False,
     synthetic_intermittent: bool = False,
+    clip: str | None = None,
+    record: str | None = None,
 ) -> None:
     """Opens the camera and pushes (timestamp, bgr_frame, capture_ms) tuples.
 
@@ -59,7 +61,18 @@ def capture_worker(
     pixels.
     """
     cap = None
-    if not synthetic and not synthetic_intermittent:
+    writer = None
+    clip_dt = 0.0
+    if clip is not None:
+        # Verification harness (step 5c): replay a recorded clip at its own
+        # frame rate through the same latest-wins queue, so two detectors can
+        # be compared on identical frames instead of two live performances.
+        cap = cv2.VideoCapture(clip)
+        if not cap.isOpened():
+            frame_queue.put(("error", f"clip did not open: {clip}"))
+            return
+        clip_dt = 1.0 / (cap.get(cv2.CAP_PROP_FPS) or 30.0)
+    elif not synthetic and not synthetic_intermittent:
         cap = cv2.VideoCapture(camera_index, cv2.CAP_AVFOUNDATION)
         if not cap.isOpened():
             frame_queue.put(("error", "camera did not open — check macOS camera permission for this process"))
@@ -79,12 +92,26 @@ def capture_worker(
                 time.sleep(1 / 30)  # a real camera paces itself; a generator doesn't, so fake the cadence
             else:
                 ok, frame = cap.read()
+                if clip is not None:
+                    if not ok:
+                        frame_queue.put(("eof", clip))
+                        return
+                    time.sleep(max(0.0, clip_dt - (time.monotonic() - t0)))
             capture_ms = (time.monotonic() - t0) * 1000
             frame_i += 1
             if not ok:
                 continue
+            if record is not None:
+                if writer is None:
+                    h, w = frame.shape[:2]
+                    fps = cap.get(cv2.CAP_PROP_FPS) if cap is not None else 30.0
+                    writer = cv2.VideoWriter(record, cv2.VideoWriter_fourcc(*"mp4v"),
+                                             fps or 30.0, (w, h))
+                writer.write(frame)
             put_latest(frame_queue, (time.time(), frame, capture_ms))
     finally:
+        if writer is not None:
+            writer.release()
         if cap is not None:
             cap.release()
 

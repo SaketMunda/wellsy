@@ -373,6 +373,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--slot", choices=["planner", "fast", "vlm", "all"], default="all",
                     help="llm only: which model role to bench (step 5b)")
     ap.add_argument("--candidate", default=None, help="llm only: a single model id")
+    ap.add_argument("--num-ctx", type=int, default=None,
+                    help="llm only: Ollama options.num_ctx (step 5c context re-measure)")
+    ap.add_argument("--think", default=None,
+                    help="llm only: only candidates with this think value")
     args = ap.parse_args(argv)
 
     # `--modality llm` is the per-slot model bench-off (step 5b Deliverable 1),
@@ -387,6 +391,10 @@ def main(argv: list[str] | None = None) -> int:
             llm_argv += ["--candidate", args.candidate]
         if args.out:
             llm_argv += ["--out", args.out]
+        if args.num_ctx:
+            llm_argv += ["--num-ctx", str(args.num_ctx)]
+        if args.think:
+            llm_argv += ["--think", args.think]
         return llm_bench.run(llm_argv)
 
     modalities = list(registry.MODALITIES) if args.modality == "all" else [args.modality]

@@ -69,8 +69,8 @@ spec/             phase1-acceptance.md — the definition of done
 
 ## Model weights (not in the repo)
 
-YOLOE's detector (`yoloe-11s-seg.pt`, ~28 MB) and its MobileCLIP text-prompt
-encoder (`mobileclip_blt.ts`, ~570 MB) live at `~/.cache/wellsy/weights`,
+YOLOE's detector (`yoloe-26s-seg.pt`, ~31 MB, since step 5c) and its MobileCLIP2
+text-prompt encoder (`mobileclip2_b.ts`, ~254 MB) live at `~/.cache/wellsy/weights`,
 outside the repo. `detector.py` points Ultralytics' settings there and `chdir`s
 into it before the first load.
 

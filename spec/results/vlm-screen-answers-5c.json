@@ -1,0 +1,35 @@
+{
+ "method": "10 sampled answers to QUESTION at 1024px (production sampling, num_predict 90 = VLM_MAX_TOKENS); grounded = names an editor AND the notebook/chatbot/memory topic",
+ "results": {
+  "qwen3-vl:2b-instruct-q4_K_M": {
+   "grounded": 7,
+   "answers": [
+    "You're using a code editor called Jupiter Notebook, with the file named \"memory_store.ipynb\" open, which is a Jupyter Notebook with the title \"Chatbot with Memory.\" It's a markdown and Python notebook with a review section discussing memory, goals, and code instructions for a chatbot that uses long-term memory.",
+    "You are using a programming environment that's likely for a LangGraph project. The screen shows a project called memory_store.ipynb, which contains code for a chatbot with memory using LangGraph, and the interface includes code for the script in the file.",
+    "A web browser showing a code editor with a file named memory_store.ipynb in the center, and the terminal below it.",
+    "You are working on a Python project in a code editor called Jupiter Notebook, which is part of the LangGraph framework, and you're creating a chatbot with memory.",
+    "You are using a code editor for the LangGraph project in a terminal.",
+    "A development environment with Python code, a terminal, and various tool icons.",
+    "A computer screen showing a development environment with a file called 'memory_store.ipynb' open, along with a terminal and several application icons on the right.",
+    "You're working on a Python project in a code editor, using the LangGraph library and creating a chatbot with memory storage for long-term retention.",
+    "You have a code editor and terminal open, with a Python script in a Jupyter Notebook environment showing a \"Chatbot with Memory\" project.",
+    "You're using a code editor to write a file called 'memory_store.ipynb' for a chatbot that uses memory."
+   ]
+  },
+  "qwen3.5:4b-q4_K_M": {
+   "grounded": 8,
+   "answers": [
+    "You are running a Jupyter Notebook titled \"Chatbot with Memory\" within VS Code, which is part of the LangChain library project to demonstrate long-term memory capabilities for AI chatbots using both short-term and long-term memory techniques.",
+    "You're viewing a Jupyter Notebook tutorial on creating a Chatbot with Memory using LangGraph and the Memory Store, currently editing code to implement goals-related functionality while actively running terminal commands within VS Code.",
+    "You're working on the LangGraph project to build a chatbot with memory using Python, Jupyter Notebook, and VS Code.",
+    "You are working on the \"Chatbot with Memory\" project using LangGraph and Python within a terminal, VS Code, and Jupyter Notebook environment.",
+    "A VS Code window displaying the 'memory_store.ipynb' Jupyter Notebook file for a LangChain project, open alongside its Python terminal and other related files.",
+    "A VS Code window displaying the 'Chatbot with Memory' LangGraph tutorial, open in two Jupyter notebooks side-by-side with an active terminal showing Python installation commands.",
+    "You are developing a chatbot with memory capabilities for your LangChain project, focusing on long-term semantic memory implementation.",
+    "a computer coding IDE open",
+    "You're editing a 'Chatbot with Memory' LangGraph project, specifically working on the memory store module in a dark-themed VS Code IDE.",
+    "A VS Code environment open a Python chatbot project, with code and terminal outputs visible for both main notebook files, memory_store.py and langgraph-memory-store.ipynb."
+   ]
+  }
+ }
+}
