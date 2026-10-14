@@ -38,13 +38,19 @@ def capture_camera(camera_index: int = 0, *, warmup_frames: int = 3, timeout_s: 
     try:
         deadline = time.monotonic() + timeout_s
         frame = None
-        # First frames after open are often stale/black; pull a few.
-        for _ in range(max(1, warmup_frames)):
+        # First frames after open are often stale/black; pull a few. Keep
+        # reading until `warmup_frames` good frames or the deadline: on macOS
+        # the first reads after a re-open can fail instantly, and a fixed three
+        # attempts refused a working camera (step 6c replay, third capture in
+        # ~10 s: "opened but returned no frame").
+        good = 0
+        while good < max(1, warmup_frames) and time.monotonic() < deadline:
             ok, f = cap.read()
             if ok and f is not None:
                 frame = f
-            if time.monotonic() > deadline:
-                break
+                good += 1
+            else:
+                time.sleep(0.03)
         if frame is None:
             raise CaptureError(
                 f"Camera {camera_index} opened but returned no frame.",

@@ -29,6 +29,18 @@
     { "name": "presence: are you there?", "transcript": "are you there?", "intent": { "type": "presence" } },
     { "name": "presence: you there", "transcript": "you there", "intent": { "type": "presence" } },
     { "name": "thanks: thanks", "transcript": "thanks", "intent": { "type": "thanks" } },
-    { "name": "thanks: ok, thank you", "transcript": "ok, thank you", "intent": { "type": "thanks" } }
+    { "name": "thanks: ok, thank you", "transcript": "ok, thank you", "intent": { "type": "thanks" } },
+    { "name": "move_orb: step 6c live transcript, ellipsis mid-phrase", "transcript": "Okay, can you just move to the... right. screen because I'm not able to view.", "intent": { "type": "move_orb", "object": "right" } },
+    { "name": "move_orb: go to the left side please", "transcript": "go to the left side please", "intent": { "type": "move_orb", "object": "left" } },
+    { "name": "not move_orb: 'right now' is not a direction", "transcript": "I will go right now and check", "intent": { "type": "unknown", "transcript": "I will go right now and check" } },
+    { "name": "not move_orb: a complaint about position stays unknown", "transcript": "You are still on the left side.", "intent": { "type": "unknown", "transcript": "You are still on the left side." } },
+    { "name": "describe_scene: step 6c live transcript, what I'm wearing", "transcript": "What I'm wearing right now.", "intent": { "type": "describe_scene" } },
+    { "name": "describe_scene: what am I holding", "transcript": "what am I holding", "intent": { "type": "describe_scene" } },
+    { "name": "describe_scene: can you see me", "transcript": "can you see me", "intent": { "type": "describe_scene" } },
+    { "name": "not vision: what are you doing", "transcript": "what are you doing", "intent": { "type": "unknown", "transcript": "what are you doing" } },
+    { "name": "describe_scene: step 6c live transcript, You see me?", "transcript": "You see me?", "intent": { "type": "describe_scene" } },
+    { "name": "move_orb: bare corner, second half of a split request", "transcript": "the bottom right corner", "intent": { "type": "move_orb", "object": "bottom right" } },
+    { "name": "describe_scene: step 6c live transcript, can you able to see me", "transcript": "Okay, well see, can you able to see me?", "intent": { "type": "describe_scene" } },
+    { "name": "not move_orb: corner with no direction", "transcript": "corner of the screen.", "intent": { "type": "unknown", "transcript": "corner of the screen." } }
   ]
 }

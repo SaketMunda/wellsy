@@ -35,6 +35,11 @@ _SCREEN_CUES = re.compile(
 )
 
 JPEG_QUALITY = 85
+# Longest edge sent to the VLM. Step 4b measured a 1080p screenshot at ~2757
+# vision tokens and 9.4 s; 1024 px took it to 3.2 s. The step-6c live run found
+# full-resolution frames going out again — two displays overflowed the 4096
+# context and ended the session.
+MAX_EDGE_PX = 1024
 
 
 def route(transcript: str) -> str:
@@ -96,8 +101,20 @@ class VisionPending:
         self.image_message = None
 
 
+def _downscale(frame_bgr):
+    import cv2
+
+    h, w = frame_bgr.shape[:2]
+    scale = MAX_EDGE_PX / max(h, w)
+    if scale >= 1.0:
+        return frame_bgr
+    return cv2.resize(frame_bgr, (round(w * scale), round(h * scale)), interpolation=cv2.INTER_AREA)
+
+
 def _to_jpeg(frame_bgr) -> bytes:
     import cv2
+
+    frame_bgr = _downscale(frame_bgr)
 
     ok, buf = cv2.imencode(".jpg", frame_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY])
     if not ok:
@@ -122,6 +139,6 @@ def capture_for_intent(transcript: str) -> VisionCapture:
         result=result,
         frame_source=frame_source,
         jpegs=[_to_jpeg(f.image) for f in frames],
-        size=(primary.width, primary.height),
+        size=_downscale(primary.image).shape[1::-1],
         captured_at=time.time(),
     )

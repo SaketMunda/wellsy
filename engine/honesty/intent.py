@@ -49,6 +49,15 @@ _SCREEN = re.compile(
     r"\b(what('?s| is| are)?|which|any|anything|is there|are there|do you see|"
     r"can you see|read|show me|tell me)\b[^?]*\b(screen|monitor|my display)\b"
 )
+# Questions about the user themself — "what am I wearing", "can you see me".
+# Step 6c live run: these fell through to the text model, which then claimed to
+# see through a camera it never opened. Routed to the camera like any
+# describe_scene; `vision.route()` picks camera because no screen word is present.
+_SELF_VISION = re.compile(
+    r"\b(what (am i|i'?m|i am) (currently |now )?(wearing|holding|doing)|"
+    r"you\b(?: \w+){0,3} see me|see me now|look at me|how do i look|what do i look like|"
+    r"am i visible)\b"
+)
 _QUERY = re.compile(r"(?:do you see|can you see|is there|are there)\s+(.+?)\??$")
 # Real usage found (decisions.md D39 amendment, day 10 retest): common
 # conversational filler ("are you there", "thanks") isn't a command, but
@@ -61,14 +70,27 @@ _THANKS = re.compile(r"\b(thanks|thank you|thankyou|appreciate it)\b")
 # never the model. Matches "move to the center", "go to the bottom right",
 # "get out of the way" (-> a default corner). The corner phrase is captured in
 # .object and resolved by engine.interface.backends.qt.backend.normalize_corner.
+#
+# Matched against the transcript with internal punctuation flattened (step 6c
+# live run: Whisper wrote "move to the... right. screen" and the old
+# `[^.?!]*?` span stopped at the ellipsis). The span is capped at 40 chars so a
+# verb early in a long sentence can't latch onto a far-off direction word, and
+# "right now" / "right away" / "right here" are not directions.
 _MOVE_ORB = re.compile(
-    r"\b(move|go|jump|snap|shift|get)\b[^.?!]*?\b("
+    r"\b(move|go|jump|snap|shift|get)\b.{0,40}?\b("
     r"top[- ]?left|top[- ]?right|bottom[- ]?left|bottom[- ]?right|"
     r"upper[- ]?left|upper[- ]?right|lower[- ]?left|lower[- ]?right|"
     r"left[- ]?bottom|right[- ]?bottom|left[- ]?top|right[- ]?top|"
     r"left[- ]corner|right[- ]corner|top[- ]corner|bottom[- ]corner|"
     r"out of (?:the|my) way|"
-    r"cent(?:er|re)|middle|top|bottom|left|right|corner|away)\b"
+    r"cent(?:er|re)|middle|top|bottom|left|right(?! now| away| here| there)|corner|away)\b"
+)
+_INNER_PUNCT = re.compile(r"[.,;:!?…]+")
+# A bare placement with no verb — the second half of a move request split by a
+# pause ("...can you shift to" / "the bottom right corner"). Whole utterance only.
+_BARE_CORNER = re.compile(
+    r"^(?:(?:to|in|into|at) )?(?:the )?((?:top|bottom|upper|lower)[- ]?(?:left|right)|"
+    r"(?:left|right) corner|cent(?:er|re))(?: corner)?(?: of the screen)?(?: please)?$"
 )
 _DETERMINER = re.compile(r"^(a|an|the|any)\s+")
 _TRIM_PUNCT = re.compile(r"[.!?]+$")
@@ -103,10 +125,14 @@ def parse_intent(transcript: str) -> Intent:
         return Intent("presence")
     if _THANKS.search(text):
         return Intent("thanks")
-    m = _MOVE_ORB.search(text)
+    flat = _WHITESPACE.sub(" ", _INNER_PUNCT.sub(" ", text)).strip()
+    m = _MOVE_ORB.search(flat)
     if m:
         return Intent("move_orb", object=m.group(2))
-    if _DESCRIBE.search(text) or _SCREEN.search(text):
+    m = _BARE_CORNER.match(flat)
+    if m:
+        return Intent("move_orb", object=m.group(1))
+    if _DESCRIBE.search(text) or _SCREEN.search(text) or _SELF_VISION.search(text):
         return Intent("describe_scene")
 
     match = _QUERY.search(text)

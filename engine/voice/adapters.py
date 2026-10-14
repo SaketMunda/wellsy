@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 from typing import Any, AsyncGenerator
 
 import numpy as np
@@ -25,6 +26,15 @@ from pipecat.services.tts_service import TTSService
 from pipecat.utils.time import time_now_iso8601
 
 from engine.inference import registry
+
+# The model emits emoji despite the prompt (step 6c live run: "there you go. 🌟");
+# they never reach the voice. Nor does markdown — the VL model answers in
+# bullet lists ("- A code editor ...") despite being asked not to.
+_EMOJI = re.compile(
+    "[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U0001F1E6-\U0001F1FF"
+    "\U00002B00-\U00002BFF\uFE0F\u200D]+"
+)
+_MARKDOWN = re.compile(r"(?m)^\s*(?:[-*•]|\d+\.|#+)\s+|\*\*|__|`")
 
 WHISPER_SR = 16000
 
@@ -104,7 +114,7 @@ class SeamTTSService(TTSService):
         return True
 
     async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame | None, None]:
-        text = (text or "").strip()
+        text = _MARKDOWN.sub("", _EMOJI.sub("", text or "")).strip()
         if not text:
             return
 
@@ -134,6 +144,72 @@ class SeamTTSService(TTSService):
         return out
 
 
+# The local server runs every model at a 4096-token context (Ollama's default;
+# the OpenAI-compatible endpoint ignores a per-request `num_ctx` — verified
+# against Ollama 0.40.3 on 2026-10-13: a 6012-token prompt 400s with or without
+# `options.num_ctx`). So the request is fitted to the window here instead of
+# trusting the server. Step 6c live run: two 1080p screen captures + history =
+# 4652 tokens -> 400 -> session over.
+CONTEXT_BUDGET_TOKENS = 3000      # of 4096 — the rest is room for the reply
+IMAGE_TOKENS = 700                # one <=1024 px frame on qwen3-vl (32 px/token) + margin
+
+
+def message_has_image(m: Any) -> bool:
+    content = m.get("content") if isinstance(m, dict) else getattr(m, "content", None)
+    return isinstance(content, list) and any(
+        isinstance(p, dict) and p.get("type") == "image_url" for p in content
+    )
+
+
+def strip_image_messages(msgs: list) -> list:
+    return [m for m in msgs if not message_has_image(m)]
+
+
+def _estimate_tokens(m: Any) -> int:
+    content = m.get("content") if isinstance(m, dict) else getattr(m, "content", None)
+    if isinstance(content, str):
+        return len(content) // 3 + 4
+    if isinstance(content, list):
+        n = 4
+        for p in content:
+            if isinstance(p, dict) and p.get("type") == "image_url":
+                n += IMAGE_TOKENS
+            elif isinstance(p, dict):
+                n += len(str(p.get("text", ""))) // 3
+        return n
+    return 4
+
+
+def fit_messages(msgs: list, budget: int = CONTEXT_BUDGET_TOKENS) -> list:
+    """Drop the oldest turns (never the system prompt, never the newest
+    message) until the estimate fits `budget`."""
+    head = [m for m in msgs[:1] if (m.get("role") if isinstance(m, dict) else None) == "system"]
+    body = list(msgs[len(head):])
+    total = sum(_estimate_tokens(m) for m in head + body)
+    while total > budget and len(body) > 1:
+        total -= _estimate_tokens(body.pop(0))
+    return head + body
+
+
+FAILURE_SPOKEN = "Sorry, that one failed on my side. Ask me again."
+
+# The VL model (2B) gets the image and nothing else. Step 6c second live run: fed
+# the whole conversation, it answered "what am I wearing" with 7 sentences
+# (~22 s of speech) and wandered into the earlier orb discussion; on a screen
+# turn it said "I see … but I haven't looked at the screen", mixing the
+# text-turn honesty rule into a turn where it had looked.
+VLM_SYSTEM_PROMPT = (
+    "You are WELLSY, a local assistant speaking aloud. The attached image is what "
+    "you are looking at right now. Answer the user's question about it in at most "
+    "two short spoken sentences, describing only what is actually visible. "
+    "Talk to the user as 'you': a person in a camera image is the user, never you. "
+    "If the question is about the user and no person is visible, say you don't see "
+    "anyone right now — never guess what they wear or hold. "
+    "No lists, no markdown, no emoji."
+)
+VLM_MAX_TOKENS = 90
+
+
 class SeamLLMService(OpenAILLMService):
     """One LLM stage, two models. The pipeline has a single LLM processor
     (step 4b); `IntentGate` calls `use_vlm(True)` right before it emits the
@@ -147,12 +223,73 @@ class SeamLLMService(OpenAILLMService):
         self._text_model = text_model
         self._vlm_model = vlm_model
         self.vlm_ok = bool(vlm_ok)
+        # set by the pipeline: drop image messages / disarm the vision turn
+        self.on_failure = None
+        self._text_max_tokens = self._settings.max_completion_tokens
 
     def use_vlm(self, on: bool) -> None:
         target = self._vlm_model if (on and self.vlm_ok) else self._text_model
         if self._settings.model != target:
             self._settings.model = target
             self.set_full_model_name(target)
+        self._settings.max_completion_tokens = (
+            VLM_MAX_TOKENS if target == self._vlm_model else self._text_max_tokens
+        )
+
+    def on_vlm(self) -> bool:
+        return self.vlm_ok and self._settings.model == self._vlm_model
+
+    async def _process_context(self, context):
+        if self.on_vlm():
+            from pipecat.processors.aggregators.llm_context import LLMContext
+
+            msgs = list(context.messages)
+            imgs: list = []
+            while msgs and message_has_image(msgs[-1]):
+                imgs.insert(0, msgs.pop())
+            vlm_ctx = LLMContext(messages=[{"role": "system", "content": VLM_SYSTEM_PROMPT}, *imgs])
+            await super()._process_context(vlm_ctx)
+            return
+        # A text-model request never carries an image (step 6c third live run:
+        # a vision turn cut short by the next utterance left its frames in
+        # context, the text model got them and 500'd "image input is not
+        # supported"). Images exist only for the VL turn that asked for them.
+        if any(message_has_image(m) for m in context.messages):
+            context.transform_messages(strip_image_messages)
+        fitted = fit_messages(list(context.messages))
+        if len(fitted) != len(context.messages):
+            context.set_messages(fitted)
+        await super()._process_context(context)
+
+    async def push_error_frame(self, error, force_treat_as_permanent: bool = False):
+        """A failed completion is one bad request, not a dead service. pipecat
+        classes a 400 as INVALID_REQUEST — permanent — and the worker then ends
+        the whole session (step 6c live run; increment 6 hit the same class
+        from another trigger). Reclassify it, recover the context, switch back
+        to the text model, and say so out loud instead of going silent.
+        Auth failures stay permanent."""
+        from pipecat.frames.frames import TTSSpeakFrame
+        from pipecat.utils.errors import ErrorCategory, classify_http_exception
+
+        if error.category is None and error.exception is not None:
+            error.category = self._classify_error(error.exception) or classify_http_exception(
+                error.exception
+            )
+        recoverable = error.category in (None, ErrorCategory.INVALID_REQUEST,
+                                         ErrorCategory.UNKNOWN, ErrorCategory.SERVER)
+        if recoverable:
+            error.category = ErrorCategory.APPLICATION
+            force_treat_as_permanent = False
+        await super().push_error_frame(error, force_treat_as_permanent=force_treat_as_permanent)
+        if not recoverable:
+            return
+        self.use_vlm(False)
+        if self.on_failure is not None:
+            try:
+                self.on_failure()
+            except Exception:
+                pass
+        await self.push_frame(TTSSpeakFrame(text=FAILURE_SPOKEN, append_to_context=False))
 
 
 def _resolve_ollama_model(base_url: str, model: str) -> str | None:
