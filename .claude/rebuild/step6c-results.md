@@ -239,7 +239,7 @@ tracks. **Putting on glasses or holding up a phone does not move enough pixels
 to open the gate**, so in this build those events are mostly invisible no
 matter how good the detector is. That is a T0 finding, not a detector finding,
 and the 5c comparison has to control for it. Run both detectors with the gate
-forced open (`--no-gate` or equivalent) or on a recorded clip, or the
+forced open (no such flag exists yet; 5c needs to add one) or on a recorded clip, or the
 comparison measures the gate twice.
 
 **D30's named misses, when the detector did run:**
