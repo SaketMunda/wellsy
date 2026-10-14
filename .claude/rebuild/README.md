@@ -131,9 +131,19 @@ context engine built for 4096 tokens is different software from one built for
 
 ### Open debt carried forward
 
-- **Live `wellsy run`** - never performed (step 6c).
-- **Device-timestamped §1 latency** - the 615 ms is composed, not measured at
-  the output device (step 6c).
+- ~~**Live `wellsy run`** - never performed~~ -> done in step 6c
+  (2026-10-13): three open-air sessions plus the recorded demo, with the
+  demo-visible failures fixed (PR #15). See `step6c-results.md`.
+- **Device-timestamped §1 latency** - the 615 ms is still composed, not
+  measured at the output device. Step 6c did not take it (owed). Log-clock
+  indication only: warm turn commit -> bot speaking 0.6-0.8 s.
+- **Orb recorded in every state** (+ fullscreen, Spaces) - owed from step 6c.
+- **Perception scheduling: T1 runs on 1.8 % of frames.** Step 6c's baseline:
+  the T0 motion gate passed 48 of 2651 frames in 90 s; glasses on / a phone in
+  hand do not open it, so the detector mostly never sees them. Likely fix: run
+  T1 at least every N seconds regardless of motion (T0 itself stays ungated,
+  INVARIANTS #5). No step owns this yet; 5c only adds a gate-bypass flag for
+  its comparison and must not retune the gate.
 - **Spoken barge-in** - *"Wellsy, stop"* mid-answer does not work; the ESC key
   does. AEC is a seam only, no ERLE measured (step 4c debt).
 - **HUD from the agent runtime** - only the `approval` view is wired; deny has
