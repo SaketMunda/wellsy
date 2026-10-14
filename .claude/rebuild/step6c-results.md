@@ -194,8 +194,61 @@ fixed build.
 - [ ] Device-timestamped §1 rows, n ≥ 20 (`--measure-acoustic`): **owed**.
       Log-clock indication only: warm turn commit → bot speaking 0.6–0.8 s.
 - [ ] Orb recorded in every state, plus fullscreen and Spaces: **owed**.
-- [ ] Perception baseline on the current detector: **next, before 5c**.
+- [x] Perception baseline on the current detector, prompt list unmodified (session D, below).
 - [x] `baseline-2026-10` tag created before any change (→ `e308f87`).
 - [x] `step6c-results.md` written, findings ranked by experience impact.
 - [ ] Nothing fixed that wasn't blocking: **overridden by the owner**; every
       fix is listed with its test.
+
+
+## Session D — perception baseline, 2026-10-14 09:46 (Deliverable 4)
+
+The before-half of 5c's comparison. Build: commit `1065415` (perception code
+unchanged since tag `baseline-2026-10` → `e308f87`). Detector
+`yoloe-11s-seg.pt` (ultralytics 8.4.137). `engine/config/prompts.txt`
+unmodified, 17 terms: microphone, bed, monitor, keyboard, chair, empty office
+chair, gaming chair, person, a human person, headphones, plant, lamp, pen,
+blanket, shorts, glasses, cell phone. Command
+`uv run wellsy --seconds 90 --debug`; transcript `runs/step6c/D-perception.log`;
+the owner's screen recording holds the footage. Owner script: sit in frame →
+glasses on → phone in hand → leave and return.
+
+**Numbers** (2651 frames over 90.0 s, ~29 fps; per-frame fields from the JSONL):
+
+| | p50 | p95 | n |
+|---|---|---|---|
+| T0 motion gate (`gateMs`) | 1.28 ms | 1.53 ms | 2651 |
+| camera read (`captureMs`) | 33.04 ms | 34.59 ms | 2651 |
+| T1 detect + track, warm (`inferenceMs`) | 33.32 ms | 41.11 ms | 47 |
+| T1 first call (cold) | 541.87 ms | | 1 |
+| detector load (`[setup]`) | 1.8 s | | 1 |
+
+The cold first call measured **541.9 ms**, not the 3849.9 ms the 5b-era note
+recorded (that figure is corrected here; weights were already on disk and the
+OS file cache was warm). Warm T1 p50 **33.3 ms** is above the §1 perception
+budget (< 20 ms p50, T0+T1) and above the 13.49 ms bench figure. The bench
+measures inference on a fixed frame; this is detect + track on live 1080p
+frames.
+
+**The biggest finding: the detector barely ran.** The T0 gate
+(`MOTION_THRESHOLD = 5.0` of 255 mean abs-diff, with a 1.0 s hold) passed only
+**48 of 2651 frames (1.8 %)**: the forced bootstrap frame plus two bursts at
+41.7–45.1 s and 59.4–62.1 s. Peak motion in any 5 s window was 0.042 (≈ 10.7 of
+255); most windows peaked at 0.003–0.019. Every other frame re-emitted the last
+tracks. **Putting on glasses or holding up a phone does not move enough pixels
+to open the gate**, so in this build those events are mostly invisible no
+matter how good the detector is. That is a T0 finding, not a detector finding,
+and the 5c comparison has to control for it. Run both detectors with the gate
+forced open (no such flag exists yet; 5c needs to add one) or on a recorded clip, or the
+comparison measures the gate twice.
+
+**D30's named misses, when the detector did run:**
+- **Glasses:** detected in 17 of 47 runs, scores 0.37–0.84 (0.73–0.84 steadily
+  through 41.8–42.8 s). Not the clean miss D30 recorded; intermittent and
+  pose-dependent.
+- **Cell phone in hand:** detected **once**, at 62.1 s, score 0.39. A miss in
+  practice.
+- **Leaving frame:** `person` dropped out at 43.6 s and 44.4–45.1 s while
+  `gaming chair` rose to 0.93. Correct.
+- Steady labels: person (0.85–0.96), gaming chair, bed. 19 boxes fell below the
+  floor and were labelled `UNIDENTIFIED` (INVARIANTS #6 held: no forced label).

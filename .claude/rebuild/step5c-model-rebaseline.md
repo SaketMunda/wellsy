@@ -113,9 +113,15 @@ family, the same `set_classes()` text-prompt API, and **our `ultralytics` floor
 already satisfies its requirement** — so this is plausibly a one-string change.
 
 - Swap to `yoloe-26s-seg.pt`, same scale, and measure the T0+T1 fast path
-  against the standing budget (< 20/35 ms; currently 13.49/23.95 ms).
-- Re-run the cold-start cost. 5b-era notes record a **3849.9 ms** first-call
-  penalty for YOLOE; NMS-free inference may change it.
+  against the standing budget (< 20/35 ms). **Report the live number, not the
+  bench number.** The 13.49/23.95 ms figure is inference on a fixed frame; step
+  6c's live baseline measured warm T1 (detect + track on live 1080p frames) at
+  **33.32 ms p50 / 41.11 ms p95** for `yoloe-11s`, already over budget. Put
+  both detectors' live figures side by side; a bench figure may sit beside them
+  but never in place of them.
+- Re-run the cold-start cost. Step 6c measured the `yoloe-11s` first call at
+  **541.87 ms** live (it corrects the 5b-era **3849.9 ms** note). NMS-free
+  inference may change it again.
 - Confirm the MPS float64 workaround in `set_prompts()` is still needed. D30
   documented `mobileclip_blt.ts` failing under `map_location="mps"`; if YOLOE-26
   changed the text-encoder path, that workaround may be removable — or may break.
@@ -123,6 +129,32 @@ already satisfies its requirement** — so this is plausibly a one-string change
   spectacles, the held phone. Same prompt list, same scene, side by side with
   `yoloe-11s`. That comparison is the whole reason to care about 30.8 vs 27.5
   mAP, and a number on LVIS is not a substitute for it.
+
+### The motion gate must be held open for the comparison
+
+Step 6c's perception baseline (`step6c-results.md`, session D) found that the
+T0 motion gate (`MOTION_THRESHOLD = 5.0` of 255 mean abs-diff, 1.0 s hold)
+passed **48 of 2651 frames (1.8 %)** in a 90 s run. Putting on glasses or
+holding up a phone does not move enough pixels to open it, so on most frames
+the detector never ran and the loop re-emitted stale tracks. A side-by-side
+through the gate measures the gate twice and the detectors barely at all.
+
+- **Add a gate-bypass flag to the perception CLI** (e.g. `wellsy --gate-open`):
+  T1 runs on every frame. This is verification-harness code and is in scope.
+  T0 still runs and is still timed; only its decision is ignored.
+  INVARIANTS #5 is about T0 never being skipped, and it is not.
+- Run **both** detectors with the gate held open, on the same scene. Better:
+  record one clip once (person in frame → glasses on → phone in hand → leaves)
+  and run both detectors over the identical frames, so the comparison is not
+  two performances shot minutes apart.
+- Compare against 6c's gated baseline as well, but label it gated: glasses
+  17/47 runs at 0.37–0.84, phone 1/47 at 0.39.
+
+**Do not retune the gate in this step.** Making T1 run at least once every N
+seconds regardless of motion is the likely fix for the 1.8 %, but it changes
+how WELLSY perceives the room and needs its own test. No current step owns
+perception scheduling; it is listed under "Open debt" in `README.md`. Record any
+evidence 5c produces for it, and change nothing.
 
 If latency regresses past budget, the finding is "better labels cost X ms" —
 report it and let the owner choose. Do not quietly accept a miss.
@@ -182,8 +214,12 @@ are the natural seam for the context engine.
       recorded figures.
 - [ ] Collapse test run; one-model-or-two answered with numbers. 5b's owed D3
       (dense real UI, 512 px) closed.
-- [ ] YOLOE-26 measured on the fast path, on cold start, and **side by side with
-      `yoloe-11s` on D30's named misses**.
+- [ ] YOLOE-26 measured on the fast path (**live** figures, beside 6c's
+      33.32/41.11 ms), on cold start (beside 6c's 541.87 ms), and **side by
+      side with `yoloe-11s` on D30's named misses, with the motion gate held
+      open** (gate-bypass flag added; same clip or same scene for both).
+- [ ] Motion gate untouched; any evidence on the 1.8 % gated fraction recorded
+      in `step5c-results.md` for the owning step.
 - [ ] §1 re-derived in full; co-residency measured; **Orin verdict re-derived,
       not inherited**, with the darwin-only caveat restated.
 - [ ] The step-7 context recommendation written as its own section.
