@@ -647,4 +647,7 @@ Acceptance:
 - [x] §1 re-derived; co-residency measured; Orin verdict re-derived with the
       darwin caveat (§5).
 - [x] Step-7 context recommendation as its own section (§6).
-- [x] `step5c-results.md` written; `spec/model-inventory.md` updated; PR opened.
+- [x] `step5c-results.md` written; `spec/model-inventory.md` updated.
+- [ ] PR: branch pushed; **PR not opened** from this session (`gh` is not
+      authenticated). Open it at
+      `https://github.com/SaketMunda/wellsy/pull/new/rebuild/step5c-model-rebaseline`.
