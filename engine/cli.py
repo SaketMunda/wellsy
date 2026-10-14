@@ -13,6 +13,8 @@ Usage:
     wellsy --seconds 60          # real camera, stops after 60s
     wellsy --synthetic           # no camera — generated moving frame
     wellsy --no-detect           # T0 only — isolates motion-gate cost
+    wellsy --gate-open           # T1 every 8 Hz tick regardless of T0 (T0 still runs + is timed)
+    wellsy --detector yoloe-26s-seg.pt --clip runs/x.mp4   # harness: other weights, replayed clip
     wellsy doctor                # check camera / mic / screen permission for this process tree
     wellsy screen                # one-shot screen capture + degenerate-capture verification
     wellsy bench                 # cross-platform inference benchmark (LLM / ASR / TTS / VAD)
@@ -57,6 +59,19 @@ DETECT_INTERVAL_S = 1.0 / DETECT_HZ
 MOTION_HOLD_SECONDS = 1.0
 
 PROMPTS_PATH = Path(__file__).resolve().parent / "config" / "prompts.txt"
+
+
+def t1_should_run(gated: bool, held_open: bool, bootstrapped: bool,
+                  gate_open: bool = False) -> bool:
+    """T1 runs on motion, inside the hold window, or once to bootstrap.
+
+    `gate_open` (step 5c verification harness, `wellsy --gate-open`) ignores
+    the T0 decision. T0 itself still runs and is still timed and emitted every
+    frame (INVARIANTS #5) — only its verdict is not consulted, so a detector
+    comparison is not a gate measurement twice. The 8 Hz cadence is separate
+    and unchanged.
+    """
+    return gate_open or (not gated) or held_open or not bootstrapped
 
 
 def emit(
@@ -104,12 +119,17 @@ def run_camera(
     detect: bool,
     synthetic_intermittent: bool = False,
     quiet: bool = True,
+    gate_open: bool = False,
+    detector_name: str | None = None,
+    clip: str | None = None,
+    record: str | None = None,
 ) -> None:
     frame_queue: Queue = Queue(maxsize=1)
     stop_event = Event()
     proc = Process(
         target=capture_worker,
-        args=(frame_queue, stop_event, camera_index, synthetic, synthetic_intermittent),
+        args=(frame_queue, stop_event, camera_index, synthetic, synthetic_intermittent,
+              clip, record),
         daemon=True,
     )
     proc.start()
@@ -124,13 +144,15 @@ def run_camera(
 
         print("[setup] loading detector...", file=sys.stderr, flush=True)
         t0 = time.monotonic()
-        model = detector.load_model()
+        model = detector.load_model(name=detector_name)
         prompts = detector.load_prompts(PROMPTS_PATH)
         prompts_mtime = PROMPTS_PATH.stat().st_mtime if PROMPTS_PATH.exists() else None
         detector.set_prompts(model, prompts)
         tracker = Tracker(frame_rate=int(DETECT_HZ))
         print(
-            f"[setup] detector ready in {time.monotonic() - t0:.1f}s, prompts={prompts}",
+            f"[setup] detector {detector_name or detector.MODEL_NAME} ready in "
+            f"{time.monotonic() - t0:.1f}s, prompts={prompts}"
+            + ("  [gate-open: T0 decision ignored]" if gate_open else ""),
             file=sys.stderr,
             flush=True,
         )
@@ -162,6 +184,9 @@ def run_camera(
             if item[0] == "error":
                 print(f"[error] {item[1]}", file=sys.stderr, flush=True)
                 break
+            if item[0] == "eof":
+                print(f"[clip] end of {item[1]}", file=sys.stderr, flush=True)
+                break
 
             t_wall, frame, capture_ms = item
             now = time.monotonic()
@@ -189,7 +214,7 @@ def run_camera(
                     last_motion_time is not None
                     and (now - last_motion_time) < MOTION_HOLD_SECONDS
                 )
-                t1_active = (not gated) or held_open or not bootstrapped
+                t1_active = t1_should_run(gated, held_open, bootstrapped, gate_open)
                 due = (now - last_detect_time) >= DETECT_INTERVAL_S
 
                 if t1_active and due:
@@ -368,6 +393,14 @@ def main() -> None:
         action="store_true",
         help="print the per-frame JSONL on stdout (one line per camera frame) — off by default",
     )
+    parser.add_argument(
+        "--gate-open",
+        action="store_true",
+        help="verification harness: run T1 on every 8 Hz tick regardless of the T0 decision (T0 still runs and is timed)",
+    )
+    parser.add_argument("--detector", default=None, help="verification harness: detector weights (default: detector.MODEL_NAME)")
+    parser.add_argument("--clip", default=None, metavar="PATH", help="verification harness: replay a recorded clip instead of the camera")
+    parser.add_argument("--record", default=None, metavar="PATH", help="also write every captured frame to PATH (mp4)")
     args = parser.parse_args()
     run_camera(
         args.seconds,
@@ -376,6 +409,11 @@ def main() -> None:
         detect=not args.no_detect,
         synthetic_intermittent=args.synthetic_intermittent,
         quiet=not args.debug,
+        gate_open=args.gate_open,
+        detector_name=args.detector,
+        # absolute: detector.configure_weights_cache() chdirs into the weights dir
+        clip=str(Path(args.clip).resolve()) if args.clip else None,
+        record=str(Path(args.record).resolve()) if args.record else None,
     )
 
 

@@ -143,13 +143,25 @@ context engine built for 4096 tokens is different software from one built for
   hand do not open it, so the detector mostly never sees them. Likely fix: run
   T1 at least every N seconds regardless of motion (T0 itself stays ungated,
   INVARIANTS #5). No step owns this yet; 5c only adds a gate-bypass flag for
-  its comparison and must not retune the gate.
+  its comparison and must not retune the gate. **5c evidence**
+  (`step5c-results.md` §7): on a recorded take T0 opened on 3.6 % of frames,
+  58 of 61 while leaving; glasses peaked at 4.1/255 and phone at 3.8/255
+  against the 5.0 threshold. With T1 forced on, both YOLOE-11 and YOLOE-26
+  see glasses and a held phone on ~95-100 % of ticks, so D30's misses were
+  the gate. T1 at 8 Hz costs ~31-34 ms live because the GPU idles between
+  calls (back-to-back ~16 ms, with a 117 ms gap 40 ms).
 - **Spoken barge-in** - *"Wellsy, stop"* mid-answer does not work; the ESC key
   does. AEC is a seam only, no ERLE measured (step 4c debt).
 - **HUD from the agent runtime** - only the `approval` view is wired; deny has
   never been exercised end to end into the audit log.
-- **5b's owed D3** - dense real-UI VLM legibility at 512 px, never measured on a
-  real screenshot (folded into step 5c).
+- ~~**5b's owed D3**~~ -> closed in step 5c: 512 px reads 0-3 of 18 strings
+  and saves no time on `qwen3-vl` (server floor of 1056 tokens); 1024 px
+  stays. The honest new-screen first word is ~2.1 s, so the §1 VLM row misses
+  p50 by ~230 ms (5b's 1.8 s was cache-inflated).
+- **Qwen3.5 collapse (step 9):** `qwen3.5:4b-q4_K_M` measured as one model for
+  fast + planner + VLM (−2.1 GB), but it thinks by default, and on `/v1`
+  only `reasoning_effort:"none"` turns that off. The current request shapes
+  would make a string-only swap silent. See `step5c-results.md` §2, §3, §9.
 - Orb art pass; global hotkey; typed text into the HUD.
 - A8-granted half and the ScreenCaptureKit latency row.
 - A3-A6 live against a real Calendar / Mail account (`osascript` backend).

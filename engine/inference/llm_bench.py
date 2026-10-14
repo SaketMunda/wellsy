@@ -44,7 +44,7 @@ from engine.inference import base
 from engine.inference.bench import RESULTS_DIR, _commit, pct
 
 DEFAULT_BASE_URL = os.environ.get("WELLSY_LLM_BASE_URL", "http://localhost:11434/v1")
-VERIFIED = "2026-09-03"
+VERIFIED = "2026-10-14"  # step 5c re-baseline (Ollama 0.40.3)
 
 
 # --------------------------------------------------------------------------- #
@@ -85,6 +85,24 @@ CANDIDATES: list[Candidate] = [
               "lightest non-reasoning VLM; Orin-friendly", think=None),
     Candidate("vlm", "qwen2.5vl:3b", "step-5 interim VLM — baseline to beat",
               think=None, incumbent=True),
+    # --- step 5c: the 2026 set (`.claude/rebuild/step5c-results.md` §1). ---
+    # Qwen3.5 is natively multimodal and its card says "thinking mode by
+    # default"; both think=None (server default) and think=False are measured
+    # so the reasoning-off question is settled by eval_count, not a blog.
+    Candidate("planner", "qwen3.5:4b-q4_K_M", "5c: card says thinks by default", think=None),
+    Candidate("planner", "qwen3.5:4b-q4_K_M", "5c: does think=false hold?", think=False),
+    Candidate("fast", "qwen3.5:4b-q4_K_M", "5c: card says thinks by default", think=None),
+    Candidate("fast", "qwen3.5:4b-q4_K_M", "5c: does think=false hold?", think=False),
+    Candidate("vlm", "qwen3.5:4b-q4_K_M", "5c collapse test: one model, all slots",
+              think=False),
+    # 5b's "no flag disables Qwen3 reasoning" was measured on Ollama 0.33.2;
+    # the server is now 0.40.3, so the finding is re-dated, not inherited.
+    Candidate("planner", "qwen3:4b", "5c re-date: hybrid + think=false on the new server",
+              think=False),
+    Candidate("planner", "gemma4:e4b", "5c: already pulled; resident size first",
+              think=False),
+    Candidate("fast", "gemma4:e4b", "5c: already pulled; resident size first",
+              think=False),
 ]
 
 
@@ -174,6 +192,9 @@ class TurnResult:
     ok: bool
     detail: str = ""
     content_text: str = ""          # full assembled answer (for the plan-JSON check)
+    content_ttft_s: float | None = None  # first *content* token — the first
+                                    #   speakable word; differs from ttft_s
+                                    #   when a model emits thinking first
 
     @property
     def think_tokens_est(self) -> float | None:
@@ -231,6 +252,7 @@ def _ollama_root(base_url: str) -> str:
 def stream_turn(
     client: httpx.Client, base_url: str, model: str, messages: list[dict[str, Any]],
     *, think: Any, images: list[str] | None, keep_alive: Any = -1,
+    num_ctx: int | None = None,
 ) -> TurnResult:
     """One streamed turn via Ollama's native `/api/chat` (gives `thinking`
     deltas and real timing stats). Falls back to `/v1/chat/completions` when the
@@ -238,11 +260,13 @@ def stream_turn(
 
     if _is_ollama(base_url):
         return _stream_ollama(client, _ollama_root(base_url), model, messages,
-                              think=think, images=images, keep_alive=keep_alive)
+                              think=think, images=images, keep_alive=keep_alive,
+                              num_ctx=num_ctx)
     return _stream_v1(client, base_url, model, messages, images=images)
 
 
-def _stream_ollama(client, root, model, messages, *, think, images, keep_alive) -> TurnResult:
+def _stream_ollama(client, root, model, messages, *, think, images, keep_alive,
+                   num_ctx=None) -> TurnResult:
     msgs = [dict(m) for m in messages]
     if images:
         for m in reversed(msgs):
@@ -254,11 +278,14 @@ def _stream_ollama(client, root, model, messages, *, think, images, keep_alive) 
         "model": model, "messages": msgs, "stream": True,
         "keep_alive": keep_alive, "options": {"temperature": 0.0},
     }
+    if num_ctx:
+        payload["options"]["num_ctx"] = num_ctx
     if think is not None:
         payload["think"] = think
 
     t0 = time.monotonic()
     ttft: float | None = None
+    cttft: float | None = None
     content_chars = think_chars = 0
     parts: list[str] = []
     eval_count = eval_s = load_s = prompt_tokens = None
@@ -274,6 +301,8 @@ def _stream_ollama(client, root, model, messages, *, think, images, keep_alive) 
                 th = msg.get("thinking") or ""
                 if (c or th) and ttft is None:
                     ttft = time.monotonic() - t0
+                if c and cttft is None:
+                    cttft = time.monotonic() - t0
                 content_chars += len(c)
                 think_chars += len(th)
                 if c:
@@ -288,7 +317,7 @@ def _stream_ollama(client, root, model, messages, *, think, images, keep_alive) 
                           None, None, None, None, ok=False, detail=repr(e))
     return TurnResult(ttft, time.monotonic() - t0, content_chars, think_chars,
                       eval_count, eval_s, load_s, prompt_tokens, ok=True,
-                      content_text="".join(parts))
+                      content_text="".join(parts), content_ttft_s=cttft)
 
 
 def _stream_v1(client, base_url, model, messages, *, images) -> TurnResult:
@@ -304,6 +333,7 @@ def _stream_v1(client, base_url, model, messages, *, images) -> TurnResult:
                "temperature": 0.0, "stream_options": {"include_usage": True}}
     t0 = time.monotonic()
     ttft = None
+    cttft = None
     content_chars = think_chars = 0
     parts: list[str] = []
     eval_count = prompt_tokens = None
@@ -326,6 +356,8 @@ def _stream_v1(client, base_url, model, messages, *, images) -> TurnResult:
                 th = delta.get("reasoning_content") or delta.get("reasoning") or ""
                 if (c or th) and ttft is None:
                     ttft = time.monotonic() - t0
+                if c and cttft is None:
+                    cttft = time.monotonic() - t0
                 content_chars += len(c)
                 think_chars += len(th)
                 if c:
@@ -335,7 +367,7 @@ def _stream_v1(client, base_url, model, messages, *, images) -> TurnResult:
                           None, None, None, None, ok=False, detail=repr(e))
     return TurnResult(ttft, time.monotonic() - t0, content_chars, think_chars,
                       eval_count, None, None, prompt_tokens, ok=True,
-                      content_text="".join(parts))
+                      content_text="".join(parts), content_ttft_s=cttft)
 
 
 # --------------------------------------------------------------------------- #
@@ -367,8 +399,25 @@ def _resident_mb(client: httpx.Client, base_url: str, model: str) -> float | Non
     return None
 
 
+def _ps_info(client: httpx.Client, base_url: str, model: str) -> dict[str, Any]:
+    """Runner + loaded context from `/api/ps`. Ollama >= 0.40 picks MLX for
+    some architectures on Apple Silicon by default — INVARIANTS #14 makes the
+    runner part of the result, not a footnote."""
+    if not _is_ollama(base_url):
+        return {}
+    try:
+        r = client.get(_ollama_root(base_url) + "/api/ps", timeout=5)
+        for m in r.json().get("models", []):
+            if m.get("name") == model or m.get("model") == model:
+                return {"runner": m.get("runner"), "contextLength": m.get("context_length")}
+    except Exception:
+        pass
+    return {}
+
+
 def bench_candidate(
     cand: Candidate, *, base_url: str, trials: int, warmup: int,
+    num_ctx: int | None = None,
 ) -> dict[str, Any]:
     row: dict[str, Any] = {
         "kind": "result", "slot": cand.slot, "model": cand.model,
@@ -380,11 +429,13 @@ def bench_candidate(
         "tokPerSP50": None, "thinkTokensP50": None, "thinkTokensP95": None,
         "contentTokensP50": None, "promptTokens": None, "planValidRate": None,
         "fullTurnP50Ms": None, "fullTurnP95Ms": None, "residentMb": None,
+        "contentTtftP50Ms": None, "contentTtftP95Ms": None, "coldContentTtftS": None,
+        "numCtx": num_ctx, "runner": None, "contextLength": None,
         "method": (
             "native /api/chat stream; TTFT = req->first content|thinking token; "
             "tok/s = eval_count/eval_duration; think-tokens = eval_count * "
             "think_chars/(think+content chars); n>=20 warm, cold turn separate; "
-            "p50/p95 nearest-rank"
+            "p50/p95 nearest-rank; contentTtft = req->first content token"
         ),
     }
     images = [_vlm_image_data_uri()] if cand.slot == "vlm" else None
@@ -406,18 +457,22 @@ def bench_candidate(
         # ---- cold ----
         _unload(client, base_url, cand.model)
         cold = stream_turn(client, base_url, cand.model, msgs,
-                           think=cand.think, images=images)
+                           think=cand.think, images=images, num_ctx=num_ctx)
         if not cold.ok:
             row["status"] = "error"
             row["reason"] = f"cold turn failed: {cold.detail}"
             return row
         row["coldLoadS"] = round(cold.load_s, 3) if cold.load_s else None
         row["coldTtftS"] = round(cold.ttft_s, 3) if cold.ttft_s else None
+        row["coldContentTtftS"] = (round(cold.content_ttft_s, 3)
+                                   if cold.content_ttft_s else None)
 
         for _ in range(max(0, warmup)):
-            stream_turn(client, base_url, cand.model, msgs, think=cand.think, images=images)
+            stream_turn(client, base_url, cand.model, msgs, think=cand.think,
+                        images=images, num_ctx=num_ctx)
 
         ttft_ms: list[float] = []
+        cttft_ms: list[float] = []
         turn_ms: list[float] = []
         toks: list[float] = []
         think_toks: list[float] = []
@@ -427,7 +482,7 @@ def bench_candidate(
         fails = 0
         for _ in range(trials):
             t = stream_turn(client, base_url, cand.model, msgs,
-                            think=cand.think, images=images)
+                            think=cand.think, images=images, num_ctx=num_ctx)
             if not t.ok:
                 fails += 1
                 continue
@@ -435,6 +490,8 @@ def bench_candidate(
                 plan_valid += 1
             if t.ttft_s is not None:
                 ttft_ms.append(t.ttft_s * 1000)
+            if t.content_ttft_s is not None:
+                cttft_ms.append(t.content_ttft_s * 1000)
             turn_ms.append(t.wall_s * 1000)
             if t.tok_per_s is not None:
                 toks.append(t.tok_per_s)
@@ -446,6 +503,7 @@ def bench_candidate(
                 prompt_toks.append(t.prompt_tokens)
 
         row["residentMb"] = _resident_mb(client, base_url, cand.model)
+        row.update(_ps_info(client, base_url, cand.model))
 
     got = len(turn_ms)
     row["trials"] = got
@@ -458,6 +516,9 @@ def bench_candidate(
     if ttft_ms:
         row["ttftP50Ms"] = round(pct(ttft_ms, 50), 1)
         row["ttftP95Ms"] = round(pct(ttft_ms, 95), 1)
+    if cttft_ms:
+        row["contentTtftP50Ms"] = round(pct(cttft_ms, 50), 1)
+        row["contentTtftP95Ms"] = round(pct(cttft_ms, 95), 1)
     row["fullTurnP50Ms"] = round(pct(turn_ms, 50), 1)
     row["fullTurnP95Ms"] = round(pct(turn_ms, 95), 1)
     if toks:
@@ -514,11 +575,16 @@ def run(argv: list[str] | None = None) -> int:
     ap.add_argument("--warmup", type=int, default=3)
     ap.add_argument("--base-url", default=DEFAULT_BASE_URL)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--num-ctx", type=int, default=None,
+                    help="Ollama options.num_ctx (default: server's own)")
+    ap.add_argument("--think", default=None,
+                    help="only candidates with this think value (none|false|low|...)")
     args = ap.parse_args(argv)
 
     cands = [c for c in CANDIDATES
              if (args.slot in ("all", c.slot))
-             and (args.candidate is None or c.model == args.candidate)]
+             and (args.candidate is None or c.model == args.candidate)
+             and (args.think is None or str(c.think).lower() == args.think.lower())]
     if not cands:
         print("[llm-bench] no candidates match the filter")
         return 1
@@ -528,7 +594,7 @@ def run(argv: list[str] | None = None) -> int:
     print(f"[llm-bench] platform={base.platform_tag()}\n")
 
     rows = [bench_candidate(c, base_url=args.base_url, trials=args.trials,
-                            warmup=args.warmup) for c in cands]
+                            warmup=args.warmup, num_ctx=args.num_ctx) for c in cands]
     print_table(rows)
 
     commit = _commit()
@@ -539,7 +605,8 @@ def run(argv: list[str] | None = None) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     meta = {"kind": "run", "date": date.today().isoformat(),
             "platform": base.platform_tag(), "commit": commit,
-            "baseUrl": args.base_url, "slot": args.slot, "trials": args.trials}
+            "baseUrl": args.base_url, "slot": args.slot, "trials": args.trials,
+            "numCtx": args.num_ctx}
     with out.open("w", encoding="utf-8") as f:
         f.write(json.dumps(meta) + "\n")
         for r in rows:

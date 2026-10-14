@@ -48,12 +48,14 @@ def main() -> None:
         "Default is synthetic frames, for camera-less CI.",
     )
     ap.add_argument("--camera-index", type=int, default=0)
+    ap.add_argument("--detector", default=None, help="weights (default: detector.MODEL_NAME)")
     args = ap.parse_args()
 
     print(f"[bench] torch {torch.__version__}  device={args.device}  "
           f"mps={torch.backends.mps.is_available()}  cuda={torch.cuda.is_available()}")
 
-    model = detector.load_model(device=args.device)
+    model = detector.load_model(device=args.device, name=args.detector)
+    print(f"[bench] detector={args.detector or detector.MODEL_NAME}")
     prompts = detector.load_prompts()
     detector.set_prompts(model, prompts)
     print(f"[bench] prompts={prompts}")

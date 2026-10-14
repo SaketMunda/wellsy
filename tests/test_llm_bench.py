@@ -158,3 +158,72 @@ def test_run_reports_error_rows_as_nonzero_exit(monkeypatch, tmp_path):
                                             "reason": "boom", "trials": 0, "method": "x"})
     rc = llm_bench.run(["--slot", "fast", "--out", str(tmp_path / "r.jsonl")])
     assert rc == 1
+
+
+# --- step 5c additions ------------------------------------------------------- #
+
+
+def test_content_ttft_is_separate_from_thinking_ttft(monkeypatch):
+    """A thinking model's first token is not its first speakable word. The row
+    reports both, so the fast-slot budget is judged on the content number."""
+
+    def fake_stream_turn(client, base_url, model, messages, *, think, images, **kw):
+        t = _turn(ttft=0.05, think_chars=900, content_chars=100, eval_count=1000, eval_s=5.0)
+        t.content_ttft_s = 4.0
+        return t
+
+    monkeypatch.setattr(llm_bench, "stream_turn", fake_stream_turn)
+    monkeypatch.setattr(llm_bench, "_is_ollama", lambda _u: True)
+    monkeypatch.setattr(llm_bench, "_unload", lambda *a, **k: None)
+    monkeypatch.setattr(llm_bench, "_resident_mb", lambda *a, **k: None)
+    monkeypatch.setattr(llm_bench, "_ps_info", lambda *a, **k: {"runner": "llamacpp",
+                                                                 "contextLength": 4096})
+
+    row = bench_candidate(Candidate("fast", "thinker:4b", "t"), base_url="http://x/v1",
+                          trials=20, warmup=0, num_ctx=4096)
+    assert row["ttftP50Ms"] == pytest.approx(50.0, abs=1)
+    assert row["contentTtftP50Ms"] == pytest.approx(4000.0, abs=1)
+    assert row["coldContentTtftS"] == 4.0
+    assert row["runner"] == "llamacpp"          # INVARIANTS #14: runner is part of the row
+    assert row["numCtx"] == 4096 and row["contextLength"] == 4096
+
+
+def test_num_ctx_reaches_the_ollama_payload(monkeypatch):
+    sent = {}
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def raise_for_status(self):
+            pass
+
+        def iter_lines(self):
+            yield json.dumps({"message": {"content": "hi"}})
+            yield json.dumps({"message": {}, "done": True, "eval_count": 1})
+
+    class _Client:
+        def stream(self, method, url, json):  # noqa: A002 — mirrors httpx
+            sent.update(json)
+            return _Resp()
+
+    t = llm_bench.stream_turn(_Client(), "http://localhost:11434/v1", "m", [{"role": "user",
+                              "content": "x"}], think=False, images=None, num_ctx=8192)
+    assert t.ok and t.content_ttft_s is not None
+    assert sent["options"]["num_ctx"] == 8192
+    assert sent["think"] is False
+
+
+def test_think_filter_selects_one_variant(monkeypatch, tmp_path):
+    seen = []
+    monkeypatch.setattr(llm_bench, "bench_candidate",
+                        lambda c, **kw: seen.append((c.model, c.think)) or
+                        {"status": "ok", "slot": c.slot, "model": c.model})
+    monkeypatch.setattr(llm_bench, "print_table", lambda rows: None)
+    rc = llm_bench.run(["--slot", "planner", "--candidate", "qwen3.5:4b-q4_K_M",
+                        "--think", "false", "--out", str(tmp_path / "o.jsonl")])
+    assert rc == 0
+    assert seen == [("qwen3.5:4b-q4_K_M", False)]
