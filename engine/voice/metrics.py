@@ -40,6 +40,8 @@ from pathlib import Path
 
 import numpy as np
 
+from engine.agent.models import DEFAULT_MODEL, REQUEST_EXTRA_BODY
+
 RESULTS_DIR = Path(__file__).resolve().parents[2] / "spec" / "results"
 SR = 16000
 DET_UTTERANCE = "what can you do"
@@ -121,7 +123,7 @@ def _time_llm(client, model: str, question: str) -> tuple[float, float, float]:
             {"role": "user", "content": question},
         ],
         stream=True,
-        extra_body={"keep_alive": -1, "think": False, "chat_template_kwargs": {"enable_thinking": False}},
+        extra_body=dict(REQUEST_EXTRA_BODY),   # step 9: the off-switch /v1 honours (5c §1.3)
     )
     for ev in stream:
         piece = (ev.choices[0].delta.content or "") if ev.choices else ""
@@ -153,7 +155,7 @@ def _measure(trials: int) -> dict:
     from engine.inference import registry
 
     base_url = os.environ.get("WELLSY_LLM_BASE_URL", "http://localhost:11434/v1")
-    model = os.environ.get("WELLSY_LLM_MODEL", "qwen3:4b-instruct-2507-q4_K_M")  # non-reasoning instruct build; step 5b
+    model = os.environ.get("WELLSY_LLM_MODEL", DEFAULT_MODEL)  # the one resident model (step 9)
     client = OpenAI(api_key=os.environ.get("WELLSY_LLM_API_KEY", "ollama"), base_url=base_url)
 
     det_pcm = _synth_pcm(DET_UTTERANCE)
@@ -196,8 +198,7 @@ def _measure(trials: int) -> dict:
             model=model, stream=True,
             messages=[{"role": "system", "content": "You are WELLSY. One short sentence per item."},
                       {"role": "user", "content": OVERLAP_QUESTION}],
-            extra_body={"keep_alive": -1, "think": False,
-                        "chat_template_kwargs": {"enable_thinking": False}},
+            extra_body=dict(REQUEST_EXTRA_BODY),
         )
         for ev in stream:
             piece = (ev.choices[0].delta.content or "") if ev.choices else ""
@@ -237,7 +238,7 @@ def _measure(trials: int) -> dict:
         "notes": [
             "component timing; the mic->speaker e2e and A14 need a live session (see module docstring)",
             "deterministic path has no LLM; IntentGate reply is effectively 0 ms",
-            "llm row will miss <1500 ms while Ollama 0.33.2 + this qwen3 build runs the reasoning pass regardless of think/enable_thinking",
+            "llm_ttft is a bare one-turn prompt; the in-session conversational row (system prompt + use_tools + history) is bench/voice_agent_replay.py",
         ],
     }
 

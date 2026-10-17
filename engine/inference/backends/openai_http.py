@@ -20,7 +20,7 @@ client never leaves localhost unless pointed elsewhere on purpose.
 
 Config (env var > constructor arg > default):
     WELLSY_LLM_BASE_URL   default http://localhost:11434/v1
-    WELLSY_LLM_MODEL      default qwen3-vl:2b-instruct-q4_K_M
+    WELLSY_LLM_MODEL      default qwen3.5:4b-q4_K_M (engine.agent.models.DEFAULT_MODEL)
 """
 
 from __future__ import annotations
@@ -41,13 +41,13 @@ from engine.inference.base import (
 )
 
 DEFAULT_BASE_URL = "http://localhost:11434/v1"
-# Step 5b: the non-reasoning `-instruct` VLM build. `qwen3-vl:4b` (hybrid)
-# reasoned uncontrollably (~4 s to first audio, step 4b); `2b-instruct` is
-# non-reasoning by construction, 2.0 GB resident, matched the 3B incumbent on a
-# legibility spot-check (`.claude/rebuild/step5b-results.md` §4). The full
-# real-vision-path resolution sweep is owed (debt D3).
-DEFAULT_MODEL = "qwen3-vl:2b-instruct-q4_K_M"
-VERIFIED = "2026-09-03"  # Ollama 0.33.2 /v1 streaming re-verified, step 5b
+# Step 9: the one resident model for text, vision and the agent (5c §3), and
+# the one request shape — `reasoning_effort:"none"`, the only reasoning
+# off-switch Ollama's /v1 honours for Qwen3.5 (5c §1.3). Without it every
+# stream here would be a silent ~80 s reasoning run.
+DEFAULT_MODEL = "qwen3.5:4b-q4_K_M"
+REASONING_OFF = {"reasoning_effort": "none"}
+VERIFIED = "2026-10-17"  # Ollama 0.40.5 /v1 streaming + reasoning_effort, step 9
 
 
 def _base_url(explicit: str | None = None) -> str:
@@ -150,6 +150,7 @@ class OpenAiHttpLlm:
             "model": self.model,
             "messages": _with_images(messages, images),
             "stream": True,
+            **REASONING_OFF,
         }
         if tools:
             payload["tools"] = list(tools)

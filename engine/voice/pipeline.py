@@ -12,12 +12,14 @@
                             describe_scene / query_object -> capture + verify a
                             frame, attach to context, run the VLM)
       -> user_aggregator
-      -> LLM/VLM           (streaming SeamLLMService; qwen3:4b-instruct-2507 text
-                            by default — non-reasoning `-instruct` build, step 5b.
-                            A vision turn flips it to the VL model
-                            (qwen3-vl:2b-instruct-q4_K_M / WELLSY_VLM_MODEL) and
-                            back; if no VL model is pulled the gate says so, no
-                            image sent)
+      -> LLM               (streaming SeamLLMService on ONE resident model,
+                            qwen3.5:4b-q4_K_M, reasoning_effort "none" — step 9:
+                            text, vision and tool routing. It carries one tool,
+                            `use_tools`; when the model calls it, the LangGraph
+                            agent runs the turn — ack, plan, spoken approval,
+                            read-back — see `engine/voice/agent_bridge.py`.
+                            A vision turn is the same model with only its own
+                            short prompt and the images.)
       -> ProvenanceLogger  (vision turns: one provenance line per answer with the
                             step-3 capture provenance folded in; drops the image)
       -> SeamTTS           (sentence-chunked; first audio before the LLM finishes)
@@ -49,19 +51,17 @@ from engine.voice.duplex import (
     build_half_duplex_gate,
     build_self_echo_filter,
 )
+from engine.voice.agent_bridge import VoiceAgentBridge, register, tools_schema
 from engine.voice.intent_gate import build_intent_gate, build_provenance_logger
 from engine.voice.vision import VisionPending
 from engine.voice.wake import WakeState, build_wake_gate
 
-# Default LLM is qwen3:4b-instruct-2507 (non-reasoning `-instruct` build —
-# step 5b; the hybrid/thinking qwen3 builds ignore every think flag/level on
-# Ollama 0.33.2 and burn ~78 s/turn). This prompt stays model-agnostic.
-#
 # Identity matters (owner feedback 2026-09-04): the base models default to a
 # "I'm a text-only AI, I have no camera, I can't move" persona. WELLSY is not
-# that — she runs locally, sees through a camera and the screen, speaks aloud,
-# and has a visible presence (an orb) she can reposition. She must never deny a
-# capability she has.
+# that. But the step-6c live run showed the opposite failure is worse: told
+# "never deny a capability", the model claimed sight it never used and moves
+# that never happened. So: say what is real, and claim nothing it wasn't told.
+# Step 9: the tools are real now — through `use_tools`, and only through it.
 SYSTEM_PROMPT = (
     "You are WELLSY — a local, private AI that lives on this machine, in the "
     "spirit of JARVIS. You are not a text chatbot. You hear the user through a "
@@ -69,6 +69,17 @@ SYSTEM_PROMPT = (
     "or at the screen, when the user asks you to. You have a visible presence on "
     "screen — a glowing orb — that moves to a corner on the user's spoken command.\n"
     "Never call yourself 'text-based'.\n"
+    "You can use the user's calendar, reminders, email, notes, contacts and scratch "
+    "files through the use_tools tool. For anything about those, call use_tools — "
+    "never answer from memory and never invent an event, a message or a result. "
+    "When its result arrives, tell the user what it shows in one or two short "
+    "sentences, with dates as weekday and date.\n"
+    "Booking or scheduling an appointment or meeting means adding it to the "
+    "calendar: use use_tools for it.\n"
+    "Those are all you can act on — reading and sending email included. You cannot "
+    "order or buy anything, pay, browse the web, look up news or weather, make phone "
+    "calls or send SMS, or control other apps or devices. If asked for one of those, "
+    "say plainly you can't do that yet — never offer to try.\n"
     "Honesty about your senses and actions is absolute:\n"
     "- You only see when an image is attached to the user's message. If there is "
     "no image, you have NOT looked: never claim to see the user, the room, the "
@@ -77,7 +88,8 @@ SYSTEM_PROMPT = (
     "- You cannot move the orb yourself; a separate command does that before you "
     "are asked. If a request to move reaches you, the move did NOT happen. Never "
     "say you moved. Tell them to say, for example, 'move to the bottom right'.\n"
-    "- Never claim any action happened unless you were told it did.\n"
+    "- Never say an action is done unless a use_tools result shows it ok and "
+    "verified. Before that, it is not done.\n"
     "You are speaking aloud: reply in one or two short spoken sentences. No lists, "
     "no markdown, no emoji. If you genuinely do not know something, say so plainly."
 )
@@ -105,9 +117,14 @@ def _warm(stt, tts) -> None:
 
 
 def build(*, start_awake: bool = False, on_decision=None, observers=None,
-          handle_sigint: bool = True, on_move=None):
-    """Construct (worker, runner, wake_state, context). `observers` are Pipecat
-    observers attached to the worker (e.g. `acoustic.LatencyObserver`)."""
+          handle_sigint: bool = True, on_move=None, on_agent_event=None,
+          show_hud=None, hide_hud=None, on_agent_turn=None, bridge=None):
+    """Construct (worker, runner, wake_state, context, bridge). `observers` are
+    Pipecat observers attached to the worker (e.g. `acoustic.LatencyObserver`).
+    `on_agent_event` / `show_hud` / `hide_hud` connect the agent's real graph
+    events to the orb and HUD; `on_agent_turn(dict)` gets each agentic turn's
+    timings. Must be called inside the running event loop (the agent runtime
+    starts opening its MCP tools in the background)."""
     from pipecat.audio.vad.silero import SileroVADAnalyzer
     from pipecat.pipeline.pipeline import Pipeline
     from pipecat.pipeline.worker import PipelineParams, PipelineWorker, ProcessorUnusablePolicy
@@ -139,7 +156,7 @@ def build(*, start_awake: bool = False, on_decision=None, observers=None,
 
     stt = SeamSTTService(sample_rate=AUDIO_IN_SR)
     tts = SeamTTSService(sample_rate=AUDIO_OUT_SR)
-    llm = build_llm()
+    llm = build_llm(system_instruction=SYSTEM_PROMPT)
 
     if os.environ.get("WELLSY_VOICE_NO_WARM") != "1":
         _warm(stt, tts)
@@ -147,7 +164,14 @@ def build(*, start_awake: bool = False, on_decision=None, observers=None,
     wake_state = WakeState(awake=start_awake)
     wake_gate = build_wake_gate(wake_state, cfg_provider)
 
-    context = LLMContext(messages=[{"role": "system", "content": SYSTEM_PROMPT}])
+    # step 9: one runtime. The system prompt rides in the service's
+    # system_instruction (pipecat appends its async-tool rules to it), the
+    # context carries the conversation and the one routing tool.
+    bridge = bridge or VoiceAgentBridge(on_event=on_agent_event, show_hud=show_hud,
+                                        hide_hud=hide_hud, on_turn=on_agent_turn)
+    register(llm, bridge)
+    bridge.start()
+    context = LLMContext(messages=[], tools=tools_schema())
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
@@ -160,7 +184,8 @@ def build(*, start_awake: bool = False, on_decision=None, observers=None,
     vision_pending = VisionPending()
     intent_gate = build_intent_gate(
         wake_state, context=context, pending=vision_pending, on_decision=on_decision,
-        on_move=on_move, llm=llm,
+        on_move=on_move, llm=llm, approvals=bridge.broker,
+        on_user_turn=lambda _t: bridge.hide_hud(),
     )
     prov_logger = build_provenance_logger(vision_pending, context=context, llm=llm)
 
@@ -183,6 +208,7 @@ def build(*, start_awake: bool = False, on_decision=None, observers=None,
     claim_guard = build_claim_guard(
         vision_pending,
         on_replace=lambda orig, fixed: logger.warning(f"ClaimGuard replaced {orig!r} -> {fixed!r}"),
+        verified_tools=lambda: bridge.verified_tools,
     )
 
     # --- step 4c: open-air audio -------------------------------------------- #
@@ -190,7 +216,8 @@ def build(*, start_awake: bool = False, on_decision=None, observers=None,
     echo_window = SelfEchoWindow(ttl_s=cfg.self_echo_ttl_s)
     echo_tap = build_echo_text_tap(echo_window)
     self_echo_filter = (
-        build_self_echo_filter(echo_window, threshold=cfg.self_echo_threshold)
+        build_self_echo_filter(echo_window, threshold=cfg.self_echo_threshold,
+                               exempt=lambda: bridge.broker.pending)
         if cfg.self_echo_reject
         else None
     )
@@ -226,10 +253,10 @@ def build(*, start_awake: bool = False, on_decision=None, observers=None,
         processor_unusable_policy=ProcessorUnusablePolicy.END,
     )
     runner = WorkerRunner(handle_sigint=handle_sigint)
-    return worker, runner, wake_state, context
+    return worker, runner, wake_state, context, bridge
 
 
-async def _esc_watch(worker) -> None:
+async def _esc_watch(worker, bridge=None) -> None:
     """Raw-tty ESC -> deterministic instant stop (the old build's 114 ms path).
     No-op when stdin is not a tty.
 
@@ -267,6 +294,8 @@ async def _esc_watch(worker) -> None:
             done.set()
             return
         if b"\x1b" in ch or b"q" in ch:
+            if bridge is not None:
+                bridge.broker.stop()       # Esc refuses a pending approval too
             loop.create_task(worker.queue_frames([InterruptionFrame()]))
 
     try:
@@ -284,18 +313,23 @@ async def _esc_watch(worker) -> None:
 
 
 async def run(*, start_awake: bool = False, on_decision=None, observers=None,
-              on_worker=None, handle_sigint: bool = True, on_move=None) -> None:
+              on_worker=None, handle_sigint: bool = True, on_move=None,
+              on_agent_event=None, show_hud=None, hide_hud=None, on_agent_turn=None,
+              on_bridge=None) -> None:
     from pipecat.frames.frames import LLMRunFrame
 
-    worker, runner, wake_state, context = build(
+    worker, runner, wake_state, context, bridge = build(
         start_awake=start_awake, on_decision=on_decision, observers=observers,
-        handle_sigint=handle_sigint, on_move=on_move,
+        handle_sigint=handle_sigint, on_move=on_move, on_agent_event=on_agent_event,
+        show_hud=show_hud, hide_hud=hide_hud, on_agent_turn=on_agent_turn,
     )
     if on_worker is not None:
         on_worker(worker)
+    if on_bridge is not None:
+        on_bridge(bridge)
     await runner.add_workers(worker)
 
-    esc = asyncio.create_task(_esc_watch(worker))
+    esc = asyncio.create_task(_esc_watch(worker, bridge))
     try:
         if start_awake:
             context.add_message({"role": "developer", "content": "Greet the user in one short sentence."})
@@ -303,6 +337,7 @@ async def run(*, start_awake: bool = False, on_decision=None, observers=None,
         await runner.run()
     finally:
         esc.cancel()
+        await bridge.close()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -360,14 +395,16 @@ def _run_with_orb(args) -> int:
     from pipecat.frames.frames import InterruptionFrame
 
     from engine.interface.session import OrbSession
-    from engine.interface.taps import build_voice_observer, intent_decision_sink
+    from engine.interface.taps import agent_event_sink, build_voice_observer, intent_decision_sink
 
     holder: dict = {}
 
     def _stop_output() -> None:
         # called on the Qt main thread; hop to the voice worker's event loop.
-        w, loop = holder.get("worker"), holder.get("loop")
+        w, loop, b = holder.get("worker"), holder.get("loop"), holder.get("bridge")
         if w is not None and loop is not None:
+            if b is not None:
+                loop.call_soon_threadsafe(b.broker.stop)   # Esc denies a pending approval
             loop.call_soon_threadsafe(
                 lambda: loop.create_task(w.queue_frames([InterruptionFrame()]))
             )
@@ -375,6 +412,13 @@ def _run_with_orb(args) -> int:
     sess = OrbSession(on_escape=_stop_output)
     observer = build_voice_observer(sess.bus)
     on_decision = intent_decision_sink(sess.bus)
+    agent_sink = agent_event_sink(sess.bus)
+
+    def _on_bridge(b) -> None:
+        holder["bridge"] = b
+        # a click in the approval HUD races the spoken answer; first wins
+        sess.relay.listener = lambda ans: b.broker.answer_threadsafe(
+            bool(ans.get("approved")), ans.get("source", "user:orb"))
 
     async def _main(stop):
         loop = _asyncio.get_running_loop()
@@ -394,6 +438,9 @@ def _run_with_orb(args) -> int:
             await run(start_awake=args.awake, on_decision=on_decision,
                       observers=[observer], handle_sigint=False,  # worker runs off the main thread
                       on_move=sess.move_orb,   # "move to the corner" -> the orb, deterministic
+                      on_agent_event=agent_sink,  # real graph events -> orb state
+                      show_hud=sess.show_hud, hide_hud=sess.hide_hud,
+                      on_bridge=_on_bridge,
                       on_worker=lambda w: holder.__setitem__("worker", w))
         finally:
             stop.set()                 # releases the executor thread in _cancel_on_stop

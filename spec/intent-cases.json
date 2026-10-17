@@ -41,6 +41,11 @@
     { "name": "describe_scene: step 6c live transcript, You see me?", "transcript": "You see me?", "intent": { "type": "describe_scene" } },
     { "name": "move_orb: bare corner, second half of a split request", "transcript": "the bottom right corner", "intent": { "type": "move_orb", "object": "bottom right" } },
     { "name": "describe_scene: step 6c live transcript, can you able to see me", "transcript": "Okay, well see, can you able to see me?", "intent": { "type": "describe_scene" } },
-    { "name": "not move_orb: corner with no direction", "transcript": "corner of the screen.", "intent": { "type": "unknown", "transcript": "corner of the screen." } }
+    { "name": "not move_orb: corner with no direction", "transcript": "corner of the screen.", "intent": { "type": "unknown", "transcript": "corner of the screen." } },
+    { "name": "step9: thanks then a request is not filler", "transcript": "Thanks. And what's on my calendar today?", "intent": { "type": "unknown", "transcript": "Thanks. And what's on my calendar today?" } },
+    { "name": "step9: help inside a request is not the help command", "transcript": "Can you help me schedule a meeting?", "intent": { "type": "unknown", "transcript": "Can you help me schedule a meeting?" } },
+    { "name": "step9: presence then a request", "transcript": "are you there? remind me to call mom", "intent": { "type": "unknown", "transcript": "are you there? remind me to call mom" } },
+    { "name": "step9: thank you so much is filler", "transcript": "Thank you so much!", "intent": { "type": "thanks" } },
+    { "name": "step9: Wellsy are you there", "transcript": "Wellsy, are you there?", "intent": { "type": "presence" } }
   ]
 }

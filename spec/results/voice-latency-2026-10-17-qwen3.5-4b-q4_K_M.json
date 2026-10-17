@@ -1,0 +1,89 @@
+{
+  "date": "2026-10-17",
+  "trials": 20,
+  "stages_warm": {
+    "asr_det": {
+      "p50_ms": 266.6,
+      "p95_ms": 278.1,
+      "mean_ms": 265.9,
+      "n": 20
+    },
+    "asr_llm": {
+      "p50_ms": 259.6,
+      "p95_ms": 262.7,
+      "mean_ms": 259.3,
+      "n": 20
+    },
+    "tts_ttfa": {
+      "p50_ms": 308.8,
+      "p95_ms": 310.7,
+      "mean_ms": 308.4,
+      "n": 20
+    },
+    "llm_ttft": {
+      "p50_ms": 71.4,
+      "p95_ms": 76.7,
+      "mean_ms": 72.1,
+      "n": 20
+    },
+    "llm_first_sent": {
+      "p50_ms": 174.0,
+      "p95_ms": 227.8,
+      "mean_ms": 151.8,
+      "n": 20
+    },
+    "llm_full": {
+      "p50_ms": 194.0,
+      "p95_ms": 251.9,
+      "mean_ms": 180.8,
+      "n": 20
+    }
+  },
+  "cold_ms": {
+    "asr_det": 264.4,
+    "asr_llm": 260.9,
+    "tts_ttfa": 318.4,
+    "llm_ttft": 413.6,
+    "llm_full": 443.9
+  },
+  "composed": {
+    "deterministic  (asr + tts_ttfa)": {
+      "p50_ms": 574.1,
+      "p95_ms": 588.5,
+      "mean_ms": 574.3,
+      "n": 20
+    },
+    "llm  (asr + llm_ttft + tts_ttfa)": {
+      "p50_ms": 639.8,
+      "p95_ms": 646.5,
+      "mean_ms": 639.8,
+      "n": 20
+    }
+  },
+  "streaming_overlap": {
+    "first_pcm_before_llm_done": [
+      3,
+      3
+    ],
+    "samples_ms": [
+      {
+        "first_pcm": 929.5,
+        "llm_done": 1866.6
+      },
+      {
+        "first_pcm": 1476.0,
+        "llm_done": 1476.3
+      },
+      {
+        "first_pcm": 804.3,
+        "llm_done": 1758.8
+      }
+    ]
+  },
+  "llm_model": "qwen3.5:4b-q4_K_M",
+  "notes": [
+    "component timing; the mic->speaker e2e and A14 need a live session (see module docstring)",
+    "deterministic path has no LLM; IntentGate reply is effectively 0 ms",
+    "llm_ttft is a bare one-turn prompt; the in-session conversational row (system prompt + use_tools + history) is bench/voice_agent_replay.py"
+  ]
+}

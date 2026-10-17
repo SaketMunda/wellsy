@@ -45,6 +45,11 @@ dependencies = [
     "mcp>=1.24,<2",
     "langchain-openai>=1.6,<2",
     "pyyaml>=6",
+    # step 9 — durable agent checkpoints (an approval waiting on a spoken
+    # answer is on disk, resumable by thread id). Verified 2026-10-17
+    # (INVARIANTS #8): langgraph-checkpoint-sqlite 3.1.2 (2026-10-12, latest),
+    # needs langgraph-checkpoint >=4.3 (4.2.0 -> 4.3.0, minor) and aiosqlite.
+    "langgraph-checkpoint-sqlite>=3.1.2,<4",
 ]
 
 [project.optional-dependencies]

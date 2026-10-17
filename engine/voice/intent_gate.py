@@ -70,7 +70,7 @@ def decide(transcript: str) -> Decision:
 
 
 def build_intent_gate(wake_state, *, context=None, pending=None, on_decision=None,
-                      on_move=None, llm=None):
+                      on_move=None, llm=None, approvals=None, on_user_turn=None):
     """Return an IntentGate FrameProcessor.
 
     `wake_state`  — the shared WakeState.
@@ -84,6 +84,12 @@ def build_intent_gate(wake_state, *, context=None, pending=None, on_decision=Non
                     flips it back). If it has no VL model pulled (`vlm_ok` is
                     False) the gate refuses the vision turn plainly rather than
                     sending an image the text model 400s on.
+    `approvals`   — the voice agent bridge's `ApprovalBroker` (step 9). While
+                    it is pending, every transcript answers it and nothing is
+                    forwarded: `stop` denies (and still interrupts output), a
+                    clear yes approves, anything else is a spoken no.
+    `on_user_turn(transcript)` — called for every committed transcript (the
+                    bridge closes a stale HUD there).
 
     Factory so this module imports without Pipecat."""
 
@@ -118,8 +124,26 @@ def build_intent_gate(wake_state, *, context=None, pending=None, on_decision=Non
                     on_decision(d, frame.text)
                 except Exception:
                     pass
+            if on_user_turn is not None:
+                try:
+                    on_user_turn(frame.text)
+                except Exception:
+                    pass
+
+            if approvals is not None and approvals.pending:
+                # Step 9: the graph is blocked on interrupt(). This utterance is
+                # the answer. Deterministic, before any model: an LLM never
+                # decides whether "yes" approves (same rule as INVARIANTS #3).
+                if d.action == "stop":
+                    approvals.stop()
+                    await self.push_frame(InterruptionFrame(), direction)
+                else:
+                    approvals.answer_spoken(frame.text)
+                return
 
             if d.action == "stop":
+                if approvals is not None and getattr(approvals, "stop", None):
+                    approvals.stop()   # refuse anything the running agent asks next
                 # Cancel any in-progress bot output. Deterministic path — no
                 # model, no await on generation.
                 await self.push_frame(InterruptionFrame(), direction)

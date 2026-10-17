@@ -26,6 +26,7 @@ def agent_env(tmp_path, monkeypatch):
     monkeypatch.delenv("WELLSY_PIM_RESET", raising=False)
     monkeypatch.delenv("WELLSY_AGENT_BREAK_TOOLS", raising=False)
     monkeypatch.setenv("WELLSY_AUTONOMY_CLEAN_RUNS", "2")
+    monkeypatch.setenv("WELLSY_AGENT_CHECKPOINTS", str(tmp_path / "checkpoints.sqlite"))
 
     # seed the portable store ONCE, here, in the parent — children only read it
     # (a reseed mid-run would wipe drafts/events created earlier in the test).

@@ -14,21 +14,33 @@
   * **verify** — independent read-back (INVARIANTS #15). The tool's own success
     return is never the evidence; a second read is.
   * **checkpoint** — LangGraph checkpoints after every node, so a mid-plan
-    failure keeps steps 1..n-1 (A11).
+    failure keeps steps 1..n-1 (A11). The checkpointer is injected; the
+    runtime passes a SQLite one (step 9) so an `interrupt()` waiting on a
+    spoken answer is durable state, not process memory.
+  * **read-back before commit** (step 9, INVARIANTS #15) — every approval
+    request carries `readback.preview()`: the resolved values as one spoken
+    sentence, dates in words, plus any disagreement between the resolved date
+    and what the user said. A date disagreement forces an approval even for a
+    step the policy would run silently.
+  * **events** — `emit(event)` reports real transitions (plan ready, step
+    start / done / denied) so the orb shows what the graph is doing, not what
+    a timer guesses.
   * **report** — one coherent paragraph, not a narration of the steps (A9).
 """
 
 from __future__ import annotations
 
 import asyncio
+import datetime as _dt
 import json
+import re
 from typing import Any, Callable, Optional, TypedDict
 
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
-from engine.agent import audit
+from engine.agent import audit, readback
 from engine.agent.mcp_client import AgentTools
 from engine.agent.policy import Decision, PolicyGate
 
@@ -87,10 +99,15 @@ async def _read_back(tools: AgentTools, step: Step, result: Any) -> dict:
             return {"verified": ok, "method": "calendar_get_event.start == new_start", "observed": ev}
 
         if tool == "pim.calendar_create_event":
-            evs = _as_list(await tools.call(
-                "pim.calendar_list_events",
-                {"start": args["start"][:19], "end": args["end"][:19]},
-            ))
+            # the window from parsed datetimes, not a string slice: "[:19]" of
+            # "2026-10-19T15:00+05:30" (no seconds) cut into the offset and the
+            # read-back searched an invalid window (step 9 replay)
+            st, en = readback.parse_when(args["start"]), readback.parse_when(args["end"])
+            evs = _as_list(await tools.call("pim.calendar_list_events", {
+                "start": st.isoformat(timespec="seconds") if st else args["start"],
+                "end": (en if en and st and en > st else (st + _dt.timedelta(minutes=1) if st else None)
+                        ).isoformat(timespec="seconds") if st else args["end"],
+            }))
             ok = any(isinstance(e, dict) and e.get("title") == args["title"] for e in evs)
             return {"verified": ok, "method": "calendar_list_events contains title", "observed": evs}
 
@@ -144,6 +161,70 @@ async def _read_back(tools: AgentTools, step: Step, result: Any) -> dict:
     return {"verified": True, "method": "read-only tool — no mutation to verify", "observed": None}
 
 
+# --------------------------------------------------------------------------- #
+# step references — "$1.id" is the `id` field of step 1's result               #
+# --------------------------------------------------------------------------- #
+
+class UnresolvedRef(Exception):
+    pass
+
+
+def _lookup(value: Any, path: list[str]) -> Any:
+    for part in path:
+        if isinstance(value, list) and part.isdigit() and int(part) < len(value):
+            value = value[int(part)]
+        elif isinstance(value, dict) and part in value:
+            value = value[part]
+        elif isinstance(value, list) and value and isinstance(value[0], dict) and part in value[0]:
+            value = value[0][part]          # "$1.id" on a one-item list
+        else:
+            raise UnresolvedRef(part)
+    return value
+
+
+def resolve_refs(args: Any, results: list[dict]) -> Any:
+    """Replace "$<n>.<field>..." strings with values from earlier steps'
+    results (1-based; "$s2" also accepted). A plan is written before any tool
+    runs, so ids a step creates can only be threaded this way — the planner is
+    told never to invent them. A reference to a step that did not succeed is
+    an `UnresolvedRef`, and the dependent step does not run."""
+    if isinstance(args, dict):
+        return {k: resolve_refs(v, results) for k, v in args.items()}
+    if isinstance(args, list):
+        return [resolve_refs(v, results) for v in args]
+    if isinstance(args, str) and args.startswith("$"):
+        head, *path = args[1:].split(".")
+        head = head[1:] if head.startswith("s") else head
+        if not head.isdigit():
+            return args
+        n = int(head)
+        if not (1 <= n <= len(results)) or results[n - 1].get("status") != "ok":
+            raise UnresolvedRef(f"step {n} did not succeed")
+        return _lookup(results[n - 1].get("result"), path)
+    return args
+
+
+_SAID_SEND = re.compile(r"\bsend\b", re.I)
+_SAID_NO_SEND = re.compile(r"\b(don'?t|do not|not|without|never|before you)\s+(\w+\s+)?send", re.I)
+
+
+def complete_plan(outcome: str, plan: list[dict]) -> list[dict]:
+    """Deterministic completion of one known planner omission. Step 9 bench:
+    asked to "draft a reply to Dana ... and send it", the 4B planner drafted
+    and stopped (1 of 16 production-prompt plans). If the user's words say
+    send, the plan drafts and does not send, the send step is appended on the
+    draft's id. Safe by construction: a send is risk 2 and still asks aloud
+    with its read-back."""
+    said = (outcome or "").split("(meaning:", 1)[0]
+    tools = [s.get("tool") for s in plan]
+    if (_SAID_SEND.search(said) and not _SAID_NO_SEND.search(said)
+            and "pim.mail_create_draft" in tools and "pim.mail_send_draft" not in tools):
+        i = max(k for k, t in enumerate(tools) if t == "pim.mail_create_draft")
+        plan = plan + [{"tool": "pim.mail_send_draft", "args": {"draft_id": f"${i + 1}.id"},
+                        "why": "you asked to send it (added: the plan drafted but did not send)"}]
+    return plan
+
+
 def _parent(path: str) -> str:
     return path.rsplit("/", 1)[0] if "/" in path else "."
 
@@ -163,20 +244,35 @@ def build_graph(
     planner: Planner,
     reporter: Reporter,
     approver_actor: str = "user:cli",
+    checkpointer: Any = None,
+    emit: Callable[[dict], None] | None = None,
 ):
     """Compile the state machine. `tools`/`gate` are live; `planner`/`reporter`
-    are injectable so the acceptance suite can drive the loop without a model."""
+    are injectable so the acceptance suite can drive the loop without a model.
+    `checkpointer` defaults to an in-memory one; `emit` receives lifecycle
+    events (never raises into the graph)."""
+
+    def _emit(ev: dict) -> None:
+        if emit is not None:
+            try:
+                emit(ev)
+            except Exception:
+                pass
 
     def plan_node(state: AgentState) -> AgentState:
         catalog = tools.list_tools()
         res = planner(state["outcome"], catalog)
         if res.get("clarify"):
             return {"clarifying_question": res["clarify"], "done": True, "plan": [], "step_results": []}
-        raw_plan = res.get("plan", [])[:MAX_STEPS]
+        raw_plan = complete_plan(state["outcome"], list(res.get("plan", [])))[:MAX_STEPS]
         plan: list[Step] = []
         for i, s in enumerate(raw_plan):
             plan.append({"id": f"s{i+1}", "tool": s["tool"], "args": s.get("args", {}),
                          "why": s.get("why", "")})
+        _emit({"type": "plan_ready", "planId": state.get("plan_id"),
+               "steps": [{"tool": st["tool"], "args": st["args"], "why": st["why"],
+                          "decision": gate.check(st["tool"], st["args"], {}).action}
+                         for st in plan]})
         return {"plan": plan, "step_idx": 0, "retries": 0, "step_results": [],
                 "clarifying_question": None, "done": False}
 
@@ -190,8 +286,14 @@ def build_graph(
             return "report"
         return "policy_check"
 
-    def policy_check_node(state: AgentState) -> AgentState:
+    async def policy_check_node(state: AgentState) -> AgentState:
         step = state["plan"][state["step_idx"]]
+        try:
+            args = resolve_refs(step.get("args", {}), state.get("step_results", []))
+        except UnresolvedRef as e:
+            _emit({"type": "step_denied", "tool": step["tool"], "reason": f"depends on {e}"})
+            return _skip_step(state, step, "error", f"not run: it depends on {e}")
+        step = {**step, "args": args}
         decision: Decision = gate.check(step["tool"], step.get("args", {}), {"outcome": state["outcome"]})
 
         if decision.action == "deny":
@@ -200,7 +302,21 @@ def build_graph(
                 risk=decision.risk, reason=decision.reason, plan_id=state["plan_id"],
                 step_id=step["id"], capability=decision.capability,
             )
+            _emit({"type": "step_denied", "tool": step["tool"], "reason": decision.reason})
             return _skip_step(state, step, "denied", decision.reason)
+
+        # Read-back before commit. Runs again when the graph resumes after the
+        # interrupt (LangGraph re-enters the node); it is read-only.
+        pv = None
+        if decision.action == "confirm" or decision.risk >= 1:
+            pv = await readback.preview(step["tool"], step.get("args", {}), state["outcome"],
+                                        lookup=tools.call)
+            if decision.action == "allow" and pv["dateWarnings"]:
+                # a date the user didn't say never commits silently
+                decision = Decision("confirm", decision.risk, decision.capability,
+                                    "the resolved date disagrees with what was said: "
+                                    + "; ".join(pv["dateWarnings"]),
+                                    decision.annotation, extra={"dateEscalation": True})
 
         approval_source = None
         if decision.action == "confirm":
@@ -214,6 +330,8 @@ def build_graph(
                 "capability": decision.capability,
                 "reason": decision.reason,
                 "why": step.get("why", ""),
+                "preview": pv,
+                "spoken": pv["spoken"] if pv else None,
             })
             approved = bool(answer.get("approved")) if isinstance(answer, dict) else bool(answer)
             approval_source = (answer.get("source") if isinstance(answer, dict) else None) or approver_actor
@@ -224,6 +342,8 @@ def build_graph(
                     plan_id=state["plan_id"], step_id=step["id"],
                     approval_source=approval_source, capability=decision.capability,
                 )
+                _emit({"type": "step_denied", "tool": step["tool"],
+                       "reason": "approval declined by " + approval_source})
                 return _skip_step(state, step, "denied", "approval declined")
         else:
             approval_source = "autonomy:promoted" if decision.extra.get("promoted") else None
@@ -233,6 +353,7 @@ def build_graph(
             "risk": decision.risk,
             "capability": decision.capability,
             "approval_source": approval_source,
+            "args": step.get("args", {}),        # references resolved
         }}
 
     def policy_route(state: AgentState) -> str:
@@ -240,14 +361,16 @@ def build_graph(
         return "act" if state.get("_pending") else "dispatch"
 
     async def act_node(state: AgentState) -> AgentState:
-        step = state["plan"][state["step_idx"]]
         pend = state["_pending"]
+        step = {**state["plan"][state["step_idx"]]}
+        step["args"] = pend.get("args", step.get("args", {}))
         entry = audit.begin(
             actor="agent", tool=step["tool"], arguments=step.get("args", {}),
             risk=pend["risk"], policy_decision=pend["decision_action"],
             approval_source=pend["approval_source"], plan_id=state["plan_id"],
             step_id=step["id"], capability=pend["capability"],
         )
+        _emit({"type": "step_start", "tool": step["tool"], "args": step.get("args", {})})
         try:
             result = await tools.call(step["tool"], step.get("args", {}))
             error = None
@@ -260,6 +383,9 @@ def build_graph(
                 entry.finalize(outcome="error", error=f"{error} (attempt {attempts}, retrying)")
                 return {"retries": attempts, "_retry": True, "_pending": pend}
             entry.finalize(outcome="error", error=f"{error} (attempt {attempts}, gave up)")
+            _emit({"type": "step_done", "tool": step["tool"], "status": "error",
+                   "readBack": {"verified": False, "method": "not run — tool errored"},
+                   "auditId": entry.id})
             return _finish_step(state, step, {
                 "id": step["id"], "tool": step["tool"], "status": "error",
                 "error": error, "attempts": attempts, "auditId": entry.id,
@@ -274,6 +400,10 @@ def build_graph(
         verified = bool(read_back.get("verified"))
         attempts = state.get("retries", 0) + 1
         entry.finalize(outcome="ok" if verified else "unverified", read_back=read_back)
+        _emit({"type": "step_done", "tool": step["tool"],
+               "status": "ok" if verified else "unverified",
+               "readBack": {k: read_back.get(k) for k in ("verified", "method")},
+               "auditId": entry.id})
         return _finish_step(state, step, {
             "id": step["id"], "tool": step["tool"],
             "status": "ok" if verified else "unverified",
@@ -289,6 +419,7 @@ def build_graph(
         results = state.get("step_results", [])
         n_ok = sum(1 for r in results if r["status"] == "ok")
         status = "ok" if results and n_ok == len(results) else ("partial" if n_ok else "failed")
+        _emit({"type": "reporting", "status": status})
         para = reporter(state["outcome"], results, status)
         return {"report": para, "done": True}
 
@@ -307,7 +438,7 @@ def build_graph(
     g.add_conditional_edges("act", act_route, ["act", "dispatch"])
     g.add_edge("report", END)
 
-    return g.compile(checkpointer=InMemorySaver())
+    return g.compile(checkpointer=checkpointer if checkpointer is not None else InMemorySaver())
 
 
 def _skip_step(state: AgentState, step: Step, status: str, reason: str) -> AgentState:
@@ -339,11 +470,45 @@ Return ONLY minified JSON, no prose, one of:
                                 // no antecedent (e.g. "move IT" / "book IT" with
                                 // no prior turn). Dates like "tomorrow" are NOT
                                 // ambiguous — resolve them from NOW below.
-NOW: {now}  (use this to resolve "today"/"tomorrow"/"next Tuesday"; datetimes are
-local, ISO-8601, no offset needed).
-Rules: use only tools from the catalog; prefer a read before a mutation; never
-guess an id — look it up with a read step first; never plan a delete unless the
-user explicitly asked to delete."""
+NOW: {now}  (datetimes are local, ISO-8601, no offset needed).
+DAYS (use these; do not compute dates yourself):
+{days}
+Rules: plan the WHOLE request in this one plan — the reads it needs and then
+every change the user asked for; you will not get a second turn. Use only tools
+from the catalog, with exactly the argument names shown (`?` = optional);
+never guess an id — look it up with a read step first; never plan a delete unless the user explicitly asked
+to delete. A value an earlier step returns is written "$<step number>.<field>",
+e.g. {"draft_id":"$1.id"} after a create_draft in step 1 — never a placeholder
+you made up. File paths are relative to the user's scratch folder ("plan.txt").
+Email "to" is a list of addresses; find one with contacts_search first. If the
+user says to send, the plan ends with mail_send_draft on the draft's "$n.id".
+A question about the past ("did you send it?") changes nothing: read only.
+Example — "email Sam that I'm late and send it":
+{"plan":[{"tool":"pim.contacts_search","args":{"query":"Sam"},"why":"find address"},
+{"tool":"pim.mail_create_draft","args":{"to":["$1.emails.0"],"subject":"Running late","body":"I'm running late."},"why":"draft"},
+{"tool":"pim.mail_send_draft","args":{"draft_id":"$2.id"},"why":"send"}]}"""
+
+
+def day_table(today: _dt.date | None = None) -> str:
+    """Today, tomorrow and the next six days, spelled out. Step 9 replay: given
+    only an ISO timestamp, the 4B planner put "tomorrow" (a Sunday) on Monday;
+    5b saw "Monday" planned as a Sunday. Weekday arithmetic is not left to the
+    model."""
+    today = today or _dt.date.today()
+    rows = []
+    for i in range(8):
+        d = today + _dt.timedelta(days=i)
+        tag = "today" if i == 0 else "tomorrow" if i == 1 else ("this " if i < 7 else "next ") + d.strftime("%A")
+        rows.append(f"  {tag}: {d.strftime('%A')} {d.isoformat()}")
+    return "\n".join(rows)
+
+
+def _signature(t: dict) -> str:
+    schema = t.get("inputSchema") or {}
+    req = set(schema.get("required") or [])
+    names = [n if n in req else n + "?" for n in (schema.get("properties") or {})]
+    desc = (t.get("description") or "").strip().splitlines()[0] if t.get("description") else ""
+    return f'- {t["key"]}({", ".join(names)}): {desc}'
 
 
 def make_model_planner() -> Planner:
@@ -354,8 +519,9 @@ def make_model_planner() -> Planner:
     def planner(outcome: str, catalog: list[dict]) -> dict:
         import datetime as _dt
 
-        cat = "\n".join(f'- {t["key"]}: {t["description"]}' for t in catalog)
-        sys = _PLANNER_SYS.replace("{now}", _dt.datetime.now().astimezone().isoformat(timespec="minutes"))
+        cat = "\n".join(_signature(t) for t in catalog)
+        sys = (_PLANNER_SYS.replace("{now}", _dt.datetime.now().astimezone().isoformat(timespec="minutes"))
+               .replace("{days}", day_table()))
         msg = f"{sys}\n\nCATALOG:\n{cat}\n\nOUTCOME: {outcome}"
         resp = model.invoke(msg)
         text = resp.content if isinstance(resp.content, str) else str(resp.content)

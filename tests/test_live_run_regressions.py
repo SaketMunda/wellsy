@@ -38,7 +38,10 @@ def test_prompt_does_not_instruct_claiming_unperformed_actions():
     assert "never say you cannot see" not in p
     assert "did not happen" in p           # a move that reaches the model did not happen
     assert "have not looked" in p          # no image attached == did not look
-    assert "calendar" not in p             # the voice path has no tools; don't claim them
+    # step 9: the voice path has tools now, reachable only through use_tools,
+    # and "done" requires a verified result
+    assert "use_tools" in p and "calendar" in p
+    assert "never say an action is done unless a use_tools result shows it ok and verified" in p
 
 
 # --------------------------------------------------------------------------- #
@@ -93,7 +96,7 @@ async def _llm_400_keeps_session_alive_and_speaks():
     llm = adapters.SeamLLMService(
         api_key="x", base_url="http://127.0.0.1:9/v1",
         settings=adapters.SeamLLMService.Settings(model="text-model"),
-        text_model="text-model", vlm_model="vl-model", vlm_ok=True,
+        model="text-model", vlm_ok=True,
     )
     req = httpx.Request("POST", "http://127.0.0.1:9/v1/chat/completions")
     resp = httpx.Response(400, request=req, json={"error": {"message": "exceeds the available context size"}})
@@ -114,7 +117,8 @@ async def _llm_400_keeps_session_alive_and_speaks():
     assert spoken == [FAILURE_SPOKEN]
     assert llm.is_usable                   # the worker would otherwise end the session
     assert recovered == [True]
-    assert llm._settings.model == "text-model"
+    assert not llm.on_vlm()                # left the vision turn
+    assert llm._settings.model == "text-model"   # one model throughout (step 9)
 
 
 # --------------------------------------------------------------------------- #
@@ -221,18 +225,21 @@ async def _vlm_context_isolated():
     llm = adapters.SeamLLMService(
         api_key="x", base_url="http://127.0.0.1:9/v1",
         settings=adapters.SeamLLMService.Settings(model="text-model"),
-        text_model="text-model", vlm_model="vl-model", vlm_ok=True,
+        model="text-model", vlm_ok=True,
     )
     seen = {}
 
     async def _capture(self, context):
         seen["msgs"] = list(context.messages)
+        seen["system"] = self._settings.system_instruction
+        seen["model"] = self._settings.model
+        seen["tools"] = context.tools
 
     orig = OpenAILLMService._process_context
     OpenAILLMService._process_context = _capture
     try:
+        llm._settings.system_instruction = "the long identity prompt"
         ctx = LLMContext(messages=[
-            {"role": "system", "content": "the long identity prompt"},
             {"role": "user", "content": "move to the right"},
             {"role": "assistant", "content": "I didn't move."},
             {"role": "user", "content": [{"type": "text", "text": "what am I wearing"}, _IMG]},
@@ -240,8 +247,11 @@ async def _vlm_context_isolated():
         llm.use_vlm(True)
         assert llm._settings.max_completion_tokens == adapters.VLM_MAX_TOKENS
         await llm._process_context(ctx)
-        assert seen["msgs"][0]["content"] == adapters.VLM_SYSTEM_PROMPT
-        assert len(seen["msgs"]) == 2 and message_has_image(seen["msgs"][1])
+        # only its own short prompt and the image: no history, no tools
+        assert seen["system"] == adapters.VLM_SYSTEM_PROMPT
+        assert len(seen["msgs"]) == 1 and message_has_image(seen["msgs"][0])
+        assert seen["model"] == "text-model"           # same model (step 9 collapse)
+        assert llm._settings.system_instruction == "the long identity prompt"   # restored
         llm.use_vlm(False)
         assert llm._settings.max_completion_tokens != adapters.VLM_MAX_TOKENS
     finally:
@@ -259,7 +269,7 @@ async def _text_turn_strips_images():
     llm = adapters.SeamLLMService(
         api_key="x", base_url="http://127.0.0.1:9/v1",
         settings=adapters.SeamLLMService.Settings(model="text-model"),
-        text_model="text-model", vlm_model="vl-model", vlm_ok=True,
+        model="text-model", vlm_ok=True,
     )
     seen = {}
 
