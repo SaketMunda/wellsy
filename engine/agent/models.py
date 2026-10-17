@@ -1,26 +1,30 @@
-"""Two model roles, not one model (step 5 Deliverable 2b).
+"""Two model roles, one resident model (step 5 Deliverable 2b; step 9 collapse).
 
-Step 4 measured the shared LLM row at 3957 ms p50 against a 1500 ms target with
-`qwen3:4b`, because that build runs a reasoning pass every turn and no flag
-disables it (re-verified by curl, step 4b). Reasoning is poison on the
-conversational hot path and genuinely useful in the planner. So:
+| Role     | Model (step 9 default)                    | Reasoning | Budget                         |
+|----------|-------------------------------------------|-----------|--------------------------------|
+| fast     | WELLSY_FAST_MODEL    (qwen3.5:4b-q4_K_M)  | off       | §1: < 1500 ms p50 (5c: 71 ms TTFT) |
+| planner  | WELLSY_PLANNER_MODEL (qwen3.5:4b-q4_K_M)  | off       | 3-4 s ok (5c: 3.47 s full plan, 20/20) |
 
-| Role     | Model (step 5b default)              | Reasoning | Budget                       |
-|----------|-------------------------------------|-----------|------------------------------|
-| fast     | WELLSY_FAST_MODEL   (4b-instruct-2507) | none    | §1: < 1500 ms p50 (meas. 21 ms) |
-| planner  | WELLSY_PLANNER_MODEL (4b-instruct-2507)| none    | 3-4 s ok (meas. 4.0 s full plan) |
+Step 5c (`.claude/rebuild/step5c-results.md` §2-§3) measured Qwen3.5-4B with
+reasoning off as matching or beating `qwen3:4b-instruct-2507` on both budgets,
+and as one model for planner + fast + vision (-2.1 GB resident). But Qwen3.5
+**thinks by default** (4066 thinking tokens/turn, 0/5 valid plans), and on the
+OpenAI-compatible `/v1` endpoint Ollama honours **only** `reasoning_effort:
+"none"` -- the `think:false` + `chat_template_kwargs` shape every caller used
+to send is ignored there (re-verified on 0.40.5, 2026-10-17: 197-221 reasoning
+chars and no content vs 0 with `reasoning_effort`). So the model string and the
+request shape change together, here and in `engine.voice.adapters.build_llm`.
+`reasoning_effort:"none"` is harmless on the instruct incumbents (5c §1.3), so
+an env override back to `qwen3:4b-instruct-2507-q4_K_M` still works.
 
-Step 5b bench-off (`.claude/rebuild/step5b-results.md` §2-3): `qwen3:4b`
-reasoning is ~78 s/turn and no flag or `think:"low"/"high"` level disables it on
-Ollama 0.33.2 (all measured). `qwen3:4b-instruct-2507` is non-reasoning by
-construction, clears both budgets, scores 20/20 on plan-JSON validity, and lets
-the two roles share one resident 3.2 GB model instead of two. `qwen2.5:3b` (the
-old interim fast default) is the beaten incumbent — 15 ms TTFT but 2024-era.
+Always a pinned GGUF tag, never a bare `qwen3.5:4b`: Ollama >= 0.40 may resolve
+a bare tag to an MLX build on Apple Silicon (INVARIANTS #14, 5c §1.2).
 
 The acknowledge-then-deliver rule: when a request needs the planner, the fast
 path emits an acknowledgement ("let me check your calendar") within the §1
 budget while the planner runs behind it. `acknowledgement()` is deterministic —
-no model in the ack path, so it cannot itself blow the budget.
+no model in the ack path, so it cannot itself blow the budget, and it never
+claims an action has happened.
 """
 
 from __future__ import annotations
@@ -31,17 +35,17 @@ from typing import Any, Literal
 
 Role = Literal["fast", "planner"]
 
-# Step 5b: both roles resolve to ONE resident model. `qwen3:4b-instruct-2507`
-# is non-reasoning by construction (no `<think>` path — the July-2025 instruct
-# build), clears the fast budget (21 ms warm TTFT) *and* the planner budget
-# (schema-valid 3-step plan in ~4.0 s, 20/20 valid), and every flag/level that
-# could bound a reasoning Qwen3 on Ollama 0.33.2 was measured non-functional
-# (`.claude/rebuild/step5b-results.md` §2). Unifying the slots saves ~2 GB
-# resident vs two models. Split them again by setting the env vars.
+# Both roles resolve to ONE resident model, which is also the voice loop's text
+# and vision model (step 9; measured in 5c). Split them by setting the env vars.
+DEFAULT_MODEL = "qwen3.5:4b-q4_K_M"
 _DEFAULTS = {
-    "fast": ("WELLSY_FAST_MODEL", "qwen3:4b-instruct-2507-q4_K_M"),
-    "planner": ("WELLSY_PLANNER_MODEL", "qwen3:4b-instruct-2507-q4_K_M"),
+    "fast": ("WELLSY_FAST_MODEL", DEFAULT_MODEL),
+    "planner": ("WELLSY_PLANNER_MODEL", DEFAULT_MODEL),
 }
+
+# The only reasoning off-switch Ollama's /v1 honours for Qwen3.5 (5c §1.3).
+# Every request to the local server carries it -- voice, fast and planner.
+REQUEST_EXTRA_BODY = {"keep_alive": -1, "reasoning_effort": "none"}
 
 
 def model_name(role: Role) -> str:
@@ -55,25 +59,21 @@ def base_url() -> str:
 
 def get_model(role: Role, *, temperature: float = 0.0, **kwargs: Any):
     """A `langchain_openai.ChatOpenAI` bound to the local OpenAI-compatible
-    endpoint. `planner` keeps reasoning on; `fast` asks the server to skip it
-    (Ollama honours neither `think` today — step 4b — so `fast` also just uses a
-    non-reasoning model, which is the real fix)."""
+    endpoint. Both roles send `reasoning_effort:"none"`: the planner used to
+    keep reasoning on, and on Qwen3.5 that is the 80 s / 0-of-5-valid row in
+    5c §2. Its plan quality with reasoning off is the measured 20/20."""
     from langchain_openai import ChatOpenAI
 
-    extra_body: dict[str, Any] = {"keep_alive": -1}
-    if role == "fast":
-        extra_body["think"] = False
-        extra_body["chat_template_kwargs"] = {"enable_thinking": False}
+    extra_body: dict[str, Any] = dict(REQUEST_EXTRA_BODY)
 
     return ChatOpenAI(
         model=model_name(role),
         base_url=base_url(),
         api_key=os.environ.get("WELLSY_LLM_API_KEY", "ollama"),
         temperature=temperature,
-        # 120 s: the planner (reasoning) can take tens of seconds on a cold
-        # model — the acknowledge-then-deliver rule is what hides that from the
-        # user, not a tight client timeout. Step 4b: qwen3 burns a reasoning
-        # pass no flag disables.
+        # 120 s: a cold model load plus a full plan can take several seconds —
+        # the acknowledge-then-deliver rule is what hides that from the user,
+        # not a tight client timeout.
         timeout=float(os.environ.get("WELLSY_LLM_TIMEOUT", "120")),
         max_retries=1,
         extra_body=extra_body,
@@ -103,7 +103,7 @@ def should_plan(text: str) -> bool:
 
 
 _ACK_BY_KEYWORD = [
-    (re.compile(r"\bcalendar|meeting|schedule|reschedul|event\b", re.I),
+    (re.compile(r"\b(calendar|meeting|schedul|reschedul|event|appointment|book)", re.I),
      "Let me check your calendar."),
     (re.compile(r"\bmail|email|reply|inbox|message\b", re.I),
      "Let me look at your mail."),

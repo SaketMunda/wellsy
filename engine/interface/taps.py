@@ -24,9 +24,13 @@ from engine.interface.signals import SignalBus
 # --------------------------------------------------------------------------- #
 
 def agent_event_sink(bus: SignalBus):
+    """Every transition is one the graph actually made (`graph.build_graph`
+    emits them from its nodes): planning while the planner runs and between
+    steps, acting only between a step's start and its result, awaiting
+    approval while `interrupt()` is unanswered, refusing on a deny."""
     def sink(ev: dict[str, Any]) -> None:
         t = ev.get("type")
-        if t in ("plan_start", "ack"):
+        if t in ("plan_start", "ack", "plan_ready", "reporting"):
             bus.set_agent_phase("planning")
         elif t == "approval_request":
             bus.set_approval_pending(True)
@@ -36,9 +40,13 @@ def agent_event_sink(bus: SignalBus):
             approved = ans.get("approved") if isinstance(ans, dict) else bool(ans)
             if not approved:
                 bus.mark_refusal("approval declined")
-            bus.set_agent_phase("acting")
+            bus.set_agent_phase("planning")
         elif t == "step_start":
             bus.set_agent_phase("acting")
+        elif t == "step_done":
+            bus.set_agent_phase("planning")
+            if ev.get("status") in ("unverified", "error"):
+                bus.mark_refusal(f"{ev.get('tool', 'tool')} {ev.get('status')}")
         elif t == "step_denied":
             bus.mark_refusal(str(ev.get("reason", "tool denied")))
         elif t == "done":

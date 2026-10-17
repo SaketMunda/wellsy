@@ -157,16 +157,21 @@ context engine built for 4096 tokens is different software from one built for
   owner's call.
 - **Spoken barge-in** - *"Wellsy, stop"* mid-answer does not work; the ESC key
   does. AEC is a seam only, no ERLE measured (step 4c debt).
-- **HUD from the agent runtime** - only the `approval` view is wired; deny has
-  never been exercised end to end into the audit log.
+- ~~**HUD from the agent runtime**~~ -> step 9: `plan`, `verify`, `provenance`
+  views fed by graph events; deny proven end to end into the audit log (test +
+  replay). Still to look at on the Qt panel live.
 - ~~**5b's owed D3**~~ -> closed in step 5c: 512 px reads 0-3 of 18 strings
   and saves no time on `qwen3-vl` (server floor of 1056 tokens); 1024 px
   stays. The honest new-screen first word is ~2.1 s, so the §1 VLM row misses
   p50 by ~230 ms (5b's 1.8 s was cache-inflated).
-- **Qwen3.5 collapse (step 9):** `qwen3.5:4b-q4_K_M` measured as one model for
-  fast + planner + VLM (−2.1 GB), but it thinks by default, and on `/v1`
-  only `reasoning_effort:"none"` turns that off. The current request shapes
-  would make a string-only swap silent. See `step5c-results.md` §2, §3, §9.
+- ~~**Qwen3.5 collapse (step 9)**~~ -> done in step 9: one model everywhere,
+  `reasoning_effort:"none"` on every request, `SeamLLMService` flip removed
+  (`step9-results.md` §1).
+- **Step 9 (2026-10-17, `step9-results.md`):** the agent answers voice turns
+  through `use_tools`; spoken approval + read-back; SQLite checkpoints. Owed:
+  the live spoken run against real accounts (`WELLSY_PIM_BACKEND=macos`); the
+  agentic delivered row misses (5.1 s composed p50); conversational p95 misses
+  at the 4096 server window, so set Ollama's context to 16K (owner's call, §5).
 - Orb art pass; global hotkey; typed text into the HUD.
 - A8-granted half and the ScreenCaptureKit latency row.
 - A3-A6 live against a real Calendar / Mail account (`osascript` backend).
@@ -174,7 +179,7 @@ context engine built for 4096 tokens is different software from one built for
 - An in-process LLM backend must be validated before embodiment bring-up.
 - **Linux/CUDA path is code-complete and unexecuted** - and it is production
   target #1 (D51).
-- `InMemorySaver` -> `SqliteSaver` for cross-process resume.
+- ~~`InMemorySaver` -> `SqliteSaver` for cross-process resume.~~ -> step 9.
 - Intermittent `recursive_mutex lock failed` at pytest teardown when pipecat
   (anyio) and agent (stdio MCP) tests run in one process; exit code stays 0.
 - Dependency hygiene: opencv-python and pyav both vendor libavdevice

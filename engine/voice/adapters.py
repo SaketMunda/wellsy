@@ -150,8 +150,25 @@ class SeamTTSService(TTSService):
 # `options.num_ctx`). So the request is fitted to the window here instead of
 # trusting the server. Step 6c live run: two 1080p screen captures + history =
 # 4652 tokens -> 400 -> session over.
-CONTEXT_BUDGET_TOKENS = 3000      # of 4096 — the rest is room for the reply
-IMAGE_TOKENS = 700                # one <=1024 px frame on qwen3-vl (32 px/token) + margin
+# of 4096. Step 9: 3000 left ~1750 for history once the system prompt and the
+# tool schema were reserved, so a session trimmed every ~3 agentic turns and
+# each trim cost a Qwen3.5 re-prefill (delivery 2.0-2.8 s after a trim vs
+# 0.9-1.5 s without; spec/results/step9-replay-rows-*). The estimate runs 5-10 %
+# above the server's real prompt_tokens (measured on 5 live requests), and the
+# longest reply is a ~70-token tool call, so 3500 keeps a safe margin. Above
+# 4096 Ollama truncates silently (5,200 tokens in -> 2,050 counted, 0.40.5).
+# `WELLSY_LLM_NUM_CTX` tells WELLSY the window the server really runs (Ollama's
+# default 4096, or OLLAMA_CONTEXT_LENGTH); the request is fitted to it minus
+# ~600 tokens for the reply and the estimate's error.
+SERVER_NUM_CTX = int(os.environ.get("WELLSY_LLM_NUM_CTX", "4096"))
+CONTEXT_BUDGET_TOKENS = SERVER_NUM_CTX - 596
+IMAGE_TOKENS = 700                # one <=1024 px frame (qwen3-vl 1056 tok / 2 imgs; qwen3.5 ~600) + margin
+# Front-trimming the history is an edit, and on Qwen3.5 (24 of 32 layers are
+# recurrent) any edit to earlier history costs a re-prefill from the last
+# checkpoint — 1.2 s at 4K (5c §6). Trimming to exactly the budget would pay
+# that on every turn once a session is long; trimming to 60 % pays it once
+# per several turns.
+TRIM_TO_FRACTION = 0.6
 
 
 def message_has_image(m: Any) -> bool:
@@ -177,17 +194,36 @@ def _estimate_tokens(m: Any) -> int:
             elif isinstance(p, dict):
                 n += len(str(p.get("text", ""))) // 3
         return n
+    if isinstance(m, dict) and m.get("tool_calls"):
+        return len(str(m["tool_calls"])) // 3 + 4
     return 4
 
 
-def fit_messages(msgs: list, budget: int = CONTEXT_BUDGET_TOKENS) -> list:
-    """Drop the oldest turns (never the system prompt, never the newest
-    message) until the estimate fits `budget`."""
-    head = [m for m in msgs[:1] if (m.get("role") if isinstance(m, dict) else None) == "system"]
+def _role(m: Any) -> str | None:
+    return m.get("role") if isinstance(m, dict) else None
+
+
+def fit_messages(msgs: list, budget: int = CONTEXT_BUDGET_TOKENS,
+                 reserve: int = 0) -> list:
+    """Drop the oldest turns (never a leading system prompt, never the newest
+    message) until the estimate fits `budget - reserve`; once trimming starts,
+    trim to `TRIM_TO_FRACTION` of it so the next turns append instead of
+    editing again. A cut never starts on a tool result or an assistant
+    tool-call fragment — the server rejects an orphaned tool message.
+    `reserve` is what the request carries outside the messages (the system
+    instruction and the tool schemas)."""
+    head = [m for m in msgs[:1] if _role(m) == "system"]
     body = list(msgs[len(head):])
+    limit = budget - reserve
     total = sum(_estimate_tokens(m) for m in head + body)
-    while total > budget and len(body) > 1:
+    if total <= limit:
+        return head + body
+    target = int(limit * TRIM_TO_FRACTION)
+    while total > target and len(body) > 1:
         total -= _estimate_tokens(body.pop(0))
+    while len(body) > 1 and (_role(body[0]) == "tool" or (
+            _role(body[0]) == "assistant" and isinstance(body[0], dict) and body[0].get("tool_calls"))):
+        body.pop(0)
     return head + body
 
 
@@ -211,52 +247,93 @@ VLM_MAX_TOKENS = 90
 
 
 class SeamLLMService(OpenAILLMService):
-    """One LLM stage, two models. The pipeline has a single LLM processor
-    (step 4b); `IntentGate` calls `use_vlm(True)` right before it emits the
-    image `LLMRunFrame`, and `ProvenanceLogger` calls `use_vlm(False)` once the
-    answer ends and the image is dropped from context. `vlm_ok` is False when no
-    VL model is pulled — `use_vlm(True)` is then a no-op and the gate refuses
-    the vision turn honestly (never sends an image the text model 400s on)."""
+    """The one LLM stage of the voice loop, on one resident model.
 
-    def __init__(self, *, text_model: str, vlm_model: str, vlm_ok: bool, **kw) -> None:
+    Step 9 collapse (5c §3): `qwen3.5:4b` serves text, vision and the agent's
+    roles, so the two-model flip of step 6 increment 6 is gone. What a vision
+    turn keeps is its *shape*: `IntentGate` calls `use_vlm(True)` right before
+    it emits the image `LLMRunFrame`; the request then carries only
+    `VLM_SYSTEM_PROMPT` plus the images (no history, no tools, 90 tokens), and
+    `ProvenanceLogger` calls `use_vlm(False)` when the answer ends. The images
+    never enter a request built from the main conversation, so that
+    conversation stays append-only on the server's prefix cache.
+
+    `vlm_ok` is False when the model is not pulled or has no vision
+    capability — `use_vlm(True)` is then a no-op and the gate refuses the
+    vision turn honestly (never sends an image a text-only model 400s on)."""
+
+    def __init__(self, *, model: str, vlm_ok: bool, **kw) -> None:
         super().__init__(**kw)
-        self._text_model = text_model
-        self._vlm_model = vlm_model
+        self.model = model
         self.vlm_ok = bool(vlm_ok)
+        self._vision_turn = False
         # set by the pipeline: drop image messages / disarm the vision turn
         self.on_failure = None
         self._text_max_tokens = self._settings.max_completion_tokens
 
     def use_vlm(self, on: bool) -> None:
-        target = self._vlm_model if (on and self.vlm_ok) else self._text_model
-        if self._settings.model != target:
-            self._settings.model = target
-            self.set_full_model_name(target)
+        """Enter / leave a vision turn. Same model either way."""
+        self._vision_turn = bool(on and self.vlm_ok)
         self._settings.max_completion_tokens = (
-            VLM_MAX_TOKENS if target == self._vlm_model else self._text_max_tokens
+            VLM_MAX_TOKENS if self._vision_turn else self._text_max_tokens
         )
 
     def on_vlm(self) -> bool:
-        return self.vlm_ok and self._settings.model == self._vlm_model
+        return self._vision_turn
+
+    def build_chat_completion_params(self, params_from_context) -> dict:
+        """`developer` messages go out as `system`. Ollama's Qwen3.5 template
+        drops the developer role: measured 2026-10-17 on 0.40.5, a tool result
+        delivered as pipecat's async developer message was ignored 3/3 ("I'll
+        let you know when results are in"); the same payload as `system` was
+        read correctly 3/3. That also silently dropped the step-6c sleep note
+        and the greeting instruction. Done on the outgoing request only — the
+        stored context is never edited (an edit costs a re-prefill on Qwen3.5)."""
+        params = super().build_chat_completion_params(params_from_context)
+        msgs = params.get("messages")
+        if isinstance(msgs, list) and any(isinstance(m, dict) and m.get("role") == "developer" for m in msgs):
+            params["messages"] = [{**m, "role": "system"} if isinstance(m, dict) and m.get("role") == "developer"
+                                  else m for m in msgs]
+        dump = os.environ.get("WELLSY_DUMP_REQUESTS")
+        if dump:                       # measurement harness only: the exact request
+            import json as _json
+
+            with open(dump, "a") as f:
+                f.write(_json.dumps({k: v for k, v in params.items() if k != "stream_options"},
+                                    default=str) + "\n")
+        return params
+
+    def _reserve_tokens(self, context) -> int:
+        n = len(str(self._settings.system_instruction or "")) // 3
+        tools = getattr(context, "tools", None)
+        standard = getattr(tools, "standard_tools", None) or []
+        for t in standard:
+            n += len(str(getattr(t, "description", ""))) // 3 + 60
+        return n
 
     async def _process_context(self, context):
-        if self.on_vlm():
+        if self._vision_turn:
             from pipecat.processors.aggregators.llm_context import LLMContext
 
             msgs = list(context.messages)
             imgs: list = []
             while msgs and message_has_image(msgs[-1]):
                 imgs.insert(0, msgs.pop())
-            vlm_ctx = LLMContext(messages=[{"role": "system", "content": VLM_SYSTEM_PROMPT}, *imgs])
-            await super()._process_context(vlm_ctx)
+            vlm_ctx = LLMContext(messages=imgs)          # no history, no tools
+            saved = self._settings.system_instruction
+            self._settings.system_instruction = VLM_SYSTEM_PROMPT
+            try:
+                await super()._process_context(vlm_ctx)
+            finally:
+                self._settings.system_instruction = saved
             return
-        # A text-model request never carries an image (step 6c third live run:
-        # a vision turn cut short by the next utterance left its frames in
-        # context, the text model got them and 500'd "image input is not
-        # supported"). Images exist only for the VL turn that asked for them.
+        # A text request never carries an image (step 6c third live run: a
+        # vision turn cut short by the next utterance left its frames in
+        # context and the request 500'd). Images exist only for the vision
+        # turn that asked for them.
         if any(message_has_image(m) for m in context.messages):
             context.transform_messages(strip_image_messages)
-        fitted = fit_messages(list(context.messages))
+        fitted = fit_messages(list(context.messages), reserve=self._reserve_tokens(context))
         if len(fitted) != len(context.messages):
             context.set_messages(fitted)
         await super()._process_context(context)
@@ -265,9 +342,9 @@ class SeamLLMService(OpenAILLMService):
         """A failed completion is one bad request, not a dead service. pipecat
         classes a 400 as INVALID_REQUEST — permanent — and the worker then ends
         the whole session (step 6c live run; increment 6 hit the same class
-        from another trigger). Reclassify it, recover the context, switch back
-        to the text model, and say so out loud instead of going silent.
-        Auth failures stay permanent."""
+        from another trigger). Reclassify it, recover the context, leave the
+        vision turn, and say so out loud instead of going silent. Auth failures
+        stay permanent."""
         from pipecat.frames.frames import TTSSpeakFrame
         from pipecat.utils.errors import ErrorCategory, classify_http_exception
 
@@ -322,43 +399,61 @@ def _resolve_ollama_model(base_url: str, model: str) -> str | None:
     return None
 
 
-def build_llm():
-    """A `SeamLLMService` on the local server — one OpenAI-compatible LLM stage
-    that flips to a vision model for a single image turn and back.
+VOICE_TEMPERATURE = 0.7
+VOICE_TOP_P = 0.8
 
-    Default text model `qwen3:4b-instruct-2507-q4_K_M` (step 5b): non-reasoning
-    by construction — the `-instruct` build has no `<think>` path, so it
-    sidesteps the Ollama 0.33.2 problem where every hybrid/thinking `qwen3*`
-    build burns ~78 s/turn on a reasoning pass that no flag or `think:"low"`
-    level disables (measured, `.claude/rebuild/step5b-results.md` §2). 21 ms warm
-    TTFT — the honest pipeline number, same model the agent's fast+planner roles
-    use.
 
-    Vision turns (`describe_scene` / `query_object`) need a VL model; default
-    `qwen3-vl:2b-instruct-q4_K_M` (step 5b), co-resident with the text model.
+def _model_has_vision(base_url: str, model: str) -> bool:
+    """`/api/show` capabilities include "vision". Any failure -> False, and the
+    vision path then refuses honestly instead of sending an image."""
+    import json as _json
+    import urllib.request
+
+    root = base_url.rstrip("/")
+    if root.endswith("/v1"):
+        root = root[:-3].rstrip("/")
+    try:
+        req = urllib.request.Request(root + "/api/show", _json.dumps({"model": model}).encode(),
+                                     {"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=1.5) as r:
+            return "vision" in (_json.loads(r.read()).get("capabilities") or [])
+    except Exception:
+        return False
+
+
+def build_llm(*, system_instruction: str | None = None):
+    """A `SeamLLMService` on the local server: one OpenAI-compatible LLM stage,
+    one resident model for text, vision and tool routing.
+
+    Default `qwen3.5:4b-q4_K_M` (step 9, measured in 5c): natively multimodal,
+    so a vision turn is the same model with a different request. It thinks by
+    default, and on `/v1` only `reasoning_effort:"none"` turns that off — the
+    `think:false` / `chat_template_kwargs` this used to send are ignored there
+    (5c §1.3; re-verified on Ollama 0.40.5). Pinned GGUF tag, never bare.
+
     The name is resolved against what is actually pulled (a quant suffix is
-    fine); if nothing matches the vision path says so plainly rather than
-    crashing. Override with `WELLSY_LLM_MODEL` / `WELLSY_VLM_MODEL` /
+    fine); if it is missing or has no vision capability, vision turns say so
+    plainly rather than crash. Override with `WELLSY_LLM_MODEL` /
     `WELLSY_LLM_BASE_URL`."""
+    from engine.agent.models import DEFAULT_MODEL, REQUEST_EXTRA_BODY
 
     base_url = os.environ.get("WELLSY_LLM_BASE_URL", "http://localhost:11434/v1")
-    model = os.environ.get("WELLSY_LLM_MODEL", "qwen3:4b-instruct-2507-q4_K_M")
-    vlm_req = os.environ.get("WELLSY_VLM_MODEL", "qwen3-vl:2b-instruct-q4_K_M")
-    vlm_resolved = _resolve_ollama_model(base_url, vlm_req)
-    vlm_model = vlm_resolved or vlm_req          # a name to carry even when absent
-    vlm_ok = vlm_resolved is not None
-    # `keep_alive: -1` pins the model resident so the ~10-16 s cold reload does
-    # not tax every idle-gap turn. `think` / `enable_thinking` are still sent so
-    # a qwen3 override behaves as well as that build allows (it currently
-    # ignores them — step 4b finding).
-    extra_body = {
-        "keep_alive": -1,
-        "think": False,
-        "chat_template_kwargs": {"enable_thinking": False},
-    }
+    requested = os.environ.get("WELLSY_LLM_MODEL", DEFAULT_MODEL)
+    model = _resolve_ollama_model(base_url, requested) or requested
+    vlm_ok = _model_has_vision(base_url, model)
+    # `keep_alive: -1` pins the model resident so the cold reload does not tax
+    # every idle-gap turn; `reasoning_effort: "none"` is the off-switch.
     return SeamLLMService(
         api_key=os.environ.get("WELLSY_LLM_API_KEY", "ollama"),
         base_url=base_url,
-        settings=SeamLLMService.Settings(model=model, extra={"extra_body": extra_body}),
-        text_model=model, vlm_model=vlm_model, vlm_ok=vlm_ok,
+        settings=SeamLLMService.Settings(
+            model=model, system_instruction=system_instruction,
+            # Qwen3.5 card, "Instruct (or non-thinking) mode for general tasks":
+            # temperature 0.7, top_p 0.8, top_k 20, presence_penalty 1.5
+            # (verified 2026-10-17). Ollama's defaults are the THINKING-mode
+            # row (1.0 / 0.95); top_k and presence_penalty already match.
+            temperature=VOICE_TEMPERATURE, top_p=VOICE_TOP_P,
+            extra={"extra_body": dict(REQUEST_EXTRA_BODY)},
+        ),
+        model=model, vlm_ok=vlm_ok,
     )

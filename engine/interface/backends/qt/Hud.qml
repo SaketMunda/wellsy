@@ -50,6 +50,17 @@ Item {
                 width: parent.width
                 sourceComponent: Column {
                     spacing: 8
+                    // the read-back, in words — what will actually happen
+                    Text { color: "#eaf0fb"; font.pixelSize: 16; wrapMode: Text.Wrap
+                           width: panel.width - 44
+                           visible: !!hud.model.action
+                           text: hud.model.action || "" }
+                    Repeater {
+                        model: hud.model.warnings || []
+                        Text { color: "#ff9a6a"; font.pixelSize: 14; wrapMode: Text.Wrap
+                               width: panel.width - 44
+                               text: "Careful: " + modelData }
+                    }
                     Text { color: "#cdd7ea"; font.pixelSize: 14
                            text: "tool:  " + (hud.model.tool || "") }
                     Text { color: "#cdd7ea"; font.pixelSize: 13
@@ -94,6 +105,22 @@ Item {
                                     : modelData.decision === "confirm" ? "#ffcf7a" : "#8fd6a6"
                                text: "[" + (modelData.decision || "allow") + "]" }
                     }
+                }
+            }
+
+            // ---- provenance: which tools, which read-back, which audit line ----
+            Loader {
+                active: hud.model && hud.model.kind === "provenance"
+                width: parent.width
+                sourceComponent: Column {
+                    spacing: 6
+                    Repeater {
+                        model: hud.model.lines || []
+                        Text { color: "#cdd7ea"; font.pixelSize: 12; wrapMode: Text.Wrap
+                               width: panel.width - 44; text: modelData }
+                    }
+                    Text { color: "#7f8fa8"; font.pixelSize: 11
+                           text: "plan " + (hud.model.planId || "") + " · wellsy audit --plan " + (hud.model.planId || "") }
                 }
             }
 

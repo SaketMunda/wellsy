@@ -159,11 +159,15 @@ def build_echo_text_tap(window: SelfEchoWindow):
 
 
 def build_self_echo_filter(window: SelfEchoWindow, *, threshold: float = 0.8,
-                           min_words: int = 2, on_suppress=None):
+                           min_words: int = 2, on_suppress=None, exempt=None):
     """FrameProcessor placed just after STT and before WakeGate. Drops any
     `TranscriptionFrame` that fuzzy-matches something in `window` — the bot
     hearing itself — and logs the suppression with its score (INVARIANTS #13).
-    `on_suppress(text, score, matched)` is an optional test/metrics hook."""
+    `on_suppress(text, score, matched)` is an optional test/metrics hook.
+    `exempt()` -> True turns the check off for the next transcript (step 9:
+    while an approval is pending — "yes, go ahead" after "Shall I go ahead?"
+    is the user's answer, not an echo; a real echo there parses as unclear,
+    which refuses)."""
 
     from pipecat.frames.frames import Frame, TranscriptionFrame
     from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
@@ -182,6 +186,12 @@ def build_self_echo_filter(window: SelfEchoWindow, *, threshold: float = 0.8,
                 # user's command being ignored.
                 if spoken and parse_intent(frame.text).type in _NEVER_ECHO:
                     spoken = []
+                if spoken and exempt is not None:
+                    try:
+                        if exempt():
+                            spoken = []
+                    except Exception:
+                        pass
                 if spoken:
                     echo, score, matched = is_self_echo(
                         frame.text, spoken, threshold=threshold, min_words=min_words

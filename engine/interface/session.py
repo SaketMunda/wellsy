@@ -23,11 +23,15 @@ from engine.interface.state import derive_state
 
 
 class ApprovalRelay:
-    """Bridges a worker-thread approver call to a main-thread QML click."""
+    """Bridges a worker-thread approver call to a main-thread QML click.
+    `listener(answer)` (step 9) also receives every click — the voice loop's
+    approval broker listens here, so a click and a spoken answer race and the
+    first one wins."""
 
     def __init__(self) -> None:
         self._ev = threading.Event()
         self._answer: dict | None = None
+        self.listener: Callable[[dict], None] | None = None
 
     def reset(self) -> None:
         self._ev.clear()
@@ -36,6 +40,11 @@ class ApprovalRelay:
     def set(self, approved: bool) -> None:          # main thread (QML -> backend)
         self._answer = {"approved": bool(approved), "source": "user:orb"}
         self._ev.set()
+        if self.listener is not None:
+            try:
+                self.listener(self._answer)
+            except Exception:
+                pass
 
     def wait(self, timeout: float | None = None) -> dict:   # worker thread
         self._ev.wait(timeout)
@@ -43,6 +52,7 @@ class ApprovalRelay:
 
 
 def approval_view(request: dict) -> dict:
+    pv = request.get("preview") or {}
     return {
         "kind": "approval",
         "title": "Approve this action?",
@@ -51,6 +61,9 @@ def approval_view(request: dict) -> dict:
         "risk": request.get("risk"),
         "reversible": (request.get("risk", 3) or 3) < 3,
         "reason": request.get("reason") or request.get("why") or "",
+        # step 9: the read-back, in words, and any date disagreement
+        "action": pv.get("action", ""),
+        "warnings": pv.get("dateWarnings", []),
     }
 
 

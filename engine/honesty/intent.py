@@ -108,6 +108,16 @@ def _strip_determiner(phrase: str) -> str:
     return _DETERMINER.sub("", phrase.strip())
 
 
+_COURTESY = {"wellsy", "hey", "ok", "okay", "so", "very", "much", "please", "a", "lot", "for",
+             "that", "this", "everything", "the", "now", "again", "oh", "great", "cool", "nice",
+             "and", "you", "me", "all", "just", "really", "well", "hi", "hello", "um", "uh"}
+
+
+def _only_filler(text: str, pattern: re.Pattern) -> bool:
+    rest = _INNER_PUNCT.sub(" ", pattern.sub(" ", text))
+    return len([w for w in rest.split() if w not in _COURTESY]) <= 1
+
+
 def parse_intent(transcript: str) -> Intent:
     text = _normalize(transcript)
     if not text:
@@ -119,11 +129,15 @@ def parse_intent(transcript: str) -> Intent:
         return Intent("wake")
     if _SLEEP.search(text):
         return Intent("sleep")
-    if _HELP.search(text):
+    # Canned filler only when the filler IS the utterance. Step 9: with tools
+    # behind the model, "Thanks. And what's on my calendar today?" answered
+    # "Anytime." and dropped the request; "help me book a dentist" would have
+    # recited the help text. stop/wake/sleep above are untouched (INVARIANTS #3).
+    if _HELP.search(text) and _only_filler(text, _HELP):
         return Intent("help")
-    if _PRESENCE.search(text):
+    if _PRESENCE.search(text) and _only_filler(text, _PRESENCE):
         return Intent("presence")
-    if _THANKS.search(text):
+    if _THANKS.search(text) and _only_filler(text, _THANKS):
         return Intent("thanks")
     flat = _WHITESPACE.sub(" ", _INNER_PUNCT.sub(" ", text)).strip()
     m = _MOVE_ORB.search(flat)
