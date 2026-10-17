@@ -399,6 +399,7 @@ in the weights directory.
 | Planner delivers, `qwen3:4b-instruct-2507` | 3–4 s | **3.91 / 3.97 s** (ack at ~615 ms) | **PASS** (30 ms margin at p95) |
 | ↳ same, with Qwen3.5 (`think` off) | | **3.47 / 3.47 s** | would PASS, 0.5 s margin |
 | Wake → first word, VLM, `qwen3-vl:2b`, **1024 px real dense UI, new image, resident** | < 2500 / < 3500 ms | ASR 267 + **2120** + TTS TTFA 345 ≈ **2.73 s p50**; ASR 276 + **2197** + TTS 406 ≈ **2.88 s p95** (composed; one display; screen-capture time not included) | **MISS p50** by ~230 ms · PASS p95 |
+| ↳ **as `wellsy run` ships: capture + both displays** (follow-up §12.2) | < 2500 / < 3500 ms | ASR 267 + capture **261** + two-image VLM **3573** + TTS 345 ≈ **4.45 s p50**; 276 + 268 + 3625 + 406 ≈ **4.58 s p95** | **MISS both.** This is the honest row |
 | ↳ same, with Qwen3.5 | | 267 + **2018** + 345 ≈ **2.63 s p50** | would MISS p50 by ~130 ms |
 | ↳ Qwen3.5 at 768 px | | 267 + 1371 + 345 ≈ 1.98 s | PASS, at **3–6 / 18** legibility. Owner's trade, not taken |
 | VLM, cold (model not resident) | | +1.1–1.6 s load + first new image ≈ 3.3 s | MISS → keep resident (unchanged) |
@@ -552,7 +553,7 @@ context engine's assembly and redaction belong. `langchain.agents.create_agent`
 
 ---
 
-## 7. Evidence for perception scheduling (owner: none yet; README "Open debt")
+## 7. Evidence for perception scheduling (fixed in the follow-up, §12.1)
 
 The gate was **not retuned** (`MOTION_THRESHOLD = 5.0`, 1.0 s hold, untouched).
 Evidence produced by 5c:
@@ -619,7 +620,6 @@ the fact that the decide seam needs image state.
 
 - Linux/CUDA and Jetson numbers: unexecuted, as in 5b.
 - §1 acoustic rows (device-timestamped first word, barge-in, `stop`): live-only, owed.
-- Screen-capture latency is not in the composed VLM row (A8 debt).
 - Long-context **plan quality** at n ≥ 20 per depth: step 7.
 - Gemma 4's `ollama ps` 3.2 ↔ 9.0 GB swing is unexplained; immaterial since it
   is rejected.
@@ -651,3 +651,89 @@ Acceptance:
 - [ ] PR: branch pushed; **PR not opened** from this session (`gh` is not
       authenticated). Open it at
       `https://github.com/SaketMunda/wellsy/pull/new/rebuild/step5c-model-rebaseline`.
+
+---
+
+## 12. Follow-up — 2026-10-17 (branch `rebuild/step5c-followup`)
+
+The owner asked for "the fix and the pending items" after 5c merged (PR #17).
+The fix is the T1 heartbeat. The one pending 5c item measurable on this machine
+was the screen-capture time missing from the VLM row. The others are not
+doable here: Linux/CUDA and Jetson need the hardware, the acoustic rows need a
+live voice session (6c's debt), and long-context plan quality belongs to step 7.
+Server during the follow-up: Ollama **0.40.5** (the owner upgraded; the
+two-display VLM numbers below were taken on it).
+
+### 12.1 The T1 heartbeat (perception scheduling)
+
+`engine/cli.py`: **T1 now runs at least every `T1_HEARTBEAT_S = 1.0` s even
+when T0 sees no motion.** T0 still runs on every frame (INVARIANTS #5) and
+still drives the 8 Hz motion bursts; the threshold (5.0/255) and the 1.0 s hold
+are untouched. The 8 Hz cap applies to heartbeat runs too. `wellsy --heartbeat
+0` restores motion-only. Every JSONL frame now carries `"t1"`: why T1 ran
+(`bootstrap` / `motion` / `hold` / `heartbeat` / `gate-open`), or `null` when
+tracks were re-emitted. `t1_reason()` is the pure decision; tests in
+`tests/test_perception_gate_open.py` (+3).
+
+**Effect: the recorded clip through the normal loop (not `--gate-open`),
+`yoloe-26s`, scored against the by-eye ground truth of §4.6** (glasses 11–49 s,
+phone 29–47 s; a "fresh detection" means a T1 run in that second produced the
+label; `runs/step5c/heartbeat-*.jsonl`, scored by `runs/step5c/hb_eval.py`):
+
+| Loop | T1 runs (57 s) | Glasses: seconds with fresh detection | first seen after onset | Phone: seconds with fresh detection | first seen |
+|---|---|---|---|---|---|
+| motion-only (`--heartbeat 0`, as shipped until now) | 32 (1 bootstrap, 16 motion, 15 hold) | **2 / 39** | 10.5 s | **0 / 19** | **never** |
+| **heartbeat 1 s (new default)** | 87 (+55 heartbeat) | **38 / 39** | **0.3 s** | **18 / 19** | **1.55 s** |
+
+**Cost, measured live** (`/usr/bin/time -l wellsy --seconds 45`, real camera,
+still scene, alternating 0/1/0/1). User+sys CPU including the capture process
+was **26.4 / 31.1 s motion-only vs 28.0 / 28.0 s with the heartbeat**, which
+is within run-to-run noise (sys time is dominated by camera capture and varied
+18–23 s by itself). User time is +0.35 s per 45 s (< 1 % of one core). GPU:
+~44 extra T1 runs per 45 s at **35.1 / 40.9 ms** each (heartbeat T1 p50/p95 on
+the clip), about a 3 % duty cycle. Heartbeat runs pay the idle-gap price of
+§4.3 by construction, and they still miss the < 20 ms p50 row for the same
+reason as every other live T1 run.
+
+Also observed: in both 45 s live runs with the owner still at the desk, **T0
+never opened once after the bootstrap frame.** Motion-only ran T1 exactly once
+in 45 s. The heartbeat is what WELLSY's room view now runs on whenever the
+room is quiet.
+
+What this makes possible (ledger, `.claude/releases.md`): put on glasses or
+pick up a phone in a normal `wellsy` run, and the detector reports it within
+about 1–2 s. Before this change, it reported the glasses 10 s late and the
+phone never. That is the "names something the old build couldn't" beat R1
+lists from 5c; it was not true live until now.
+
+### 12.2 Screen-capture latency and the honest VLM row
+
+`spec/results/screen-capture-latency-5c.json`. `vision.capture_for_intent(
+"what's on my screen")` (ScreenCaptureKit, every display, degenerate-capture
+verification, downscale to 1024, JPEG q85): **cold 818 ms**, warm **260.5 /
+267.7 ms** (n=20); `capture_screen()` alone 248.6 / 257.6 ms. Two displays,
+1024×576 each, 72 + 83 KB.
+
+`wellsy run` sends **both** displays (6c's multi-monitor fix), so 5c's
+one-image VLM figure understated the real turn.
+`spec/results/vlm-two-display-5c.json` (two new 1024 px images per turn, model
+resident, n=20):
+
+| Model | Prompt tokens | First word p50 / p95 |
+|---|---|---|
+| `qwen3-vl:2b-instruct` (shipped) | 2090 | **3573 / 3625 ms** |
+| `qwen3.5:4b` (`think:false`) | 1182 | **2975 / 3002 ms** |
+
+Composed screen question as shipped: **≈ 4.45 s p50 / 4.58 s p95**, which
+misses both §1 targets (< 2.5 / < 3.5 s) and matches 6c's live 4–5.4 s. With
+Qwen3.5 it is ≈ 3.85 s. **Not changed here:** the VLM miss has been knowingly
+accepted since 4b, and the remaining levers each change what WELLSY looks at.
+They are the owner's call: send only the display holding the focused window
+(about −1.5 s with today's model, judging by the one-vs-two-image figures),
+Qwen3.5 (−0.6 s, step 9 brings it anyway), or 768 px (fast but nearly blind,
+§3.2).
+
+### 12.3 Suite
+
+`.venv/bin/python -m pytest -q` → **224 passed** (221 + 3 heartbeat tests).
+

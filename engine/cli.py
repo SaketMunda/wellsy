@@ -14,6 +14,7 @@ Usage:
     wellsy --synthetic           # no camera — generated moving frame
     wellsy --no-detect           # T0 only — isolates motion-gate cost
     wellsy --gate-open           # T1 every 8 Hz tick regardless of T0 (T0 still runs + is timed)
+    wellsy --heartbeat 0         # motion-only T1 (pre-5c); default runs T1 at least every 1 s
     wellsy --detector yoloe-26s-seg.pt --clip runs/x.mp4   # harness: other weights, replayed clip
     wellsy doctor                # check camera / mic / screen permission for this process tree
     wellsy screen                # one-shot screen capture + degenerate-capture verification
@@ -58,20 +59,44 @@ DETECT_INTERVAL_S = 1.0 / DETECT_HZ
 # instant T0 gates the frame (day8-prompt.md's explicit correctness trap).
 MOTION_HOLD_SECONDS = 1.0
 
+# T1 heartbeat: T1 runs at least this often even when T0 sees no motion.
+# Step 6c/5c measured the motion gate passing 1.8 % / 3.6 % of frames: putting
+# on glasses peaked at 4.1/255 and raising a phone at 3.8/255 against a 5.0
+# threshold, so a still person's change of state was never detected. T0 still
+# runs on every frame (INVARIANTS #5) and still drives the fast 8 Hz bursts;
+# the heartbeat only bounds how stale a quiet room's tracks can get.
+# `wellsy --heartbeat 0` restores the pre-5c-followup behaviour.
+T1_HEARTBEAT_S = 1.0
+
 PROMPTS_PATH = Path(__file__).resolve().parent / "config" / "prompts.txt"
 
 
-def t1_should_run(gated: bool, held_open: bool, bootstrapped: bool,
-                  gate_open: bool = False) -> bool:
-    """T1 runs on motion, inside the hold window, or once to bootstrap.
+def t1_reason(gated: bool, held_open: bool, bootstrapped: bool,
+              gate_open: bool = False, heartbeat_due: bool = False) -> str | None:
+    """Why T1 should run on this frame, or `None` if it should not.
 
-    `gate_open` (step 5c verification harness, `wellsy --gate-open`) ignores
-    the T0 decision. T0 itself still runs and is still timed and emitted every
-    frame (INVARIANTS #5) — only its verdict is not consulted, so a detector
-    comparison is not a gate measurement twice. The 8 Hz cadence is separate
-    and unchanged.
+    T1 runs on motion, inside the hold window, once to bootstrap, or when the
+    heartbeat is due (no T1 run for `T1_HEARTBEAT_S`). `gate_open` (step 5c
+    verification harness, `wellsy --gate-open`) ignores the T0 decision. T0
+    itself still runs and is still timed and emitted every frame (INVARIANTS
+    #5). The 8 Hz `DETECT_INTERVAL_S` cap is applied separately by the caller.
     """
-    return gate_open or (not gated) or held_open or not bootstrapped
+    if not bootstrapped:
+        return "bootstrap"
+    if gate_open:
+        return "gate-open"
+    if not gated:
+        return "motion"
+    if held_open:
+        return "hold"
+    if heartbeat_due:
+        return "heartbeat"
+    return None
+
+
+def t1_should_run(gated: bool, held_open: bool, bootstrapped: bool,
+                  gate_open: bool = False, heartbeat_due: bool = False) -> bool:
+    return t1_reason(gated, held_open, bootstrapped, gate_open, heartbeat_due) is not None
 
 
 def emit(
@@ -85,6 +110,7 @@ def emit(
     inference_ms: float | None,
     stats: deque[tuple[float, bool]],
     quiet: bool = False,
+    t1: str | None = None,
 ) -> None:
     if not quiet:
         record = {
@@ -96,6 +122,7 @@ def emit(
             "detections": detections,
             "tracks": tracks,
             "inferenceMs": round(inference_ms, 2) if inference_ms is not None else None,
+            "t1": t1,                  # why T1 ran this frame (None = re-emitted tracks)
         }
         print(json.dumps(record), flush=True)
 
@@ -120,6 +147,7 @@ def run_camera(
     synthetic_intermittent: bool = False,
     quiet: bool = True,
     gate_open: bool = False,
+    heartbeat_s: float = T1_HEARTBEAT_S,
     detector_name: str | None = None,
     clip: str | None = None,
     record: str | None = None,
@@ -201,6 +229,7 @@ def run_camera(
                 last_motion_time = now
 
             inference_ms = None
+            t1_ran = None
             if detect and not preemption.active:
                 if prompts_mtime is not None and PROMPTS_PATH.exists():
                     mtime = PROMPTS_PATH.stat().st_mtime
@@ -214,10 +243,12 @@ def run_camera(
                     last_motion_time is not None
                     and (now - last_motion_time) < MOTION_HOLD_SECONDS
                 )
-                t1_active = t1_should_run(gated, held_open, bootstrapped, gate_open)
+                heartbeat_due = heartbeat_s > 0 and (now - last_detect_time) >= heartbeat_s
+                reason = t1_reason(gated, held_open, bootstrapped, gate_open, heartbeat_due)
                 due = (now - last_detect_time) >= DETECT_INTERVAL_S
 
-                if t1_active and due:
+                if reason is not None and due:
+                    t1_ran = reason
                     bootstrapped = True
                     ti = time.monotonic()
                     last_detections = detector.predict(model, frame)
@@ -239,6 +270,7 @@ def run_camera(
                 inference_ms,
                 stats,
                 quiet=quiet,
+                t1=t1_ran,
             )
     except KeyboardInterrupt:
         pass
@@ -398,6 +430,13 @@ def main() -> None:
         action="store_true",
         help="verification harness: run T1 on every 8 Hz tick regardless of the T0 decision (T0 still runs and is timed)",
     )
+    parser.add_argument(
+        "--heartbeat",
+        type=float,
+        default=T1_HEARTBEAT_S,
+        metavar="S",
+        help=f"run T1 at least every S seconds even with no motion (default {T1_HEARTBEAT_S}; 0 = motion-only, the pre-5c behaviour)",
+    )
     parser.add_argument("--detector", default=None, help="verification harness: detector weights (default: detector.MODEL_NAME)")
     parser.add_argument("--clip", default=None, metavar="PATH", help="verification harness: replay a recorded clip instead of the camera")
     parser.add_argument("--record", default=None, metavar="PATH", help="also write every captured frame to PATH (mp4)")
@@ -410,6 +449,7 @@ def main() -> None:
         synthetic_intermittent=args.synthetic_intermittent,
         quiet=not args.debug,
         gate_open=args.gate_open,
+        heartbeat_s=args.heartbeat,
         detector_name=args.detector,
         # absolute: detector.configure_weights_cache() chdirs into the weights dir
         clip=str(Path(args.clip).resolve()) if args.clip else None,

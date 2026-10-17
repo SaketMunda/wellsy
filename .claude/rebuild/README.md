@@ -138,18 +138,18 @@ context engine built for 4096 tokens is different software from one built for
   measured at the output device. Step 6c did not take it (owed). Log-clock
   indication only: warm turn commit -> bot speaking 0.6-0.8 s.
 - **Orb recorded in every state** (+ fullscreen, Spaces) - owed from step 6c.
-- **Perception scheduling: T1 runs on 1.8 % of frames.** Step 6c's baseline:
-  the T0 motion gate passed 48 of 2651 frames in 90 s; glasses on / a phone in
-  hand do not open it, so the detector mostly never sees them. Likely fix: run
-  T1 at least every N seconds regardless of motion (T0 itself stays ungated,
-  INVARIANTS #5). No step owns this yet; 5c only adds a gate-bypass flag for
-  its comparison and must not retune the gate. **5c evidence**
-  (`step5c-results.md` §7): on a recorded take T0 opened on 3.6 % of frames,
-  58 of 61 while leaving; glasses peaked at 4.1/255 and phone at 3.8/255
-  against the 5.0 threshold. With T1 forced on, both YOLOE-11 and YOLOE-26
-  see glasses and a held phone on ~95-100 % of ticks, so D30's misses were
-  the gate. T1 at 8 Hz costs ~31-34 ms live because the GPU idles between
-  calls (back-to-back ~16 ms, with a 117 ms gap 40 ms).
+- ~~**Perception scheduling: T1 runs on 1.8 % of frames.**~~ -> fixed in the
+  5c follow-up (2026-10-17, `step5c-results.md` §12.1): T1 now runs at least
+  every 1 s even with no motion (`T1_HEARTBEAT_S`; T0 untouched, INVARIANTS
+  #5; `--heartbeat 0` restores motion-only). On the recorded clip through the
+  normal loop: glasses freshly detected in 38/39 s (was 2/39), phone 18/19
+  (was never); CPU cost within noise. Still open: live T1 is ~31-35 ms against
+  a < 20 ms p50 budget because the GPU idles between calls at 8 Hz
+  (back-to-back ~16 ms). That is a keep-warm or cadence trade, unowned.
+- **Screen questions take ~4.5 s** (5c follow-up §12.2): screen capture
+  261 ms plus both displays to the VLM (3.6 s first word). This misses both
+  §1 VLM targets; the levers (focused display only, Qwen3.5, 768 px) are the
+  owner's call.
 - **Spoken barge-in** - *"Wellsy, stop"* mid-answer does not work; the ESC key
   does. AEC is a seam only, no ERLE measured (step 4c debt).
 - **HUD from the agent runtime** - only the `approval` view is wired; deny has
