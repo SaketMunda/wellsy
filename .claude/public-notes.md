@@ -1,5 +1,12 @@
 # Public Notes — build-in-public content
 
+> **SUPERSEDED 2026-10-17 for cadence purposes.** This file's per-day structure
+> belongs to the original 7-day series, where every day was a release. The
+> current mechanism — weekly 1 long + 1 short, gated on capability releases
+> rather than step completion — is `.claude/releases.md`. Keep this file as the
+> archive of Days 1-11 and as a model for the "what viewers should notice"
+> framing, which is still the right instinct.
+
 ## The series premise (one line)
 > 7 days. Building an AI that sees the world through a camera and describes it
 > in real time. No backend, no API keys — it runs in your browser.

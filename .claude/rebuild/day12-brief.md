@@ -1,5 +1,16 @@
 # Day 12 — the rebuild. Brief for scripting.
 
+> **RETIRED, NOT REWRITTEN — 2026-10-17.** The owner rejected this brief: it was
+> structured around a `screencapture` permission bug, and the verdict was *"that's
+> not mind blowing or surprise them. This isn't worthy enough to share."* That
+> judgement was correct, and it is now the mechanism: a bug fix is never a
+> release (`.claude/releases.md`, §"Never a release").
+>
+> It was never rewritten and will not be. Its premise — one episode per step
+> arc — is the thing that got retired. Steps 1-6 plus 4b/4c/5b/6b/6c/5c roll up
+> into release **R1**, which opens when step 9 lands. The material below stays
+> only as a record of what the wrong shape looks like.
+
 Everything from the rebuild decision through step 5 is Day 12: steps 1, 2, 3, 4,
 4b, 5. Six sessions, all merged to `master`. 62 test functions / 121 tests green.
 
