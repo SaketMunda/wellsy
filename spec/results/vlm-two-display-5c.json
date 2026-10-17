@@ -1,0 +1,21 @@
+{
+ "method": "two displays at 1024 px through vision._to_jpeg (16px block perturbed per turn, new images every turn), model resident, 2 warmup turns discarded, n=20, request->first content token",
+ "results": {
+  "qwen3-vl:2b-instruct-q4_K_M": {
+   "firstWordP50P95Ms": [
+    3573.0,
+    3624.7
+   ],
+   "promptTokens": 2090,
+   "n": 20
+  },
+  "qwen3.5:4b-q4_K_M": {
+   "firstWordP50P95Ms": [
+    2974.9,
+    3001.5
+   ],
+   "promptTokens": 1182,
+   "n": 20
+  }
+ }
+}

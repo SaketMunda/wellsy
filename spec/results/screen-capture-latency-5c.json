@@ -1,0 +1,22 @@
+{
+ "displays": 2,
+ "sentSize": [
+  1024,
+  576
+ ],
+ "jpegKB": [
+  72,
+  83
+ ],
+ "coldCaptureForIntentMs": 818.0,
+ "captureForIntentP50P95Ms": [
+  260.5,
+  267.7
+ ],
+ "captureScreenOnlyP50P95Ms": [
+  248.6,
+  257.6
+ ],
+ "n": 20,
+ "method": "engine.voice.vision.capture_for_intent('what's on my screen') wall time: ScreenCaptureKit capture of every display + degenerate-capture verification + downscale to 1024 + JPEG q85; cold = first call in a fresh process; n=20 warm, p50/p95 nearest-rank"
+}
