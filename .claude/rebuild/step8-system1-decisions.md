@@ -54,12 +54,47 @@ writing any integration:
 Deliverable 2 on the local backend, ship it, and leave the Jev adapter as a
 stub. The step's value does not depend on the vendor.
 
-## Deliverable 1 — the seam, two backends
+## The field moved — a second vendor, and images (added 2026-10-14)
+
+**OpenAI Decisions API**, public beta **2026-10-06**, on `gpt-6-luna`. Three
+output types that map onto the contract above almost exactly: **Predicates**
+(probability a statement is true), **Choices** (select from options with
+confidence), **Scores** (evaluate against a numeric range). $0.10 per 1M input
+tokens, **output tokens free**, ~150 ms in DevDay coverage. **It accepts image
+input.**
+
+Two consequences for this step:
+
+1. **The seam must accept image crops, not just text state.** A typed question
+   over a cropped region is the highest-value use available to this project —
+   see step 5c's three-arm detector comparison. Design the interface for
+   `state: text | structured | image` from the start; retrofitting it is worse.
+2. **Two hosted candidates now exist, plus local.** Bench them against each
+   other in Deliverable 0, not just "can we reach Jev."
+
+**Neither vendor has published calibration data.** OpenAI has not published
+accuracy or calibration figures for the endpoint, and secondary coverage
+disagrees on whether the returned scores are calibrated probabilities at all.
+Jev's calibration claim is also vendor-reported. Deliverable 4 applies to both,
+with no discount for the logo.
+
+**One pattern to steal, and one not to.** The public egg-sorting pipeline
+(detector + tracker → per-crop decision → *three* agreeing looks before acting)
+is sound where the three looks are **independent** — the egg rotates on the
+belt. Three consecutive frames of a static scene are three *correlated* samples:
+consensus over them inflates confidence without adding information. If temporal
+consensus is adopted here, independence must be established by construction
+(changed angle, distance or scene), and the honesty test must fail if correlated
+samples are counted as independent evidence.
+
+## Deliverable 1 — the seam, three backends
 
 `engine/decide/`: the typed interface above, following `engine/inference/`'s
 existing portable-backend pattern. Do not invent a second pattern.
 
-- **`jev` backend** — hosted, primary once Deliverable 0 confirms a route.
+- **`jev` backend** — hosted (TypeSafe).
+- **`openai_decisions` backend** — hosted (`gpt-6-luna`), **the one that takes
+  images**. Follow `engine/inference/backends/openai_http.py`'s conventions.
 - **`local` backend** — GLiClass (Knowledgator, arXiv 2508.07662: bidirectional
   encoder, label-conditioned, ~10× faster than cross-encoders, CPU-capable,
   ~187M–399M; note the published table has the *smaller* model scoring higher
@@ -179,7 +214,11 @@ number. Same discipline as the orb's amplitude test.
 
 - [ ] Deliverable 0 answered: a real route to Jev or a recorded "no access,
       proceeding local," with measured latency either way.
-- [ ] `engine/decide/` seam, three backends, banned-import test green.
+- [ ] `engine/decide/` seam accepting text **and image** state; `jev`,
+      `openai_decisions`, `local` and `deterministic` backends; banned-import
+      test green.
+- [ ] Both hosted backends benched against each other and against local:
+      latency, cost per decision, and calibration.
 - [ ] Local resident size and both backends' p50/p95 measured.
 - [ ] Egress JSONL capturing every outbound payload; `wellsy egress --since`
       works.

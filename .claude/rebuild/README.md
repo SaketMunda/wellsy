@@ -17,6 +17,11 @@ deliberate, not sloppy.
    it claims from `spec/phase1-acceptance.md` pass.
 4. Come back to the master session with the results before starting the next
    step. Steps have ordering dependencies.
+5. **A step session produces no content.** No script, no brief, no "findings
+   episode." Its content obligation is **one paragraph appended to the ledger in
+   `.claude/releases.md`** — what became possible, and where the raw capture
+   lives. Posting is gated on capability releases, not on step completion; the
+   gate is defined in that file. Capture always, post on the gate.
 
 ## Steps
 

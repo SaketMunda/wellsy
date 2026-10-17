@@ -159,6 +159,40 @@ evidence 5c produces for it, and change nothing.
 If latency regresses past budget, the finding is "better labels cost X ms" —
 report it and let the owner choose. Do not quietly accept a miss.
 
+### The alternative that may beat the upgrade (added 2026-10-14)
+
+YOLOE-26 is a better draw from the **same closed-vocabulary mechanism** D30
+identified as the structural limit. A two-stage pattern removes that dependency
+instead, and it should be measured against the upgrade rather than assumed
+worse:
+
+> **detector localizes → crop → typed question → probability**
+
+The detector never has to produce the right *label*; it only has to produce a
+box. The question is then asked of the crop — *"is this person wearing
+spectacles?"* as a Predicate. This is the public egg-sorting pipeline (RF-DETR +
+tracking → per-crop decision call), and D30's named misses are exactly the case
+it addresses.
+
+Measure three arms on the **same** scene and the same D30 misses, with the step
+6c perception-baseline footage as the before:
+
+1. `yoloe-11s-seg.pt` — the incumbent (6c captured this; do not re-tune it).
+2. `yoloe-26s-seg.pt` — the upgrade.
+3. `yoloe-11s` or `-26s` for localization only, **plus a typed decision call on
+   the crop** (OpenAI Decisions API on `gpt-6-luna`, public beta 2026-10-06,
+   image input, $0.10/1M input with output free; or Jev; or a local VLM asked a
+   closed question).
+
+Report per arm: does it get spectacles and the held phone right, at what added
+latency, and at what cost per call. **Arm 3 does not go in the 8 Hz fast path** —
+a ~150 ms network call against a <20/35 ms budget is 6–10× over, and continuous
+image crops at 8 Hz are a token cost nobody has sized. Scope it as an on-demand
+capability and say which path it belongs in.
+
+If arm 3 wins on the misses, that is a **step 8** architecture change, not a
+model swap — report it and let step 8 own it.
+
 ## Deliverable 5 — re-derive §1 and §7, third time
 
 Supersede `step5b-results.md` §2–§5:

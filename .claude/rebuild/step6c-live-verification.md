@@ -179,8 +179,12 @@ difference between a comparison and a claim.
 
 ## A note on the footage
 
-The owner records this project publicly. This session produces the first
-recording of the system being *used* rather than described, so keep the capture
-clean: no editor windows, no terminal spew where the orb should be, and let the
-failures stay in the take. The gap between 190 green tests and the first live
-run is the most honest thing this project has to show.
+This session produces the first recording of the system being *used* rather than
+described, so keep the capture clean: no editor windows, no terminal spew where
+the orb should be, and **let the failures stay in the take.**
+
+**You are banking raw material, not cutting an episode.** Per
+`.claude/releases.md`, nothing posts on step completion — this footage is a beat
+inside release **R1 ("It does what you ask")**, which does not open until step 9
+lands. Record generously, log where it lives in the releases ledger, and do not
+write a script.
