@@ -145,7 +145,12 @@ models and `engine/inference` load on 1.29, verified in step 4.
 MCP servers are **ours** (`engine/agent/servers/pim.py`, `fs.py`, FastMCP/stdio)
 — the community macOS Apple-app servers failed INVARIANTS #8 (2-commit repos,
 Node/bun runtime, no Mail, no safety flags). PIM backend is platform-neutral
-(`WELLSY_PIM_BACKEND`: `portable` default JSON store, `macos` `osascript`).
+(`WELLSY_PIM_BACKEND`: `auto` default → `accounts` when one is connected, else
+the `portable` demo JSON store). `accounts` reaches the user's real mail over
+IMAP/SMTP (stdlib), calendar over CalDAV and contacts over CardDAV (`httpx`),
+the same on every OS; the per-OS `osascript`/EventKit backend was removed
+(2026-10-22). The `caldav` package (3.5.0) was not adopted: it adds lxml,
+dnspython, niquests, pyyaml and three iCalendar libraries for four requests.
 
 ### Model roles — step 5b winners (n≥20 warm unless noted; `spec/results/llm-bench-*.jsonl`)
 

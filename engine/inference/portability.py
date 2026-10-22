@@ -64,11 +64,6 @@ SANCTIONED_DIRS: frozenset[tuple[str, ...]] = frozenset(
         ("inference", "backends"),   # this step's LLM/ASR/TTS/VAD backends
         ("capture", "screen"),       # step 3's macOS/Linux/Windows screen backends
         ("interface", "backends"),   # step 6's Qt backend + macOS NSPanel / Linux layer-shell shims
-        # step 9 live-run follow-up: the PIM backends behind `PimBackend`. Only
-        # `macos.py` touches a platform API (EventKit + Foundation for the
-        # calendar), it is darwin-only, imported only when
-        # WELLSY_PIM_BACKEND=macos, and `portable.py` is the tested fallback.
-        ("agent", "backends"),
     }
 )
 

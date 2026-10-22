@@ -68,6 +68,9 @@ class FasterWhisperAsr:
         from faster_whisper import WhisperModel
 
         self.model_id = model or os.environ.get("WELLSY_ASR_MODEL") or DEFAULT_MODEL
+        # names to bias toward. The voice pipeline fills this from the user's
+        # connected accounts at startup (`voice.pipeline._load_hotwords`); the
+        # env var is a manual override for benchmarks
         self.hotwords = os.environ.get("WELLSY_ASR_HOTWORDS", "").strip()
         self.language = language
         device, compute_type = _device_and_compute()

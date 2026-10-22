@@ -169,12 +169,12 @@ context engine built for 4096 tokens is different software from one built for
   (`step9-results.md` §1).
 - **Step 9 (2026-10-17, `step9-results.md`):** the agent answers voice turns
   through `use_tools`; spoken approval + read-back; SQLite checkpoints. Owed:
-  the live spoken run against real accounts (`WELLSY_PIM_BACKEND=macos`); the
+  the live spoken run against real accounts (`wellsy accounts add`); the
   agentic delivered row misses (5.1 s composed p50); conversational p95 misses
   at the 4096 server window, so set Ollama's context to 16K (owner's call, §5).
 - Orb art pass; global hotkey; typed text into the HUD.
 - A8-granted half and the ScreenCaptureKit latency row.
-- A3-A6 live against a real Calendar / Mail account (`osascript` backend).
+- A3-A6 live against a real Calendar / Mail account (IMAP/CalDAV `accounts` backend).
 - faster-whisper `base.en` is English-only.
 - An in-process LLM backend must be validated before embodiment bring-up.
 - **Linux/CUDA path is code-complete and unexecuted** - and it is production
