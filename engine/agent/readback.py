@@ -140,7 +140,11 @@ def _quote(s: Any) -> str:
 
 
 def _people(to: Any) -> str:
-    xs = [str(x) for x in (to if isinstance(to, list) else [to]) if x]
+    from engine.honesty.spoken_email import spoken
+
+    # addresses are spelled out: speech recognition gets names wrong, and this
+    # is the moment the user can still hear it and say no
+    xs = [spoken(str(x)) for x in (to if isinstance(to, list) else [to]) if x]
     if not xs:
         return "no recipient"
     return xs[0] if len(xs) == 1 else ", ".join(xs[:-1]) + " and " + xs[-1]

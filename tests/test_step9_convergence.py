@@ -172,8 +172,9 @@ def test_preview_is_the_spoken_question_with_resolved_values():
         return {"subject": "Re: integration timeline", "to": ["dana.kim@partner.example"]}
 
     pv = run(readback.preview("pim.mail_send_draft", {"draft_id": "d1"}, "send it", lookup, NOW))
+    # the address is spelled out — that is where speech recognition goes wrong
     assert pv["spoken"] == ("I'm about to send the email “Re: integration timeline” to "
-                            "dana.kim@partner.example. Shall I go ahead?")
+                            "d a n a dot k i m, at partner dot example. Shall I go ahead?")
     pv = run(readback.preview("pim.calendar_create_event",
                               {"title": "Dentist", "start": "2026-10-18T15:00:00",
                                "end": "2026-10-18T16:00:00"}, "dentist on monday at 3pm", None, NOW))
@@ -630,3 +631,43 @@ def test_interrupted_plan_resumes_from_a_second_runtime(agent_env):
     out = run(second())                     # runtime 2 (new tools, new connection) resumes it
     assert out["step_results"][0]["status"] == "ok"
     assert audit.read_all()[-1]["approvalSource"] == "test:resume"
+
+
+# --------------------------------------------------------------------------- #
+# live-run follow-up (2026-10-22): spoken email addresses                      #
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize("heard,want", [
+    ("The email address is sakith.munda at the rate gmail.com.", "sakith.munda@gmail.com"),
+    ("the correct email address is socket. dot munda. add the rate. gmail.com", "socket.munda@gmail.com"),
+    ("email saket dot munda at the rate gmail dot com saying hi", "saket.munda@gmail.com"),
+    ("mail priya underscore n at outlook dot com", "priya_n@outlook.com"),
+    ("send it to saket.munda@gmail.com", "saket.munda@gmail.com"),
+])
+def test_spoken_email_addresses_are_written(heard, want):
+    from engine.honesty.spoken_email import find
+
+    assert find(heard) == [want]
+
+
+@pytest.mark.parametrize("heard", [
+    "The email address of my friend is sakeeth.mundiatharitgmail.com.",   # garbled: never guessed
+    "meet me at the station", "I am at home dot com later",
+])
+def test_non_addresses_are_left_alone(heard):
+    from engine.honesty.spoken_email import normalize
+
+    assert normalize(heard) == heard
+
+
+def test_a_draft_to_an_invalid_address_never_runs(agent_env):
+    from engine.agent.runner import auto_approver, run_agent
+
+    res = run(run_agent("email my friend", approver=auto_approver,
+                        planner=_plan({"tool": "pim.mail_create_draft", "args": {
+                            "to": ["sakeeth.mundiatharitgmail.com"], "subject": "hi", "body": "hi"},
+                            "why": "x"}),
+                        reporter=deterministic_report, use_models=False))
+    r = res.step_results[0]
+    assert r["status"] == "error" and "not a valid email address" in r["error"]
+    assert not [a for a in audit.read_all() if a["tool"] == "pim.mail_create_draft"]   # never called

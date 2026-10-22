@@ -112,10 +112,31 @@ async def _read_back(tools: AgentTools, step: Step, result: Any) -> dict:
             return {"verified": ok, "method": "calendar_list_events contains title", "observed": evs}
 
         if tool == "pim.mail_send_draft":
-            sent = _as_list(await tools.call("pim.mail_list_sent", {"limit": 20}))
-            did = isinstance(result, dict) and result.get("id")
-            ok = any(isinstance(m, dict) and m.get("id") == did for m in sent) if did else False
-            return {"verified": ok, "method": "mail_list_sent contains the new message id", "observed": sent}
+            # Same id (portable store), or — Mail gives the sent copy a new id —
+            # the same subject to the same recipients. IMAP can take a few
+            # seconds to show it in Sent, so poll briefly before calling it
+            # unverified (step 9 live run, macOS backend).
+            did = result.get("id") if isinstance(result, dict) else None
+            subj = (result.get("subject") or "") if isinstance(result, dict) else ""
+            to = {str(x).lower() for x in (result.get("recipients") or [])} if isinstance(result, dict) else set()
+
+            def _match(m: Any) -> bool:
+                if not isinstance(m, dict):
+                    return False
+                if did and m.get("id") == did:
+                    return True
+                return bool(subj) and m.get("subject") == subj and bool(
+                    to & {str(x).lower() for x in (m.get("recipients") or [])})
+
+            sent: list = []
+            for attempt in range(6):
+                sent = _as_list(await tools.call("pim.mail_list_sent", {"limit": 20}))
+                if any(_match(m) for m in sent):
+                    return {"verified": True, "method": "mail_list_sent contains the message "
+                            "(id, or subject + recipient)", "observed": len(sent)}
+                await asyncio.sleep(2.0)
+            return {"verified": False, "method": "mail_list_sent does not show it after ~12 s",
+                    "observed": len(sent)}
 
         if tool == "pim.mail_create_draft":
             did = result.get("id") if isinstance(result, dict) else None
@@ -225,6 +246,17 @@ def complete_plan(outcome: str, plan: list[dict]) -> list[dict]:
     return plan
 
 
+_EMAIL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._%+-]*@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
+
+
+def _invalid_recipients(step: dict) -> list[str]:
+    if step.get("tool") != "pim.mail_create_draft":
+        return []
+    to = (step.get("args") or {}).get("to") or []
+    to = to if isinstance(to, list) else [to]
+    return [str(a) for a in to if not _EMAIL.match(str(a).strip())] or ([] if to else ["(none)"])
+
+
 def _parent(path: str) -> str:
     return path.rsplit("/", 1)[0] if "/" in path else "."
 
@@ -294,6 +326,12 @@ def build_graph(
             _emit({"type": "step_denied", "tool": step["tool"], "reason": f"depends on {e}"})
             return _skip_step(state, step, "error", f"not run: it depends on {e}")
         step = {**step, "args": args}
+        bad = _invalid_recipients(step)
+        if bad:
+            # step 9 live run: a misheard address with no "@" was drafted
+            reason = f"not a valid email address: {', '.join(bad)}"
+            _emit({"type": "step_denied", "tool": step["tool"], "reason": reason})
+            return _skip_step(state, step, "error", reason)
         decision: Decision = gate.check(step["tool"], step.get("args", {}), {"outcome": state["outcome"]})
 
         if decision.action == "deny":

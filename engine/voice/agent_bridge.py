@@ -42,6 +42,7 @@ import time
 from typing import Any, Callable
 
 from engine.agent import models
+from engine.honesty import spoken_email
 from engine.honesty.approval import parse_approval
 from engine.interface.session import approval_view
 
@@ -56,7 +57,7 @@ TOOL_DESCRIPTION = (
     "for what the user's latest message asks; a question about what was said or "
     "done earlier is answered from the conversation, never by calling this again."
 )
-_REFERENCE = re.compile(r"\b(it|that|this|them|those|these|him|her|there|the same)\b")
+_REFERENCE = re.compile(r"\b(it|that|this|them|those|these|him|her|there|the same|again|retry|one more time)\b")
 
 APPROVAL_TIMEOUT_S = 45.0
 _RESULT_CHARS = 600          # per step, in the tool result the model reads —
@@ -296,8 +297,10 @@ class VoiceAgentBridge:
         from pipecat.frames.frames import TTSSpeakFrame
 
         t0 = time.perf_counter()
-        request = str((params.arguments or {}).get("request") or "").strip()
-        said = _last_user_text(params.context) or request
+        # spoken addresses ("saket dot munda at the rate gmail dot com") become
+        # written ones before anything plans with them
+        request = spoken_email.normalize(str((params.arguments or {}).get("request") or "").strip())
+        said = spoken_email.normalize(_last_user_text(params.context)) or request
         # The planner plans from the user's own words. The model's restatement
         # is added only to resolve a reference ("send it") — a 4B planner given
         # a paraphrase as well planned a dentist booking as a note (replay).

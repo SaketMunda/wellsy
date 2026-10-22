@@ -68,6 +68,7 @@ class FasterWhisperAsr:
         from faster_whisper import WhisperModel
 
         self.model_id = model or os.environ.get("WELLSY_ASR_MODEL") or DEFAULT_MODEL
+        self.hotwords = os.environ.get("WELLSY_ASR_HOTWORDS", "").strip()
         self.language = language
         device, compute_type = _device_and_compute()
         _DOWNLOAD_ROOT.mkdir(parents=True, exist_ok=True)
@@ -129,6 +130,10 @@ class FasterWhisperAsr:
             beam_size=1,
             vad_filter=False,
             condition_on_previous_text=False,
+            # names and addresses the user says often (their own name, contacts,
+            # "gmail dot com"): faster-whisper biases decoding toward them.
+            # Step 9 live run: "Saket" came out as "socket" / "sakeeth".
+            hotwords=self.hotwords or None,
         )
         acc: list[str] = []
         for seg in segments:
