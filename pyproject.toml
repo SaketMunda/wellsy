@@ -1,102 +1,34 @@
 [project]
 name = "wellsy"
-version = "0.1.0"
-description = "WELLSY — a local, private, agentic assistant. Perception core (T0–T1)."
+version = "0.2.0"
+description = "WELLSY — a voice-first JARVIS on your own computer, with no lock-in to any model provider."
 requires-python = ">=3.13"
+# Only what the kept orb + HUD (engine/interface) needs. Phase 0 of
+# .claude/PLAN.md verifies and pins the rest (deepagents, Composio,
+# Playwright MCP, provider SDKs) before they are added here.
 dependencies = [
-    "numpy>=2.2",
-    "opencv-python>=4.10",
-    "supervision>=0.30.0",
-    "ultralytics>=8.4.120",
-    "clip",
-    # capture layer (step 3) — mss is the portable fallback; the pyobjc
-    # frameworks back the macOS ScreenCaptureKit path and are darwin-only.
-    "mss>=10.0",
-    "pyobjc-framework-Quartz>=10.0 ; sys_platform == 'darwin'",
-    "pyobjc-framework-Cocoa>=10.0 ; sys_platform == 'darwin'",
-    "pyobjc-framework-ScreenCaptureKit>=10.0 ; sys_platform == 'darwin'",
-    "pyobjc-framework-AVFoundation>=10.0 ; sys_platform == 'darwin'",
-    # step 2 — portable inference seam
-    "onnxruntime>=1.29", # portable runtime for the small models (ASR/TTS/VAD)
-    "httpx>=0.28", # streaming OpenAI-compatible HTTP client (LLM/VLM backend)
-    "psutil>=7.0", # resident-memory readout for `wellsy bench`
-    # step 4 — streaming voice path. Pipecat is the streaming frame pipeline,
-    # turn detection (Smart Turn v3, ONNX, bundled) and barge-in; extras:
-    #   local   -> pyaudio (LocalAudioTransport, portable PortAudio)
-    #   whisper -> faster-whisper (CTranslate2, portable CPU/CUDA) — the ASR path
-    #   kokoro  -> kokoro-onnx — the portable fast TTS baseline
-    # Silero VAD and Smart Turn v3 models ship inside the pipecat wheel, so no
-    # network fetch and no platform package (INVARIANTS #14).
-    "pipecat-ai[local,whisper,kokoro]==1.8.1",
-    # step 5 — agent runtime. Verified 2026-09-01 (INVARIANTS #8):
-    #   langgraph 1.2.11 (2026-08-11) — interrupt() IS the approval gate (D53);
-    #     durable checkpointing at every node is what makes A11 achievable.
-    #   langchain-mcp-adapters 0.3.2 (2026-08-06) pins `mcp<2.0.0` — so the
-    #     LangGraph-compatible MCP stack is the 1.x line, NOT the 2026-07-28
-    #     rewrite (mcp 2.x). Adopting SDK v2 now would break this adapter.
-    #   mcp 1.29.1 resolved — protocol revision 2025-06-18; FastMCP server used
-    #     for engine/agent/servers/* (our own PIM + scoped-FS servers — the
-    #     community macOS Apple-app servers are 2-commit repos with no releases,
-    #     no Mail tools and no safety flags, so none clears #8; see step5-results).
-    #   langchain-openai 1.6.0 — ChatOpenAI against the same local OpenAI-compat
-    #     endpoint the voice path uses (Ollama here; vLLM/SGLang on Linux/CUDA).
-    "langgraph>=1.2.11,<2",
-    "langchain-mcp-adapters>=0.3.2,<0.4",
-    "mcp>=1.24,<2",
-    "langchain-openai>=1.6,<2",
-    "pyyaml>=6",
-    # step 9 — durable agent checkpoints (an approval waiting on a spoken
-    # answer is on disk, resumable by thread id). Verified 2026-10-17
-    # (INVARIANTS #8): langgraph-checkpoint-sqlite 3.1.2 (2026-10-12, latest),
-    # needs langgraph-checkpoint >=4.3 (4.2.0 -> 4.3.0, minor) and aiosqlite.
-    "langgraph-checkpoint-sqlite>=3.1.2,<4",
+    "pipecat-ai==1.8.1",  # voice pipeline; engine/interface/taps.py reads its frames
+    "numpy>=2.2",         # orb point cloud
+    "psutil>=7.0",        # resident-memory readout in `wellsy` (interface cli)
 ]
 
 [project.optional-dependencies]
-# macOS-only, opt-in, NEVER in the default install and NEVER imported at module
-# scope (INVARIANTS #14). Reached only via WELLSY_LLM_BACKEND=mlx / explicit config.
-inference-mlx = ["mlx-lm>=0.28"]
-
-# step 6 — the native interface. Portable (macOS/Linux/Windows from one wheel),
-# so NOT platform-exclusive and allowed in the core; kept an extra only so the
-# headless runtime / CI / the humanoid endgame don't pull a GPU toolkit.
-# Verified current 2026-09-03 (INVARIANTS #8): PySide6 6.11.2 (Qt 6.11.2),
-# released 2026-08-18. `pyobjc` is the macOS NSPanel shim, darwin-only, behind
-# engine/interface/backends/qt/ (a sanctioned dir). LayerShellQt for Wayland is
-# a distro/Qt-plugin package, not on PyPI — probed at runtime, reported honestly.
+# The native orb + HUD. PySide6 is portable (macOS/Linux/Windows); pyobjc is
+# the macOS NSPanel shim, darwin-only.
 interface = [
     "pyside6>=6.11.2,<6.12",
     "pyobjc-framework-Cocoa>=10.0 ; sys_platform == 'darwin'",
 ]
-pim-macos = [
-    "pyobjc-framework-eventkit>=12.2.2,<13 ; sys_platform == 'darwin'",
-]
 
 [project.scripts]
-wellsy = "engine.cli:main"
-
-[tool.uv]
-# pipecat-ai 1.8.1 core-pins onnxruntime~=1.24.3; step 2 verified and pinned
-# onnxruntime>=1.29 (spec/model-inventory.md, INVARIANTS #8). ORT is
-# session-API-stable across 1.24->1.29 and both pipecat's bundled models
-# (silero_vad.onnx, smart-turn-v3.2-cpu.onnx) and engine/inference load on 1.29
-# — verified in step 4. Override keeps one ORT for the whole tree.
-override-dependencies = ["onnxruntime>=1.29"]
-
-[tool.uv.sources]
-# YOLOE's open-vocabulary text-prompt head needs Ultralytics' CLIP fork
-# (detector.py -> model.get_text_pe). Not the PyPI `clip` package.
-clip = { git = "https://github.com/ultralytics/CLIP.git" }
+wellsy = "engine.interface.cli:main"
 
 [dependency-groups]
 dev = [
     "pytest>=8.3",
-    "soundfile>=0.12",  # test/bench audio I/O for the ASR/TTS conformance fixtures
 ]
 
-# The installable/distribution name is `wellsy` and the console command is
-# `wellsy`; the import package is `engine` (the runtime core), so the repo
-# folder isn't `wellsy/wellsy/`. Like `pip install wellsy` → `import engine`.
+# Distribution name `wellsy`, import package `engine`.
 [tool.setuptools.packages.find]
 include = ["engine*"]
 
