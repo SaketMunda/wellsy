@@ -68,9 +68,6 @@ interface = [
     "pyside6>=6.11.2,<6.12",
     "pyobjc-framework-Cocoa>=10.0 ; sys_platform == 'darwin'",
 ]
-pim-macos = [
-    "pyobjc-framework-eventkit>=12.2.2,<13 ; sys_platform == 'darwin'",
-]
 
 [project.scripts]
 wellsy = "engine.cli:main"

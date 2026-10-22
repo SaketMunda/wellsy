@@ -106,12 +106,15 @@ def _seed() -> dict:
 
 
 class PortablePimBackend:
-    def __init__(self, *, reset: bool = False) -> None:
+    def __init__(self, *, reset: bool = False, path: Path | None = None, seed=None) -> None:
+        # `path`/`seed` let the accounts backend keep the user's own reminders
+        # and notes here with an empty seed — never the demo data
         self._lock = threading.RLock()
-        self._path = _store_path()
+        self._path = path or _store_path()
+        self._seed = seed or _seed
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        if reset or os.environ.get("WELLSY_PIM_RESET") == "1" or not self._path.exists():
-            self._write(_seed())
+        if reset or (path is None and os.environ.get("WELLSY_PIM_RESET") == "1") or not self._path.exists():
+            self._write(self._seed())
 
     # --- store io -------------------------------------------------------------
     def _read(self) -> dict:
@@ -119,7 +122,7 @@ class PortablePimBackend:
             try:
                 return json.loads(self._path.read_text())
             except FileNotFoundError:
-                data = _seed()
+                data = self._seed()
                 self._write(data)
                 return data
 

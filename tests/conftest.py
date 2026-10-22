@@ -12,6 +12,15 @@ import importlib
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _no_real_accounts(tmp_path, monkeypatch):
+    """No test may reach the developer's real mail or calendar."""
+    monkeypatch.setenv("WELLSY_ACCOUNTS", str(tmp_path / "no-accounts.json"))
+    monkeypatch.delenv("WELLSY_MAIL_ADDRESS", raising=False)
+    monkeypatch.delenv("WELLSY_MAIL_PASSWORD", raising=False)
+    monkeypatch.setenv("WELLSY_PIM_BACKEND", "portable")
+
+
 @pytest.fixture
 def agent_env(tmp_path, monkeypatch):
     audit_path = tmp_path / "audit.jsonl"

@@ -42,6 +42,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import threading
 
 from engine.voice.config import load_voice_config
 from engine.voice.duplex import (
@@ -116,6 +117,35 @@ def _warm(stt, tts) -> None:
         pass
 
 
+def _load_hotwords(stt) -> None:
+    """Bias speech recognition toward the names in the user's own mail and
+    contacts, so "email Rahul" is heard as Rahul. Runs in the background (it
+    is one IMAP round trip) and leaves the recognizer alone if nothing is
+    connected or `WELLSY_ASR_HOTWORDS` was set by hand."""
+    asr = getattr(stt, "_asr", None)
+    if asr is None or not hasattr(asr, "hotwords") or asr.hotwords:
+        return
+
+    from loguru import logger
+
+    def go():
+        try:
+            from engine.agent.backends.accounts import load_accounts
+            from engine.agent.backends.standard import AccountsPimBackend
+
+            accounts = load_accounts()
+            if not accounts.mail:
+                return
+            names = AccountsPimBackend(accounts).known_names()
+            if names:
+                asr.hotwords = ", ".join(names)
+                logger.info(f"ASR hotwords: {len(names)} names from your accounts")
+        except Exception as e:  # a slow or offline account must not stop the voice loop
+            logger.warning(f"ASR hotwords not loaded: {e}")
+
+    threading.Thread(target=go, name="wellsy-hotwords", daemon=True).start()
+
+
 def build(*, start_awake: bool = False, on_decision=None, observers=None,
           handle_sigint: bool = True, on_move=None, on_agent_event=None,
           show_hud=None, hide_hud=None, on_agent_turn=None, bridge=None):
@@ -160,6 +190,7 @@ def build(*, start_awake: bool = False, on_decision=None, observers=None,
 
     if os.environ.get("WELLSY_VOICE_NO_WARM") != "1":
         _warm(stt, tts)
+    _load_hotwords(stt)
 
     wake_state = WakeState(awake=start_awake)
     wake_gate = build_wake_gate(wake_state, cfg_provider)

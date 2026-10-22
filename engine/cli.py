@@ -404,7 +404,14 @@ def _run_all(argv: list[str]) -> None:
     raise SystemExit(pipeline.main(passthrough))
 
 
-_SUBCOMMANDS.update({"orb": _run_orb, "run": _run_all})
+def _run_accounts(argv: list[str]) -> None:
+    """`wellsy accounts add | show | remove` — connect real mail/calendar."""
+    from engine.agent.backends.accounts import cli
+
+    raise SystemExit(cli(argv))
+
+
+_SUBCOMMANDS.update({"orb": _run_orb, "run": _run_all, "accounts": _run_accounts})
 
 
 def main() -> None:
