@@ -3,18 +3,12 @@
 The master session maintains this file. See `.claude/MASTER.md` §7.
 
 ## Now
-- **Phase:** 0 (setup). Built on `rebuild/phase0-setup`. **Not done:** `wellsy doctor` is not all green yet.
-- **Doctor, 2026-10-24, owner's Mac:** 20 green, 3 red. Keys, OpenRouter (every preset ID), Gemini Live,
-  the Composio key and every pin are green. Red: Gmail and Calendar not connected; Google Chrome not installed.
-- **Blocked on the owner, in this order:**
-  1. Install Google Chrome (`brew install --cask google-chrome`). It is not on this Mac. Playwright's
-     Chromium cannot play Netflix (no Widevine).
-  2. `uv run wellsy profile`, then log into Amazon, Flipkart, Myntra and Netflix by hand.
-  3. `uv run wellsy connect gmail googlecalendar`, then sign in on Composio's pages.
-  4. `uv run wellsy doctor` until it is all green.
-- **Owner to-dos:** revoke the old Gmail app password. `~/.config/wellsy/accounts.json` is already gone.
-  `local_store.json` is still in that folder. The old code wrote it, so delete it if nothing new uses it.
-- **OpenRouter key:** $2.15 used of a $5.00 limit.
+- **Phase 0 (setup): DONE.** Merged as PR #24. Live `wellsy doctor` on the owner's Mac, 2026-10-24: **30 green, 0 red**.
+  Keys, every OpenRouter preset ID, Gemini Live, Gmail + Calendar (one read-only call each), Chrome and
+  Amazon/Flipkart/Myntra/Netflix logins via Playwright MCP, and every pin all green.
+- **Next:** Phase 1 (voice + brain + model picker). The master session writes the brief.
+- **Owner to-do:** revoke the old Gmail app password (from the deleted IMAP code).
+- **OpenRouter key:** $2.15 used of a $5.00 limit. Raise it before Phase 1 live runs.
 
 ## Pinned components (pinned 2026-10-24; cutoff 2026-10-10)
 `[tool.uv] exclude-newer = 2026-10-10` holds the whole tree, transitive deps included, to releases at least two weeks old.
@@ -49,6 +43,7 @@ The master session maintains this file. See `.claude/MASTER.md` §7.
 None yet. The 20-task test (PLAN.md §5) first runs at the end of Phase 3.
 
 ## Decision log
+- 2026-10-24: Phase 0 done (PR #24): doctor 30/30 green live. Old `local_store.json` deleted by the owner.
 - 2026-10-24: Phase 0 built. `wellsy doctor`/`profile`/`connect`; presets in `engine/settings.toml`. Value brain is DeepSeek V4.1 Flash, because V4 Flash is retired.
 - 2026-10-24: owners log into sites inside Chrome launched by Playwright MCP. Playwright's mock keychain on macOS means
   cookies from a normal Chrome window would not decrypt. Site checks run headed: Myntra blocks headless Chrome.
