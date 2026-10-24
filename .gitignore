@@ -21,3 +21,7 @@ weights/
 .vscode/*
 !.vscode/extensions.json
 .idea
+
+# Secrets (API keys). Never commit.
+.env
+.env.*
