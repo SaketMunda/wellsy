@@ -14,7 +14,9 @@ claude-opus    = { provider = "openrouter", model = "anthropic/claude-opus-5.5" 
 gpt            = { provider = "openrouter", model = "openai/gpt-6-astra" }
 ollama-brain   = { provider = "ollama",     model = "qwen3.5:4b-q4_K_M" }
 # Voice models. Pipecat 1.12 defaults Gemini Live to an old 2.5 preview, so the model is always passed.
-gemini-live    = { provider = "gemini", model = "gemini-3.8-live", voice = "Aoede" }
+# Voice: Sulafat. Gemini's affective dialog (expressive mode) is rejected by gemini-3.8-live
+# (1007 invalid argument, v1beta and v1alpha, 2026-10-24); expression comes from VOICE_PROMPT.
+gemini-live    = { provider = "gemini", model = "gemini-3.8-live", voice = "Sulafat" }
 # UNTESTED: the session opens, but the OpenAI account has no credits (insufficient_quota, 2026-10-24).
 gpt-realtime   = { provider = "openai", model = "gpt-realtime-2.1" }
 # Speech-to-text -> model -> voice, all on this machine through Pipecat's own services.

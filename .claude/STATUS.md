@@ -58,6 +58,7 @@ The master session maintains this file. See `.claude/MASTER.md` §7.
 - The 20-task test (PLAN.md §5) first runs at the end of Phase 3.
 
 ## Decision log
+- 2026-10-24: voice = Gemini Sulafat, expressive delivery via the prompt (3.8 Live rejects affective dialog). Name "Wellsy" said right ~3 of 4 times, never "Wesley" (36 samples, Whisper-checked); Gemini Live has no pronunciation control.
 - 2026-10-24: Phase 1 cancel is `cancel_task(label)`. Pipecat's `cancel_delegate` picks a task by an id Gemini Live never receives.
 - 2026-10-24: brain answers through a `return_direct` tool. LangChain `response_format` truncated on GLM-5.3 and was rejected by Claude Opus 5.5.
 - 2026-10-24: web search = Tavily via `langchain-tavily`. OpenRouter's `openrouter:web_search` ($0.001-0.005) is cheaper but langchain-openrouter 0.2.9 cannot bind it or return its citations.
