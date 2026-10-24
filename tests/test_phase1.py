@@ -275,6 +275,7 @@ def test_talk_uses_the_browser_page_unless_local_is_asked(monkeypatch):
     assert talk.talk(["--no-orb"]) == 0
     assert talk.talk(["--no-orb", "--no-browser"]) == 0
     assert talk.talk(["--no-orb", "--local"]) == 0
-    assert talk.talk(["--no-orb", "--out", "MacBook Pro Speakers"]) == 0
-    assert seen == [("webrtc", True), ("webrtc", False), ("local", "pyaudio:"),
+    assert talk.talk(["--no-orb", "--out", "MacBook Pro Speakers"]) == 0          # still echo-cancelled
+    assert talk.talk(["--no-orb", "--local", "--out", "MacBook Pro Speakers"]) == 0
+    assert seen == [("webrtc", True), ("webrtc", False), ("local", "pyaudio:"), ("webrtc", True),
                     ("local", "pyaudio:MacBook Pro Speakers")]

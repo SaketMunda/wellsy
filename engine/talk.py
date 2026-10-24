@@ -42,9 +42,14 @@ def talk(argv: list[str]) -> int:
             await voice.run(settings, await voice.eval_transport(args.eval))
         asyncio.run(_eval())
         return 0
-    local = args.local or args.mic or args.speaker or settings["voice"].get("transport") == "local"
+    local = args.local or settings["voice"].get("transport") == "local"
     if local:
         transport = voice.local_transport(args.mic, args.speaker)
+    elif args.mic or args.speaker:
+        # Picking a device must not silently drop echo cancellation (owner's speaker
+        # run, 2026-10-24): the browser page uses the system devices.
+        print("WELLSY: --in/--out apply to --local only. The browser page uses the system "
+              "mic and speakers (System Settings > Sound).", flush=True)
 
     def session(sess=None, stop=None):
         if local:
