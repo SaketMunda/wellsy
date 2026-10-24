@@ -49,6 +49,12 @@ args = { max_results = 5, search_depth = "basic" }
 price_per_call = 0.008  # USD list price, for the cost log; search is billed outside OpenRouter
 
 [voice]
+# Where the audio goes. "webrtc": Pipecat's SmallWebRTC transport and its prebuilt
+# page, opened in the browser on this computer; the browser's WebRTC echo canceller
+# keeps WELLSY from hearing itself on laptop speakers. "local": the mic and
+# speakers directly (pyaudio, no echo cancellation; headphones only).
+transport = "webrtc"
+webrtc_port = 7860         # served on 127.0.0.1 only
 # Silero VAD gives Pipecat the user's turn frames: the latency timestamps, narration
 # holding back while the user talks, and Pipecat's own barge-in. Gemini Live also runs
 # its own server-side turn-taking (below).

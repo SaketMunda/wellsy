@@ -254,3 +254,27 @@ def test_report_reads_the_logs(capsys):
     assert report([]) == 0
     out = capsys.readouterr().out
     assert "p50=900 ms" in out and "$0.0100/task" in out and "Echo: 1 of 1" in out
+
+
+def test_talk_uses_the_browser_page_unless_local_is_asked(monkeypatch):
+    from engine import talk, voice, webrtc
+
+    seen = []
+
+    async def fake_serve(settings, **kw):
+        seen.append(("webrtc", kw["open_browser"]))
+
+    async def fake_run(settings, transport, **kw):
+        seen.append(("local", transport))
+
+    monkeypatch.setattr(webrtc, "serve", fake_serve)
+    monkeypatch.setattr(voice, "run", fake_run)
+    monkeypatch.setattr(voice, "local_transport", lambda mic, speaker: f"pyaudio:{speaker}")
+    monkeypatch.setattr(cfg, "load_env", lambda: None)
+
+    assert talk.talk(["--no-orb"]) == 0
+    assert talk.talk(["--no-orb", "--no-browser"]) == 0
+    assert talk.talk(["--no-orb", "--local"]) == 0
+    assert talk.talk(["--no-orb", "--out", "MacBook Pro Speakers"]) == 0
+    assert seen == [("webrtc", True), ("webrtc", False), ("local", "pyaudio:"),
+                    ("local", "pyaudio:MacBook Pro Speakers")]

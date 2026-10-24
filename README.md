@@ -47,9 +47,12 @@ Models and providers are set in [engine/settings.toml](engine/settings.toml).
 ## Talk to it (Phase 1)
 
 ```bash
-uv run wellsy talk                    # mic + speakers, orb + HUD. Small talk is answered by the voice;
-                                      # real tasks go to the brain and their answers appear in the HUD.
-uv run wellsy talk --out "MacBook Pro Speakers"   # pick a speaker (or --in for a mic) by name
+uv run wellsy talk                    # opens the talk page in your browser (press Connect), orb + HUD.
+                                      # The browser cancels echo, so laptop speakers work.
+                                      # Small talk is answered by the voice; real tasks go to the brain
+                                      # and their answers appear in the HUD.
+uv run wellsy talk --local            # mic + speakers directly, no echo cancellation: headphones only
+uv run wellsy talk --local --out "MacBook Pro Speakers"   # pick a speaker (or --in for a mic) by name
 uv run wellsy ask "question"          # the brain alone, typed
 uv run wellsy report                  # latency p50/p95, cost per task per brain, echo; from runs/
 ```

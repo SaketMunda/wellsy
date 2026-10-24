@@ -13,7 +13,7 @@ The master session maintains this file. See `.claude/MASTER.md` §7.
 
 ## Blockers
 - **Latency bar vs Gemini Live** (owner decides). Gemini 3.1 Flash Live Preview: p50 0.85 s raw, about 1.05 s with VAD. gpt-realtime-2.1 unmeasured (no credit).
-- **Live run** (owner): `uv run wellsy talk` from Terminal with headphones, 20+ turns, then `wellsy talk --out "MacBook Pro Speakers"`, then `wellsy report`.
+- **Live run** (owner): `uv run wellsy talk` from Terminal (browser page, press Connect), 20+ turns on laptop speakers including one research question, then `wellsy report`.
 - **Premium voice untested** (owner): the OpenAI account returns insufficient_quota.
 
 ## Pinned components (pinned 2026-10-24; cutoff 2026-10-10)
@@ -22,7 +22,7 @@ The master session maintains this file. See `.claude/MASTER.md` §7.
 | Component | Pin | Released | Key dependencies (resolved) |
 |---|---|---|---|
 | deepagents | 0.7.23 | 2026-10-07 | langchain 1.4.4, langchain-core 1.6.9, langgraph 1.2.14. Latest is 0.7.32: 9 releases in 10 days |
-| pipecat-ai[google] | 1.12.0 | 2026-09-26 | google-genai 2.29.0, openai 3.28.0. Was 1.8.1; the 19 HUD tests pass on 1.12.0 |
+| pipecat-ai[google,local,webrtc,runner] | 1.12.0 | 2026-09-26 | google-genai 2.29.0, openai 3.28.0, aiortc 1.15.0, fastapi 0.143.0, pipecat-ai-prebuilt 1.3.0. Was 1.8.1; the 19 HUD tests pass on 1.12.0 |
 | langchain-openrouter | 0.2.9 | 2026-09-22 | openrouter 0.10.8 (needs <1.0, latest is 1.3.x) |
 | composio + composio-langchain | 0.25.0 | 2026-09-29 | **composio-client 2.0.0rc8** (pre-release, 2026-09-21; allowed only for this package) |
 | langchain-mcp-adapters | 0.3.2 | 2026-08-06 | mcp 1.30.0 |
@@ -58,6 +58,7 @@ The master session maintains this file. See `.claude/MASTER.md` §7.
 - The 20-task test (PLAN.md §5) first runs at the end of Phase 3.
 
 ## Decision log
+- 2026-10-24: `wellsy talk` audio goes through the browser (Pipecat SmallWebRTC + its prebuilt page, 127.0.0.1) for WebRTC echo cancellation. On the pyaudio mic, laptop speakers cut every reply: 22 interruptions in 36 s, 3 of 10 "user" turns were Wellsy's own words. `--local` keeps the direct mic for headphones. Checked in headless Chrome: greeting, a spoken question answered, latency 1.27 s (unchanged); the speaker echo itself is the owner's run.
 - 2026-10-24: voice = Gemini Sulafat, expressive delivery via the prompt (3.8 Live rejects affective dialog). Name "Wellsy" said right ~3 of 4 times, never "Wesley" (36 samples, Whisper-checked); Gemini Live has no pronunciation control.
 - 2026-10-24: Phase 1 cancel is `cancel_task(label)`. Pipecat's `cancel_delegate` picks a task by an id Gemini Live never receives.
 - 2026-10-24: brain answers through a `return_direct` tool. LangChain `response_format` truncated on GLM-5.3 and was rejected by Claude Opus 5.5.

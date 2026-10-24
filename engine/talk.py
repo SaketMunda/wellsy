@@ -1,8 +1,9 @@
 """`wellsy talk`, `wellsy ask`, `wellsy report`.
 
-    wellsy talk                 # talk to WELLSY: mic + speakers, orb + HUD
+    wellsy talk                 # talk to WELLSY through the browser page (echo-cancelled), orb + HUD
     wellsy talk --no-orb        # same, no window
-    wellsy talk --out "MacBook Pro Speakers"   # pick the speaker (or --in for the mic) by name
+    wellsy talk --local         # the mic and speakers directly, no echo cancellation (headphones)
+    wellsy talk --local --out "MacBook Pro Speakers"   # pick the speaker (or --in for the mic) by name
     wellsy talk --eval 8765     # serve Pipecat's eval transport instead of the mic
     wellsy ask "question"       # the brain alone, typed, answer printed (cost logged)
     wellsy report               # latency p50/p95, cost per task per brain, echo
@@ -26,6 +27,8 @@ def talk(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="wellsy talk")
     ap.add_argument("--no-orb", action="store_true", help="no orb/HUD window")
     ap.add_argument("--eval", type=int, metavar="PORT", help="serve Pipecat's eval transport on PORT")
+    ap.add_argument("--local", action="store_true", help="mic and speakers directly, not the browser page")
+    ap.add_argument("--no-browser", action="store_true", help="serve the page but don't open it")
     ap.add_argument("--in", dest="mic", default="", help="microphone, by part of its name")
     ap.add_argument("--out", dest="speaker", default="", help="speaker, by part of its name")
     args = ap.parse_args(argv)
@@ -39,15 +42,24 @@ def talk(argv: list[str]) -> int:
             await voice.run(settings, await voice.eval_transport(args.eval))
         asyncio.run(_eval())
         return 0
-    transport = voice.local_transport(args.mic, args.speaker)
+    local = args.local or args.mic or args.speaker or settings["voice"].get("transport") == "local"
+    if local:
+        transport = voice.local_transport(args.mic, args.speaker)
+
+    def session(sess=None, stop=None):
+        if local:
+            return voice.run(settings, transport, session=sess, stop=stop)
+        from engine import webrtc
+        return webrtc.serve(settings, session=sess, stop=stop, open_browser=not args.no_browser)
+
     if args.no_orb:
-        asyncio.run(voice.run(settings, transport))
+        asyncio.run(session())
         return 0
 
     from engine.interface.session import OrbSession
 
     sess = OrbSession()
-    sess.run(lambda stop: voice.run(settings, transport, session=sess, stop=stop))
+    sess.run(lambda stop: session(sess, stop))
     return 0
 
 

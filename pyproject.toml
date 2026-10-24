@@ -7,7 +7,7 @@ requires-python = ">=3.13"
 # 2026-10-24). Versions, release dates and key dependencies: .claude/STATUS.md.
 # `wellsy doctor` checks the installed versions against these pins.
 dependencies = [
-    "pipecat-ai[google,local]==1.12.0",  # voice pipeline + Gemini Live + mic/speaker (pyaudio); taps.py reads its frames
+    "pipecat-ai[google,local,webrtc,runner]==1.12.0",  # voice pipeline + Gemini Live + mic/speaker (pyaudio) + SmallWebRTC and its prebuilt client (browser echo cancellation); taps.py reads its frames
     "deepagents==0.7.23",          # the brain
     "langchain-openrouter==0.2.9", # OpenRouter chat models for deepagents
     "langchain-tavily==0.2.18",    # web search tool for the brain (settings: [search])

@@ -404,7 +404,7 @@ async def run(settings: dict, transport, *, session=None, stop=None) -> None:
         observers=observers,
         idle_timeout_secs=None,      # a long task with nobody talking is not idle
     )
-    runner = WorkerRunner(handle_sigint=session is None)
+    runner = WorkerRunner(handle_sigint=stop is None)
     await runner.add_workers(worker)
     await worker.queue_frames([LLMRunFrame()])
     print(f"WELLSY voice: {spec['name']} ({spec['model']}), brain {tag['brain']}. Talk; Ctrl-C to stop.", flush=True)
