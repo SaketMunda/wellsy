@@ -31,3 +31,15 @@ uv sync --extra interface
 uv run pytest
 uv run wellsy --help
 ```
+
+## Set up (Phase 0)
+
+Put `OPENROUTER_API_KEY`, `GEMINI_API_KEY` and `COMPOSIO_API_KEY` in `.env` (it is git-ignored). Then:
+
+```bash
+uv run wellsy profile                        # Chrome opens on the WELLSY profile; log into your sites by hand
+uv run wellsy connect gmail googlecalendar   # Composio's hosted sign-in
+uv run wellsy doctor                         # read-only check of every key, account and component
+```
+
+Models and providers are set in [engine/settings.toml](engine/settings.toml).

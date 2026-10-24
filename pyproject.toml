@@ -3,13 +3,21 @@ name = "wellsy"
 version = "0.2.0"
 description = "WELLSY — a voice-first JARVIS on your own computer, with no lock-in to any model provider."
 requires-python = ">=3.13"
-# Only what the kept orb + HUD (engine/interface) needs. Phase 0 of
-# .claude/PLAN.md verifies and pins the rest (deepagents, Composio,
-# Playwright MCP, provider SDKs) before they are added here.
+# Components are pinned to a release at least two weeks old (Phase 0,
+# 2026-10-24). Versions, release dates and key dependencies: .claude/STATUS.md.
+# `wellsy doctor` checks the installed versions against these pins.
 dependencies = [
-    "pipecat-ai==1.8.1",  # voice pipeline; engine/interface/taps.py reads its frames
-    "numpy>=2.2",         # orb point cloud
-    "psutil>=7.0",        # resident-memory readout in `wellsy` (interface cli)
+    "pipecat-ai[google]==1.12.0",  # voice pipeline + Gemini Live; taps.py reads its frames
+    "deepagents==0.7.23",          # the brain
+    "langchain-openrouter==0.2.9", # OpenRouter chat models for deepagents
+    "composio==0.25.0",            # apps (Gmail, Calendar, …)
+    "composio-langchain==0.25.0",  # Composio tools as LangChain tools
+    "composio-client==2.0.0rc8",   # composio 0.25.0 requires this exact pre-release
+    "langchain-mcp-adapters==0.3.2", # Playwright MCP tools for deepagents
+    "python-dotenv>=1.0",          # loads .env keys
+    "packaging>=23.2",             # `wellsy doctor` reads the pins below
+    "numpy>=2.2",                  # orb point cloud
+    "psutil>=7.0",                 # resident-memory readout in `wellsy` (interface cli)
 ]
 
 [project.optional-dependencies]
@@ -21,16 +29,26 @@ interface = [
 ]
 
 [project.scripts]
-wellsy = "engine.interface.cli:main"
+wellsy = "engine.cli:main"
 
 [dependency-groups]
 dev = [
     "pytest>=8.3",
 ]
 
+[tool.uv]
+# Pre-releases only where a direct requirement names one (composio-client).
+prerelease = "if-necessary-or-explicit"
+# Resolve the whole tree, transitive deps included, from releases at least two
+# weeks old at pin time. Move this date when re-pinning.
+exclude-newer = "2026-10-10T00:00:00Z"
+
 # Distribution name `wellsy`, import package `engine`.
 [tool.setuptools.packages.find]
 include = ["engine*"]
+
+[tool.setuptools.package-data]
+engine = ["settings.toml"]
 
 [build-system]
 requires = ["setuptools>=68"]
