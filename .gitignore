@@ -25,3 +25,6 @@ weights/
 # Secrets (API keys). Never commit.
 .env
 .env.*
+
+# Playwright MCP output, if it is ever run from the repo
+.playwright-mcp/

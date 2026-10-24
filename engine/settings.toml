@@ -1,0 +1,54 @@
+# WELLSY settings. Swapping a model or provider is an edit here, never a code change.
+# Model IDs and prices were verified on 2026-10-24; see .claude/STATUS.md for sources.
+
+preset = "value"
+
+# Each role names a provider and that provider's model ID.
+# Phase 1 (the model picker) adds the Premium voice and the Local preset.
+[presets.value]
+voice         = { provider = "gemini",     model = "gemini-3.8-live" }
+brain         = { provider = "openrouter", model = "deepseek/deepseek-v4.1-flash-1017" }
+long_run      = { provider = "openrouter", model = "z-ai/glm-5.3" }
+hard_planning = { provider = "openrouter", model = "moonshotai/kimi-k3" }
+
+[presets.premium]
+brain = { provider = "openrouter", model = "anthropic/claude-opus-5.5" }
+alt_brain = { provider = "openrouter", model = "openai/gpt-6-astra" }
+
+[composio]
+# The Composio user that owns WELLSY's connected accounts.
+user_id = "wellsy"
+# The read-only tool `wellsy doctor` runs per toolkit. Each must carry Composio's
+# readOnlyHint tag; the doctor checks that at runtime before it calls the tool.
+read_checks = { gmail = "GMAIL_GET_PROFILE", googlecalendar = "GOOGLECALENDAR_LIST_CALENDARS" }
+
+[web]
+playwright_mcp = "0.0.83"  # @playwright/mcp on npm
+browser = "chrome"         # Google Chrome: Netflix needs its Widevine DRM
+profile_dir = "~/.config/wellsy/chrome-profile"
+
+# A site counts as logged in when its account page loads without bouncing to a
+# sign-in page, i.e. the final URL matches `logged_in` (a regex).
+[[web.sites]]
+name = "Amazon"
+check_url = "https://www.amazon.in/gp/css/order-history"
+logged_in = "amazon\\.in/(gp/css/order-history|gp/your-account/order-history|your-orders)"
+login_url = "https://www.amazon.in/"
+
+[[web.sites]]
+name = "Flipkart"
+check_url = "https://www.flipkart.com/account/orders"
+logged_in = "flipkart\\.com/account/orders"
+login_url = "https://www.flipkart.com/account/login"
+
+[[web.sites]]
+name = "Myntra"
+check_url = "https://www.myntra.com/my/orders"
+logged_in = "myntra\\.com/my/orders"
+login_url = "https://www.myntra.com/login"
+
+[[web.sites]]
+name = "Netflix"
+check_url = "https://www.netflix.com/browse"
+logged_in = "netflix\\.com/browse"
+login_url = "https://www.netflix.com/login"
