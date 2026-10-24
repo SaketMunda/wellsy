@@ -19,9 +19,18 @@ def test_scrub_removes_key_values(monkeypatch):
 def test_every_preset_role_names_a_provider_and_model():
     s = settings.load()
     assert s["preset"] in s["presets"]
-    for roles in s["presets"].values():
-        for spec in roles.values():
+    for preset, roles in s["presets"].items():
+        for role in roles:
+            spec = settings.model({**s, "preset": preset, "brain": ""}, role)
             assert spec["provider"] and spec["model"]
+
+
+def test_brain_swap_is_one_setting():
+    s = settings.load()
+    for name in ("deepseek-flash", "glm", "claude-opus"):
+        assert settings.model({**s, "preset": "value", "brain": name}, "brain")["name"] == name
+    # the voice stays the preset's
+    assert settings.model({**s, "preset": "value", "brain": "claude-opus"}, "voice")["name"] == "gemini-live"
 
 
 def test_site_checks_reject_sign_in_pages():
@@ -43,7 +52,13 @@ def test_cli_routes_subcommands(monkeypatch):
     import engine.interface.cli as orb
 
     monkeypatch.setattr(doctor, "main", lambda a: seen.setdefault("doctor", a) and 0)
+    import engine.talk as talk
+
     monkeypatch.setattr(orb, "main", lambda a: seen.setdefault("orb", a) and 0)
+    monkeypatch.setattr(talk, "main", lambda a: seen.setdefault(a[0], a) and 0)
     cli.main(["doctor", "--no-color"])
     cli.main(["--demo"])
-    assert seen == {"doctor": ["--no-color"], "orb": ["--demo"]}
+    cli.main(["talk", "--no-orb"])
+    cli.main(["ask", "hello"])
+    assert seen == {"doctor": ["--no-color"], "orb": ["--demo"],
+                    "talk": ["talk", "--no-orb"], "ask": ["ask", "hello"]}

@@ -7,9 +7,10 @@ requires-python = ">=3.13"
 # 2026-10-24). Versions, release dates and key dependencies: .claude/STATUS.md.
 # `wellsy doctor` checks the installed versions against these pins.
 dependencies = [
-    "pipecat-ai[google]==1.12.0",  # voice pipeline + Gemini Live; taps.py reads its frames
+    "pipecat-ai[google,local]==1.12.0",  # voice pipeline + Gemini Live + mic/speaker (pyaudio); taps.py reads its frames
     "deepagents==0.7.23",          # the brain
     "langchain-openrouter==0.2.9", # OpenRouter chat models for deepagents
+    "langchain-tavily==0.2.18",    # web search tool for the brain (settings: [search])
     "composio==0.25.0",            # apps (Gmail, Calendar, …)
     "composio-langchain==0.25.0",  # Composio tools as LangChain tools
     "composio-client==2.0.0rc8",   # composio 0.25.0 requires this exact pre-release
@@ -21,6 +22,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# The Local preset: Whisper (MLX) + Ollama + Kokoro through Pipecat's own
+# services, and an Ollama brain for deepagents.
+local = [
+    "pipecat-ai[kokoro,mlx-whisper,whisper]==1.12.0",  # whisper: Pipecat's MLX service imports faster-whisper
+    "langchain-ollama==1.1.0",
+]
 # The native orb + HUD. PySide6 is portable (macOS/Linux/Windows); pyobjc is
 # the macOS NSPanel shim, darwin-only.
 interface = [
@@ -34,6 +41,7 @@ wellsy = "engine.cli:main"
 [dependency-groups]
 dev = [
     "pytest>=8.3",
+    "pipecat-ai[evals]==1.12.0",  # `pipecat eval run evals/*.yaml`: scripted spoken turns against `wellsy talk --eval`
 ]
 
 [tool.uv]
