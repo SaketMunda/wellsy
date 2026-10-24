@@ -16,6 +16,7 @@ dependencies = [
     "composio-client==2.0.0rc8",   # composio 0.25.0 requires this exact pre-release
     "langchain-mcp-adapters==0.3.2", # Playwright MCP tools for deepagents
     "python-dotenv>=1.0",          # loads .env keys
+    "truststore==0.10.4",          # TLS via the OS certificate store (python.org macOS builds have none)
     "packaging>=23.2",             # `wellsy doctor` reads the pins below
     "numpy>=2.2",                  # orb point cloud
     "psutil>=7.0",                 # resident-memory readout in `wellsy` (interface cli)

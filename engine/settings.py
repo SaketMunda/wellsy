@@ -37,9 +37,16 @@ def model(settings: dict, role: str) -> dict:
 
 
 def load_env() -> None:
-    """Put `.env` keys into the environment. Values already set win."""
+    """Put `.env` keys into the environment. Values already set win.
+
+    Also make Python's TLS trust the operating system's certificate store
+    (truststore, as pip does). python.org's macOS builds ship with no root
+    certificates, so aiohttp-based clients such as the Tavily tool failed
+    every HTTPS call (2026-10-24)."""
+    import truststore
     from dotenv import load_dotenv
 
+    truststore.inject_into_ssl()
     load_dotenv(REPO / ".env", override=False)
 
 

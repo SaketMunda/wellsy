@@ -7,13 +7,17 @@ What Pipecat already does, and this module only switches on:
     so the call returns at once with its tool_call_id as the task id, the voice model
     keeps talking, several tasks run in parallel, and the result is handed back when
     it lands (Gemini: NON_BLOCKING + WHEN_IDLE);
-  * "cancel the <x> task": `cancellable_by_llm=True` gives the voice model Pipecat's
-    built-in `cancel_delegate` tool, which cancels the brain's coroutine;
   * latency: `UserBotLatencyObserver` (VAD stop -> BotStartedSpeaking, i.e. the first
     audio written out).
 
 What is WELLSY's own (PLAN.md §2.3, "the link between voice and brain"):
   * the `delegate` handler: run the brain, log cost, show the answer in the HUD;
+  * `cancel_task(label)`: Pipecat's built-in `cancel_delegate` picks a call by a
+    tool_call_id that it shows the model in its own context, which Gemini Live never
+    receives (Gemini invented "stop_laptop_research" and nothing stopped, 2026-10-24).
+    The voice model chose each task's label itself, so it cancels by label. Only the
+    brain's run is cancelled; the delegate call then ends normally, reporting
+    "cancelled", so Pipecat's call bookkeeping is untouched;
   * narration: Pipecat drops progress updates for speech-to-speech services, so a
     meaningful step is sent to the voice model as a short note, rate-limited, and only
     while nobody is speaking.
@@ -40,8 +44,7 @@ options, or several steps) call `delegate` with a complete, self-contained `task
 short `label` of two or three words the user would use for it, like "laptop research".
 Then say at most a few words, like "On it." Never guess the answer yourself.
 Several tasks can run at once. Keep talking with the user while they run.
-When the user asks to stop or cancel a task, call `cancel_delegate` with that task's
-tool_call_id; find it by the task's label.
+When the user asks to stop or cancel a task, call `cancel_task` with that task's label.
 
 Messages that begin with [task update] come from WELLSY, not from the user. If one
 arrives, tell the user what is happening in a few natural words, or say nothing if it
@@ -59,18 +62,26 @@ DELEGATE_DESCRIPTION = (
 )
 
 
-def delegate_schema():
+def tool_schemas():
     from pipecat.adapters.schemas.function_schema import FunctionSchema
 
-    return FunctionSchema(
-        name="delegate",
-        description=DELEGATE_DESCRIPTION,
-        properties={
-            "task": {"type": "string", "description": "The full task, self-contained, in the user's terms."},
-            "label": {"type": "string", "description": "Two or three words naming the task, e.g. 'laptop research'."},
-        },
-        required=["task", "label"],
-    )
+    return [
+        FunctionSchema(
+            name="delegate",
+            description=DELEGATE_DESCRIPTION,
+            properties={
+                "task": {"type": "string", "description": "The full task, self-contained, in the user's terms."},
+                "label": {"type": "string", "description": "Two or three words naming the task, e.g. 'laptop research'."},
+            },
+            required=["task", "label"],
+        ),
+        FunctionSchema(
+            name="cancel_task",
+            description="Stop a running task the user no longer wants. Returns what was stopped.",
+            properties={"label": {"type": "string", "description": "The label the task was given."}},
+            required=["label"],
+        ),
+    ]
 
 
 class Link:
@@ -81,7 +92,8 @@ class Link:
         self.session = session          # engine.interface.session.OrbSession, or None
         self.realtime = realtime
         self.llm = None                 # set once the pipeline is built
-        self.running: dict[str, str] = {}   # task id -> label
+        self.running: dict[str, tuple[str, asyncio.Task]] = {}   # task id -> (label, brain run)
+        self._stopped: set[str] = set()      # task ids cancelled by the user
         self.user_speaking = False
         self.bot_speaking = False
         v = settings["voice"]
@@ -94,8 +106,6 @@ class Link:
         label = str(params.arguments.get("label") or task[:40]).strip()
         tid = params.tool_call_id
         res = brain.TaskResult(task=task, model="")
-        self.running[tid] = label
-        self._phase()
         started, last = time.monotonic(), [0.0]
 
         async def on_step(step: brain.Step) -> None:
@@ -105,25 +115,51 @@ class Link:
             if await self._narrate(params, label, step):
                 last[0] = now
 
+        work = asyncio.create_task(brain.run(task, self.settings, on_step, result=res))
+        self.running[tid] = (label, work)
+        self._phase()
         try:
-            await brain.run(task, self.settings, on_step, result=res)
+            await work
         except asyncio.CancelledError:
+            work.cancel()
             res.status = "cancelled"
-            self._show(label, res)
-            raise
+            if tid not in self._stopped:     # the session is ending, not a user cancel
+                raise
         finally:
             self.running.pop(tid, None)
+            self._stopped.discard(tid)
             self._phase()
+            self._show(label, res)
             runs.log("tasks", {"task_id": tid, "label": label, "preset": self.settings["preset"],
                                **asdict(res), "cost": round(res.cost, 6)})
 
-        self._show(label, res)
         if res.status == "done":
             reply = {"status": "done", "answer": res.spoken,
                      "on_screen": f"the full answer and {len(res.sources)} sources"}
+        elif res.status == "cancelled":
+            reply = {"status": "cancelled", "note": "stopped because the user asked"}
         else:
             reply = {"status": "error", "error": "the task could not finish; details are on screen"}
         await params.result_callback(reply)
+
+    async def cancel_task(self, params) -> None:
+        """Cancel the running task whose label best matches. With one task running,
+        any label stops it."""
+        want = set(_words(str(params.arguments.get("label", ""))))
+        scored = sorted(((len(want & set(_words(label))), tid) for tid, (label, _) in self.running.items()),
+                        reverse=True)
+        if len(self.running) == 1:
+            pick = scored[0][1]
+        elif scored and scored[0][0] > 0 and (len(scored) == 1 or scored[0][0] > scored[1][0]):
+            pick = scored[0][1]
+        else:
+            await params.result_callback({"cancelled": None, "running": [l for l, _ in self.running.values()],
+                                          "note": "no single task matches; ask the user which one"})
+            return
+        label, work = self.running[pick]
+        self._stopped.add(pick)
+        work.cancel()
+        await params.result_callback({"cancelled": label})
 
     # -- narration ------------------------------------------------------------ #
 
@@ -195,23 +231,31 @@ def speaking_observer(link: Link):
 
 
 def echo_observer(tag: dict):
-    """Logs each user transcript with how much of it repeats the bot's last words.
-    On laptop speakers a high overlap means WELLSY heard itself (PLAN.md §6, echo)."""
-    from pipecat.frames.frames import InterruptionFrame, TranscriptionFrame, TTSTextFrame
+    """The turn log: what the user said, what the bot said (Gemini's transcript of its
+    own audio), and how much of each user turn repeats the bot's last words. On laptop
+    speakers a high overlap means WELLSY heard itself (PLAN.md §6, echo)."""
+    from pipecat.frames.frames import BotStoppedSpeakingFrame, InterruptionFrame, TranscriptionFrame, TTSTextFrame
     from pipecat.observers.base_observer import BaseObserver
 
     class EchoObserver(BaseObserver):
         def __init__(self) -> None:
             super().__init__()
             self._bot: list[str] = []
+            self._said: list[str] = []
             self._seen: set[int] = set()
 
         async def on_push_frame(self, data) -> None:
             f = data.frame
             if f.id in self._seen:
                 return
-            if isinstance(f, TTSTextFrame):
+            if isinstance(f, BotStoppedSpeakingFrame):
                 self._seen.add(f.id)
+                if self._said:
+                    runs.log("turns", {**tag, "event": "bot", "text": "".join(self._said).strip()})
+                    self._said = []
+            elif isinstance(f, TTSTextFrame):
+                self._seen.add(f.id)
+                self._said.append(f.text if getattr(f, "includes_inter_frame_spaces", False) else f.text + " ")
                 self._bot = (self._bot + _words(f.text))[-60:]
             elif isinstance(f, TranscriptionFrame):
                 self._seen.add(f.id)
@@ -246,8 +290,11 @@ def build_services(settings: dict, link: Link):
     from pipecat.adapters.schemas.tools_schema import ToolsSchema
 
     spec = cfg.model(settings, "voice")
-    tools = ToolsSchema(standard_tools=[delegate_schema()])
-    opts = dict(cancel_on_interruption=False, cancellable_by_llm=True)
+    tools = ToolsSchema(standard_tools=tool_schemas())
+
+    def register(llm) -> None:
+        llm.register_function("delegate", link.delegate, cancel_on_interruption=False)
+        llm.register_function("cancel_task", link.cancel_task)
 
     if spec["provider"] == "gemini":
         from pipecat.services.google.gemini_live.llm import (
@@ -265,17 +312,17 @@ def build_services(settings: dict, link: Link):
                 # Without compression Gemini ends an audio session after ~15 minutes.
                 context_window_compression=ContextWindowCompressionParams(enabled=True)),
         )
-        llm.register_function("delegate", link.delegate, **opts)
+        register(llm)
         return [], [llm], llm, tools
 
-    if spec["provider"] == "openai":   # Premium voice. UNTESTED: no OpenAI key yet.
+    if spec["provider"] == "openai":   # Premium voice. UNTESTED: the OpenAI account has no credits.
         from pipecat.services.openai.realtime.llm import OpenAIRealtimeLLMService
 
         llm = OpenAIRealtimeLLMService(
             api_key=_key("openai"),
             settings=OpenAIRealtimeLLMService.Settings(model=spec["model"], system_instruction=VOICE_PROMPT),
         )
-        llm.register_function("delegate", link.delegate, **opts)
+        register(llm)
         return [], [llm], llm, tools
 
     if spec["provider"] == "local":
@@ -288,7 +335,7 @@ def build_services(settings: dict, link: Link):
         llm = OLLamaLLMService(settings=OLLamaLLMService.Settings(
             model=spec["model"], system_instruction=VOICE_PROMPT))
         tts = KokoroTTSService(settings=KokoroTTSService.Settings(voice=spec["tts"]))
-        llm.register_function("delegate", link.delegate, **opts)
+        register(llm)
         return [stt], [llm, tts], llm, tools
 
     raise ValueError(f"voice provider {spec['provider']!r} is not wired")
@@ -368,10 +415,29 @@ async def run(settings: dict, transport, *, session=None, stop=None) -> None:
         watcher.cancel()
 
 
-def local_transport():
+def local_transport(mic: str = "", speaker: str = ""):
+    """The computer's own mic and speakers. `mic` / `speaker` pick a device by part of
+    its name (e.g. "MacBook Pro Speakers" for the echo run); empty = the system default."""
+    import pyaudio
     from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransportParams
 
-    return LocalAudioTransport(LocalAudioTransportParams(audio_in_enabled=True, audio_out_enabled=True))
+    def find(name: str, kind: str) -> int | None:
+        if not name:
+            return None
+        pa = pyaudio.PyAudio()
+        try:
+            for i in range(pa.get_device_count()):
+                d = pa.get_device_info_by_index(i)
+                if name.lower() in d["name"].lower() and d[kind] > 0:
+                    return i
+        finally:
+            pa.terminate()
+        raise ValueError(f"no audio device matching {name!r}")
+
+    return LocalAudioTransport(LocalAudioTransportParams(
+        audio_in_enabled=True, audio_out_enabled=True,
+        input_device_index=find(mic, "maxInputChannels"),
+        output_device_index=find(speaker, "maxOutputChannels")))
 
 
 async def eval_transport(port: int):

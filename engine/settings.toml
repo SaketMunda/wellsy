@@ -15,8 +15,8 @@ gpt            = { provider = "openrouter", model = "openai/gpt-6-astra" }
 ollama-brain   = { provider = "ollama",     model = "qwen3.5:4b-q4_K_M" }
 # Voice models. Pipecat 1.12 defaults Gemini Live to an old 2.5 preview, so the model is always passed.
 gemini-live    = { provider = "gemini", model = "gemini-3.8-live", voice = "Aoede" }
-# UNTESTED: needs an OPENAI_API_KEY, which the owner does not have yet.
-gpt-realtime   = { provider = "openai", model = "gpt-realtime-2.1", voice = "marin" }
+# UNTESTED: the session opens, but the OpenAI account has no credits (insufficient_quota, 2026-10-24).
+gpt-realtime   = { provider = "openai", model = "gpt-realtime-2.1" }
 # Speech-to-text -> model -> voice, all on this machine through Pipecat's own services.
 local-voice    = { provider = "local", model = "qwen3.5:4b-q4_K_M", stt = "mlx-community/whisper-large-v3-turbo", tts = "af_heart" }
 

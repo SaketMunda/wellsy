@@ -139,7 +139,52 @@ def test_delegate_answers_logs_cost_and_shows_the_panel(settings, monkeypatch):
     assert link.running == {}
 
 
-def test_cancelling_a_task_stops_the_brain_and_logs_it(settings, monkeypatch):
+def test_cancel_task_by_label_stops_only_that_brain_and_reports_it(settings, monkeypatch):
+    gate = asyncio.Event()
+    monkeypatch.setattr(brain, "build", lambda s: (FakeAgent(gate), {"model": "m/x"}, "tavily_search"))
+    link = _link(settings)
+    laptops = Params("call_1", task="best laptops under 80k", label="laptop research")
+    weather = Params("call_2", task="Bangalore weather today", label="Bangalore weather")
+    cancel = Params("fc_9", label="the laptop one")
+
+    async def go():
+        t1 = asyncio.create_task(link.delegate(laptops))
+        t2 = asyncio.create_task(link.delegate(weather))
+        await asyncio.sleep(0.05)
+        assert {l for l, _ in link.running.values()} == {"laptop research", "Bangalore weather"}
+        await link.cancel_task(cancel)
+        gate.set()
+        await asyncio.gather(t1, t2)
+
+    asyncio.run(go())
+    assert cancel.results[0][0] == {"cancelled": "laptop research"}
+    assert laptops.results[0][0]["status"] == "cancelled"
+    assert weather.results[0][0]["status"] == "done"
+    recs = {r["label"]: r for r in runs.read("tasks")}
+    assert recs["laptop research"]["status"] == "cancelled" and recs["laptop research"]["llm_cost"] == pytest.approx(0.001)
+    assert recs["Bangalore weather"]["status"] == "done" and link.running == {}
+
+
+def test_cancel_task_asks_when_the_label_is_ambiguous(settings, monkeypatch):
+    gate = asyncio.Event()
+    monkeypatch.setattr(brain, "build", lambda s: (FakeAgent(gate), {"model": "m/x"}, "tavily_search"))
+    link = _link(settings)
+    cancel = Params("fc_9", label="research")
+
+    async def go():
+        ts = [asyncio.create_task(link.delegate(Params(f"c{i}", task="t", label=l)))
+              for i, l in enumerate(["laptop research", "phone research"])]
+        await asyncio.sleep(0.05)
+        await link.cancel_task(cancel)
+        gate.set()
+        await asyncio.gather(*ts)
+
+    asyncio.run(go())
+    reply = cancel.results[0][0]
+    assert reply["cancelled"] is None and sorted(reply["running"]) == ["laptop research", "phone research"]
+
+
+def test_session_shutdown_cancels_the_brain_and_propagates(settings, monkeypatch):
     gate = asyncio.Event()
     monkeypatch.setattr(brain, "build", lambda s: (FakeAgent(gate), {"model": "m/x"}, "tavily_search"))
     link, p = _link(settings), Params(task="laptops", label="laptop research")
@@ -147,16 +192,17 @@ def test_cancelling_a_task_stops_the_brain_and_logs_it(settings, monkeypatch):
     async def go():
         t = asyncio.create_task(link.delegate(p))
         await asyncio.sleep(0.05)
-        assert link.running == {"call_1": "laptop research"}
+        work = link.running["call_1"][1]
         t.cancel()
         with pytest.raises(asyncio.CancelledError):
             await t
+        await asyncio.sleep(0)
+        assert work.cancelled()
 
     asyncio.run(go())
-    assert p.results == []                       # no result for a cancelled task
+    assert p.results == []
     rec, = runs.read("tasks")
-    assert rec["status"] == "cancelled" and rec["llm_cost"] == pytest.approx(0.001)
-    assert link.session.views[-1]["text"] == "Cancelled." and link.running == {}
+    assert rec["status"] == "cancelled" and link.running == {}
 
 
 def test_narration_waits_rate_limits_and_holds_while_anyone_speaks(settings, monkeypatch):

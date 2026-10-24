@@ -1,5 +1,6 @@
 # Delegation, talking while tasks run, two tasks at once, and cancelling one by name.
-# Run against `wellsy talk --eval 8765`. Costs and answers land in runs/tasks.jsonl.
+# Run against `wellsy talk --eval 8765`. Costs, answers and each task's status
+# (done / cancelled) land in runs/tasks.jsonl.
 name: tasks
 user:
   modality: audio
@@ -36,11 +37,7 @@ scenarios:
         expect:
           - event: function_call
             calls:
-              - name: cancel_delegate
-          - event: function_call_stopped
-            calls:
-              - name: delegate
-                args: { cancelled: true }
+              - name: cancel_task
       - user: "What did you find about the weather?"
         expect:
           - event: bot_started_speaking
