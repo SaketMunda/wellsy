@@ -1,19 +1,73 @@
 # WELLSY settings. Swapping a model or provider is an edit here, never a code change.
 # Model IDs and prices were verified on 2026-10-24; see .claude/STATUS.md for sources.
 
-preset = "value"
+# The model picker. A preset sets every role at once; `brain` swaps only the brain.
+preset = "value"  # value | premium | local
+brain = ""        # one-line brain swap: a name from [models], e.g. "glm" or "claude-opus". Empty = the preset's brain.
 
-# Each role names a provider and that provider's model ID.
-# Phase 1 (the model picker) adds the Premium voice and the Local preset.
+# Every model WELLSY can use. Each names a provider and that provider's model ID.
+[models]
+deepseek-flash = { provider = "openrouter", model = "deepseek/deepseek-v4.1-flash-1017" }
+glm            = { provider = "openrouter", model = "z-ai/glm-5.3" }
+kimi           = { provider = "openrouter", model = "moonshotai/kimi-k3" }
+claude-opus    = { provider = "openrouter", model = "anthropic/claude-opus-5.5" }
+gpt            = { provider = "openrouter", model = "openai/gpt-6-astra" }
+ollama-brain   = { provider = "ollama",     model = "qwen3.5:4b-q4_K_M" }
+# Voice models. Pipecat 1.12 defaults Gemini Live to an old 2.5 preview, so the model is always passed.
+# Voice: Sulafat. Gemini's affective dialog (expressive mode) is rejected by gemini-3.8-live
+# (1007 invalid argument, v1beta and v1alpha, 2026-10-24); expression comes from VOICE_PROMPT.
+gemini-live    = { provider = "gemini", model = "gemini-3.8-live", voice = "Sulafat" }
+# UNTESTED: the session opens, but the OpenAI account has no credits (insufficient_quota, 2026-10-24).
+gpt-realtime   = { provider = "openai", model = "gpt-realtime-2.1" }
+# Speech-to-text -> model -> voice, all on this machine through Pipecat's own services.
+local-voice    = { provider = "local", model = "qwen3.5:4b-q4_K_M", stt = "mlx-community/whisper-large-v3-turbo", tts = "af_heart" }
+
 [presets.value]
-voice         = { provider = "gemini",     model = "gemini-3.8-live" }
-brain         = { provider = "openrouter", model = "deepseek/deepseek-v4.1-flash-1017" }
-long_run      = { provider = "openrouter", model = "z-ai/glm-5.3" }
-hard_planning = { provider = "openrouter", model = "moonshotai/kimi-k3" }
+voice         = "gemini-live"
+brain         = "deepseek-flash"
+long_run      = "glm"
+hard_planning = "kimi"
 
 [presets.premium]
-brain = { provider = "openrouter", model = "anthropic/claude-opus-5.5" }
-alt_brain = { provider = "openrouter", model = "openai/gpt-6-astra" }
+voice     = "gpt-realtime"
+brain     = "claude-opus"
+alt_brain = "gpt"
+
+[presets.local]
+voice = "local-voice"
+brain = "ollama-brain"
+
+# The brain's web search: any LangChain search tool, as "module:Class" plus its arguments.
+# Tavily: $0.008 a basic search, the first 1,000 a month free (tavily.com/pricing, 2026-10-24).
+# Swap to Exa (about $0.007 a search; Exa's list price as quoted in OpenRouter's docs):
+# tool = "langchain_exa:ExaSearchResults",
+# key EXA_API_KEY, after `uv add langchain-exa==1.1.0`.
+[search]
+tool = "langchain_tavily:TavilySearch"
+key  = "TAVILY_API_KEY"
+args = { max_results = 5, search_depth = "basic" }
+price_per_call = 0.008  # USD list price, for the cost log; search is billed outside OpenRouter
+
+[voice]
+# Where the audio goes. "webrtc": Pipecat's SmallWebRTC transport and its prebuilt
+# page, opened in the browser on this computer; the browser's WebRTC echo canceller
+# keeps WELLSY from hearing itself on laptop speakers. "local": the mic and
+# speakers directly (pyaudio, no echo cancellation; headphones only).
+transport = "webrtc"
+webrtc_port = 7860         # served on 127.0.0.1 only
+# Silero VAD gives Pipecat the user's turn frames: the latency timestamps, narration
+# holding back while the user talks, and Pipecat's own barge-in. Gemini Live also runs
+# its own server-side turn-taking (below).
+vad_stop_secs = 0.2
+# Gemini Live's own end-of-speech detection, which decides when it answers. Lower
+# silence = faster replies but more risk of cutting the user off mid-sentence.
+gemini_vad = { end_sensitivity = "END_SENSITIVITY_HIGH", silence_duration_ms = 300 }
+# Optional `gemini_thinking = {...}` is passed through as Gemini's ThinkingConfig. Left
+# unset: gemini-3.8-live rejects thinking_level, and thinking_budget = 0 measured slower (2026-10-24).
+# Progress narration (spec §14: no robotic narration). A task says nothing for its
+# first `narrate_after_secs`, then at most one update every `narrate_every_secs`.
+narrate_after_secs = 6
+narrate_every_secs = 12
 
 [composio]
 # The Composio user that owns WELLSY's connected accounts.

@@ -1,0 +1,71 @@
+# 20 short spoken turns for the latency pre-check (Pipecat eval harness, Kokoro user voice).
+# Checks events only, so no judge model is needed. The live headphone run is the real measure.
+name: latency
+user:
+  modality: audio
+  speech:
+    service: kokoro
+    voice: am_michael
+scenarios:
+  - name: latency_smalltalk
+    turns:
+      - user: "Hey WELLSY, how's it going?"
+        expect:
+          - event: bot_started_speaking
+      - user: "What's two plus two?"
+        expect:
+          - event: bot_started_speaking
+      - user: "Tell me a one line joke."
+        expect:
+          - event: bot_started_speaking
+      - user: "How many days are in a leap year?"
+        expect:
+          - event: bot_started_speaking
+      - user: "What's the capital of Japan?"
+        expect:
+          - event: bot_started_speaking
+      - user: "Say good morning in Spanish."
+        expect:
+          - event: bot_started_speaking
+      - user: "What colour do you get mixing blue and yellow?"
+        expect:
+          - event: bot_started_speaking
+      - user: "How many minutes are in three hours?"
+        expect:
+          - event: bot_started_speaking
+      - user: "Who wrote Romeo and Juliet?"
+        expect:
+          - event: bot_started_speaking
+      - user: "What's the boiling point of water in Celsius?"
+        expect:
+          - event: bot_started_speaking
+      - user: "Give me a synonym for happy."
+        expect:
+          - event: bot_started_speaking
+      - user: "How many legs does a spider have?"
+        expect:
+          - event: bot_started_speaking
+      - user: "What's ten percent of eighty?"
+        expect:
+          - event: bot_started_speaking
+      - user: "Is a tomato a fruit?"
+        expect:
+          - event: bot_started_speaking
+      - user: "What's the opposite of ancient?"
+        expect:
+          - event: bot_started_speaking
+      - user: "Spell the word cat."
+        expect:
+          - event: bot_started_speaking
+      - user: "How many continents are there?"
+        expect:
+          - event: bot_started_speaking
+      - user: "What's the square root of eighty one?"
+        expect:
+          - event: bot_started_speaking
+      - user: "Name a primary colour."
+        expect:
+          - event: bot_started_speaking
+      - user: "Thanks, that's all for now."
+        expect:
+          - event: bot_started_speaking

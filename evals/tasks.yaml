@@ -1,0 +1,43 @@
+# Delegation, talking while tasks run, two tasks at once, and cancelling one by name.
+# Run against `wellsy talk --eval 8765`. Costs, answers and each task's status
+# (done / cancelled) land in runs/tasks.jsonl.
+name: tasks
+user:
+  modality: audio
+  speech:
+    service: kokoro
+    voice: am_michael
+scenarios:
+  - name: research_while_talking
+    turns:
+      - user: "Can you find out what the latest stable Python release is, and when it came out?"
+        expect:
+          - event: function_call
+            calls:
+              - name: delegate
+      - user: "While you're on that, what's seven times eight?"
+        expect:
+          - event: bot_started_speaking
+      - user: "Okay. Did you find the Python release?"
+        expect:
+          - event: bot_started_speaking
+  - name: two_tasks_cancel_one
+    turns:
+      - user: "Research the three best laptops under eighty thousand rupees right now."
+        expect:
+          - event: function_call
+            calls:
+              - name: delegate
+      - user: "Also look up today's weather forecast for Bangalore."
+        expect:
+          - event: function_call
+            calls:
+              - name: delegate
+      - user: "Actually, cancel the laptop task."
+        expect:
+          - event: function_call
+            calls:
+              - name: cancel_task
+      - user: "What did you find about the weather?"
+        expect:
+          - event: bot_started_speaking

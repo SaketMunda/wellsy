@@ -124,6 +124,49 @@ Item {
                 }
             }
 
+            // ---- a task's answer and the sources the search returned (Phase 1) ----
+            Loader {
+                active: hud.model && hud.model.kind === "answer"
+                width: parent.width
+                sourceComponent: Column {
+                    spacing: 10
+                    Flickable {
+                        width: panel.width - 44
+                        height: Math.min(answerText.implicitHeight, panel.height - 220)
+                        contentHeight: answerText.implicitHeight
+                        clip: true
+                        Text { id: answerText; width: parent.width; wrapMode: Text.Wrap
+                               color: "#eaf0fb"; font.pixelSize: 15
+                               textFormat: Text.MarkdownText
+                               text: hud.model.text || "" }
+                    }
+                    Text { color: "#9fb0cc"; font.pixelSize: 12; font.bold: true
+                           visible: (hud.model.sources || []).length > 0
+                           text: "Sources" }
+                    Repeater {
+                        model: hud.model.sources || []
+                        // Plain text: a page title is web data and is never rendered as markup.
+                        Item {
+                            width: panel.width - 44
+                            height: src.implicitHeight
+                            Column {
+                                id: src
+                                width: parent.width
+                                Text { color: "#8fbfff"; font.pixelSize: 13; wrapMode: Text.Wrap
+                                       width: parent.width; textFormat: Text.PlainText
+                                       text: (index + 1) + ". " + (modelData.title || modelData.url) }
+                                Text { color: "#7f8fa8"; font.pixelSize: 11; elide: Text.ElideMiddle
+                                       width: parent.width; textFormat: Text.PlainText
+                                       text: modelData.url }
+                            }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                        onClicked: Qt.openUrlExternally(modelData.url) }
+                        }
+                    }
+                    Text { color: "#7f8fa8"; font.pixelSize: 11; text: hud.model.meta || "" }
+                }
+            }
+
             // ---- read-back verification (INVARIANTS #15) ----
             Loader {
                 active: hud.model && hud.model.kind === "verify"

@@ -1,0 +1,18 @@
+# The Local preset starts and answers: Whisper (MLX) -> Ollama -> Kokoro. The harness skips
+# TTS for a cascaded bot in text-judge mode, so the check is the LLM `response` event.
+# Run against `WELLSY_PRESET=local wellsy talk --eval 8766`.
+name: local
+user:
+  modality: audio
+  speech:
+    service: kokoro
+    voice: am_michael
+scenarios:
+  - name: local_starts
+    turns:
+      - user: "Hey WELLSY, what's the capital of Japan?"
+        expect:
+          - event: response
+      - user: "And how many days are in a leap year?"
+        expect:
+          - event: response

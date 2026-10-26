@@ -28,3 +28,7 @@ weights/
 
 # Playwright MCP output, if it is ever run from the repo
 .playwright-mcp/
+
+# Pipecat eval harness logs (`pipecat eval run` writes them to the cwd by default)
+*.eval.log
+*.debug.log

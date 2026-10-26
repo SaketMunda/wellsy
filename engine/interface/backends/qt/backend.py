@@ -26,6 +26,7 @@ _STATE_PATH = Path.home() / ".cache" / "wellsy" / "interface.json"
 # how much of the grip / caption band sits below the square orb area
 _GRIP_BAND = 40
 _MARGIN = 24  # gap from the screen edge when snapped to a corner
+_HUD_W, _HUD_H = 760, 600  # the HUD window, beside the orb
 
 CORNERS = ("top-left", "top-right", "bottom-left", "bottom-right",
            "left", "right", "center")
@@ -113,6 +114,7 @@ class QtPresenceBackend:
         self._on_hotkey = on_hotkey
         self._app = None
         self._view = None
+        self._hud_view = None
         self._bridge = None
 
         st = _load_state()
@@ -184,9 +186,48 @@ class QtPresenceBackend:
 
         view.show()
         self._apply_platform(view)
+        self._start_hud()
 
         if os.environ.get("WELLSY_ORB_PRINT_CAP") == "1":
             print(self.cap.summary(), file=sys.stderr)
+
+    def _start_hud(self) -> None:
+        """The HUD in its own window beside the orb: the orb window is click-through
+        and orb-sized, the HUD needs clicks (sources, approve/deny) and room. It is
+        shown only while the bridge has a HUD view."""
+        from PySide6.QtCore import Qt, QUrl
+        from PySide6.QtGui import QColor
+        from PySide6.QtQuick import QQuickView
+
+        hud = QQuickView()
+        hud.setColor(QColor(0, 0, 0, 0))
+        hud.setDefaultAlphaBuffer(True)
+        hud.rootContext().setContextProperty("bridge", self._bridge)
+        hud.setFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool | Qt.NoDropShadowWindowHint)
+        hud.setResizeMode(QQuickView.SizeRootObjectToView)
+        hud.setSource(QUrl.fromLocalFile(str(_QML_DIR / "Hud.qml")))
+        if hud.status() == QQuickView.Error:
+            errs = "; ".join(e.toString() for e in hud.errors())
+            raise RuntimeError(f"Hud.qml failed to load: {errs}")
+        hud.resize(_HUD_W, _HUD_H)
+        self._hud_view = hud
+        self._bridge.hudChanged.connect(self._sync_hud)
+
+    def _sync_hud(self) -> None:
+        if self._hud_view is None or self._view is None:
+            return
+        if not self._bridge.hudVisible:
+            self._hud_view.hide()
+            return
+        # beside the orb, on whichever side has room, clamped to the screen
+        g = (self._view.screen() or self._app.primaryScreen()).availableGeometry()
+        o = self._view.geometry()
+        x = o.x() - _HUD_W if o.x() - _HUD_W >= g.x() else o.x() + o.width()
+        x = max(g.x(), min(x, g.x() + g.width() - _HUD_W))
+        y = max(g.y(), min(o.y() + o.height() - _HUD_H, g.y() + g.height() - _HUD_H))
+        self._hud_view.setPosition(x, y)
+        self._hud_view.show()
+        self._hud_view.raise_()
 
     def _apply_platform(self, view) -> None:
         if self.cap.platform == "macos":
@@ -255,6 +296,9 @@ class QtPresenceBackend:
             self._bridge.hideHud()
 
     def stop(self) -> None:
+        if self._hud_view is not None:
+            self._hud_view.close()
+            self._hud_view = None
         if self._view is not None:
             from PySide6.QtCore import QUrl
 

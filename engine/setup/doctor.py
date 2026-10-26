@@ -69,12 +69,13 @@ def _err(e: BaseException) -> str:
 
 
 def _preset_models(settings: dict, provider: str) -> list[tuple[str, str]]:
-    out = []
-    for name, roles in settings["presets"].items():
-        for role, spec in roles.items():
-            if spec.get("provider") == provider:
-                out.append((f"{name}.{role}", spec["model"]))
-    return out
+    """Every [models] entry from `provider`, labelled with the presets that use it."""
+    used: dict[str, list[str]] = {}
+    for preset, roles in settings["presets"].items():
+        for role, name in roles.items():
+            used.setdefault(name, []).append(f"{preset}.{role}")
+    return [(f"{name} ({', '.join(used.get(name, ['brain swap']))})", spec["model"])
+            for name, spec in settings["models"].items() if spec.get("provider") == provider]
 
 
 def check_keys(rep: Report) -> dict[str, bool]:
@@ -111,7 +112,7 @@ def check_openrouter(rep: Report, settings: dict) -> None:
     for role, model in _preset_models(settings, "openrouter"):
         rep.add(model in ids, f"{role}  {model}", "resolves" if model in ids else "not available to this key",
                 f"pick a current ID from https://openrouter.ai/models and set it in engine/settings.toml "
-                f"[presets.{role.split('.')[0]}], or allow its providers in https://openrouter.ai/settings/preferences")
+                f"[models], or allow its providers in https://openrouter.ai/settings/preferences")
 
 
 def check_gemini(rep: Report, settings: dict) -> None:
