@@ -10,7 +10,7 @@ The master session maintains this file. See `.claude/MASTER.md` §7.
     Turns right after a `delegate` call took 9.8-16.2 s: Gemini says nothing until the call is acknowledged. Not yet investigated.
   - Research answered out loud + shown in the HUD: **PASS (live).** e.g. "AI news research", 14 sources, $0.117, 56 s (DeepSeek).
   - Brain swap DeepSeek / GLM / Claude is one setting: **PASS.** `brain = "glm"` in settings.toml, all three answered.
-- **Owner to-do:** live run (see Blockers); add OpenAI credit to test Premium voice; revoke the old Gmail app password.
+- **Owner to-do:** open the Phase 1 PR; decide the latency bar (see Blockers); add OpenAI credit to test Premium voice; revoke the old Gmail app password.
 
 ## Blockers
 - **Latency bar vs Gemini Live** (owner decides). Gemini 3.1 Flash Live Preview: p50 0.85 s raw, about 1.05 s with VAD. gpt-realtime-2.1 unmeasured (no credit).
