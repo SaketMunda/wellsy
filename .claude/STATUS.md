@@ -3,17 +3,17 @@
 The master session maintains this file. See `.claude/MASTER.md` §7.
 
 ## Now
-- **Phase 1 (voice + brain + model picker): BUILT, NOT YET PASSED.** Branch `rebuild/phase1-voice-brain`.
-  Pipecat-scripted spoken tests pass; the owner's own-voice live run has not happened (mic blocked for the build session).
-  - Spoken replies < 1 s: **FAIL.** p50 1.22 s, p95 1.66 s (best of 5 configs, 20 turns each). Gemini 3.8 Live alone,
-    no Pipecat, takes p50 1.00 s (bare) / 1.12 s (our prompt + tools) from end of speech to first audio. Needs a decision.
-  - Research answered out loud + shown in the HUD: **PASS (scripted).** Python 3.15.1 / 21 Oct 2026, spoken, 2-5 verified sources.
+- **Phase 1 (voice + brain + model picker): BUILT; LIVE RUN DONE 2026-10-26; one "Done when" line fails.** Branch `rebuild/phase1-voice-brain`.
+  Owner's live run, own voice, laptop speakers, browser transport (16:15-16:20): 16 user turns, 17 replies, 0 replies cut off,
+  1 of 16 user turns was echo (the pyaudio mic on speakers: every reply cut, 3 of 10 turns echo). 4 research tasks, 1 cancelled by voice.
+  - Spoken replies < 1 s: **FAIL.** Live p50 1.47 s over 10 turns (scripted: p50 1.22-1.26 s). Gemini 3.8 Live alone is 1.0-1.1 s. Needs a decision.
+    Turns right after a `delegate` call took 9.8-16.2 s: Gemini says nothing until the call is acknowledged. Not yet investigated.
+  - Research answered out loud + shown in the HUD: **PASS (live).** e.g. "AI news research", 14 sources, $0.117, 56 s (DeepSeek).
   - Brain swap DeepSeek / GLM / Claude is one setting: **PASS.** `brain = "glm"` in settings.toml, all three answered.
 - **Owner to-do:** live run (see Blockers); add OpenAI credit to test Premium voice; revoke the old Gmail app password.
 
 ## Blockers
 - **Latency bar vs Gemini Live** (owner decides). Gemini 3.1 Flash Live Preview: p50 0.85 s raw, about 1.05 s with VAD. gpt-realtime-2.1 unmeasured (no credit).
-- **Live run** (owner): `uv run wellsy talk` from Terminal (browser page, press Connect), 20+ turns on laptop speakers including one research question, then `wellsy report`.
 - **Premium voice untested** (owner): the OpenAI account returns insufficient_quota.
 
 ## Pinned components (pinned 2026-10-24; cutoff 2026-10-10)
