@@ -7,7 +7,7 @@ The master session maintains this file. See `.claude/MASTER.md` §7.
   Owner's live run, own voice, laptop speakers, browser transport (16:15-16:20): 16 user turns, 17 replies, 0 replies cut off,
   1 of 16 user turns was echo (the pyaudio mic on speakers: every reply cut, 3 of 10 turns echo). 4 research tasks, 1 cancelled by voice.
   - Spoken replies < 1 s: **FAIL.** Live p50 1.47 s over 10 turns (scripted: p50 1.22-1.26 s). Gemini 3.8 Live alone is 1.0-1.1 s. Needs a decision.
-    Turns right after a `delegate` call took 9.8-16.2 s: Gemini says nothing until the call is acknowledged. Not yet investigated.
+    Turns right after a `delegate` call took 9.8-16.2 s: fixed 2026-10-27 (decision log), now 0.5-1.1 s to "on it".
   - Research answered out loud + shown in the HUD: **PASS (live).** e.g. "AI news research", 14 sources, $0.117, 56 s (DeepSeek).
   - Brain swap DeepSeek / GLM / Claude is one setting: **PASS.** `brain = "glm"` in settings.toml, all three answered.
 - **Owner to-do:** open the Phase 1 PR; decide the latency bar (see Blockers); add OpenAI credit to test Premium voice; revoke the old Gmail app password.
@@ -58,6 +58,7 @@ The master session maintains this file. See `.claude/MASTER.md` §7.
 - The 20-task test (PLAN.md §5) first runs at the end of Phase 3.
 
 ## Decision log
+- 2026-10-27: on Gemini 3.8 Live the voice says "on it" before calling `delegate` (it ended the call's turn with no audio, 9.5 s of silence), and WELLSY sends no progress notes mid-task: any text sent while a NON_BLOCKING call is pending (client content or realtime text) stalls 3.8 Live, so the result was never spoken unless the user talked (raw SDK, 3 of 3; without it, spoken 0.7 s after it lands). Now: "on it" 0.5-1.1 s after the request (5 of 5), result spoken unprompted (3 of 3, browser). No spoken progress on Gemini; the Local preset keeps it.
 - 2026-10-24: `wellsy talk` audio goes through the browser (Pipecat SmallWebRTC + its prebuilt page, 127.0.0.1) for WebRTC echo cancellation. On the pyaudio mic, laptop speakers cut every reply: 22 interruptions in 36 s, 3 of 10 "user" turns were Wellsy's own words. `--local` keeps the direct mic for headphones. Checked in headless Chrome: greeting, a spoken question answered, latency 1.27 s (unchanged); the speaker echo itself is the owner's run.
 - 2026-10-24: voice = Gemini Sulafat, expressive delivery via the prompt (3.8 Live rejects affective dialog). Name "Wellsy" said right ~3 of 4 times, never "Wesley" (36 samples, Whisper-checked); Gemini Live has no pronunciation control.
 - 2026-10-24: Phase 1 cancel is `cancel_task(label)`. Pipecat's `cancel_delegate` picks a task by an id Gemini Live never receives.

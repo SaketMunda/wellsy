@@ -20,7 +20,9 @@ What is WELLSY's own (PLAN.md §2.3, "the link between voice and brain"):
     "cancelled", so Pipecat's call bookkeeping is untouched;
   * narration: Pipecat drops progress updates for speech-to-speech services, so a
     meaningful step is sent to the voice model as a short note, rate-limited, and only
-    while nobody is speaking.
+    while nobody is speaking. Not on Gemini 3.8 Live: any text sent while a task is
+    pending stalls it, and the result is never spoken (see `narrate_mid_task`). There
+    the voice says "on it" before calling `delegate`, and speaks the result when it lands.
 """
 
 from __future__ import annotations
@@ -50,9 +52,10 @@ monotone, never over the top.
 Answer small talk and quick general questions yourself, in one or two short sentences.
 
 For any real task (anything that needs the web, current facts, research, comparing
-options, or several steps) call `delegate` with a complete, self-contained `task` and a
-short `label` of two or three words the user would use for it, like "laptop research".
-Then say at most a few words, like "On it." Never guess the answer yourself.
+options, or several steps), first say a few words out loud so the user knows you heard,
+like "On it, give me a moment.", then, in the same reply, call `delegate` with a
+complete, self-contained `task` and a short `label` of two or three words the user would
+use for it, like "laptop research". Never stay silent, and never guess the answer yourself.
 Several tasks can run at once. Keep talking with the user while they run.
 When the user asks to stop or cancel a task, call `cancel_task` with that task's label.
 
@@ -106,6 +109,10 @@ class Link:
         self._stopped: set[str] = set()      # task ids cancelled by the user
         self.user_speaking = False
         self.bot_speaking = False
+        # Gemini 3.8 Live stops answering if any text reaches it while a NON_BLOCKING call
+        # is pending: the progress note goes unanswered and the task's result is never
+        # spoken (raw SDK, 3 of 3 runs, 2026-10-27). Off for that voice; see build_services.
+        self.narrate_mid_task = True
         v = settings["voice"]
         self._after, self._every = float(v["narrate_after_secs"]), float(v["narrate_every_secs"])
 
@@ -176,7 +183,7 @@ class Link:
     async def _narrate(self, params, label: str, step: brain.Step) -> bool:
         """Send one meaningful step to the voice model. Dropped, not queued, while
         anyone is speaking: a stale update is worse than none."""
-        if self.user_speaking or self.bot_speaking or self.llm is None:
+        if not self.narrate_mid_task or self.user_speaking or self.bot_speaking or self.llm is None:
             return False
         what = {"search": f"searching the web for: {step.text}",
                 "plan": f"working through: {step.text}",
@@ -322,6 +329,7 @@ def build_services(settings: dict, link: Link):
                 # Without compression Gemini ends an audio session after ~15 minutes.
                 context_window_compression=ContextWindowCompressionParams(enabled=True)),
         )
+        link.narrate_mid_task = False
         register(llm)
         return [], [llm], llm, tools
 
