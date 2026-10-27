@@ -279,3 +279,11 @@ def test_talk_uses_the_browser_page_unless_local_is_asked(monkeypatch):
     assert talk.talk(["--no-orb", "--local", "--out", "MacBook Pro Speakers"]) == 0
     assert seen == [("webrtc", True), ("webrtc", False), ("local", "pyaudio:"), ("webrtc", True),
                     ("local", "pyaudio:MacBook Pro Speakers")]
+
+
+
+def test_no_progress_notes_where_they_would_stall_the_voice(settings):
+    link, p = _link(settings), Params()
+    link.narrate_mid_task = False                # Gemini 3.8 Live: set by build_services
+    assert asyncio.run(link._narrate(p, "laptop research", brain.Step("search", "laptops"))) is False
+    assert link.llm.frames == [] and p.results == []
