@@ -1,9 +1,10 @@
 import QtQuick
 
-// HUD mode — panels that unfold *from* the orb. Cinematic (depth, glow,
-// translucency, the scale/opacity unfold) but every value is real: it is
-// whatever `bridge.hud` (a plain JS object shaped by the runtime) contains.
-// No decorative telemetry, no fake scrolling numbers.
+// The results panel (Phase 2). One item per task, newest first: what it is doing,
+// the action it is waiting on (Approve / Deny), and its answer with cards, a table,
+// candidates and sources. Every value comes from `bridge.hud`, shaped by the runtime
+// (engine/voice.py, Link._render). Text that came from the web or from email is shown
+// as plain text, never as markup.
 
 Item {
     id: hud
@@ -12,179 +13,233 @@ Item {
     opacity: bridge.hudVisible ? 1 : 0
     Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
-    readonly property var model: bridge.hud
+    readonly property var items: (bridge.hud && bridge.hud.items) ? bridge.hud.items : []
+    readonly property int innerW: panel.width - 44
 
     Rectangle {
         id: panel
-        anchors.centerIn: parent
-        width: Math.min(parent.width - 80, 720)
-        height: Math.min(parent.height - 80, 520)
+        anchors.fill: parent
+        anchors.margins: 20
         radius: 16
-        color: Qt.rgba(0.05, 0.07, 0.11, 0.86)
+        color: Qt.rgba(0.05, 0.07, 0.11, 0.9)
         border.color: Qt.rgba(0.35, 0.55, 0.85, 0.5)
         border.width: 1
 
-        transform: Scale {
-            origin.x: panel.width / 2; origin.y: panel.height / 2
-            xScale: bridge.hudVisible ? 1 : 0.6
-            yScale: bridge.hudVisible ? 1 : 0.6
-            Behavior on xScale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
-            Behavior on yScale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+        Text {
+            id: heading
+            x: 22; y: 16
+            text: "Wellsy"
+            color: "#9fb0cc"; font.pixelSize: 13; font.bold: true; font.letterSpacing: 1.5
+        }
+        Text {
+            anchors.right: parent.right; anchors.rightMargin: 18; y: 12
+            text: "×"; color: "#9fb0cc"; font.pixelSize: 20
+            MouseArea { anchors.fill: parent; anchors.margins: -8; cursorShape: Qt.PointingHandCursor
+                        onClicked: bridge.escape() }
         }
 
-        Column {
-            anchors.fill: parent
-            anchors.margins: 22
+        ListView {
+            id: list
+            anchors { left: parent.left; right: parent.right; top: heading.bottom; bottom: parent.bottom
+                      leftMargin: 22; rightMargin: 22; topMargin: 12; bottomMargin: 18 }
+            clip: true
             spacing: 14
+            model: hud.items
+            delegate: Rectangle {
+                id: item
+                readonly property var m: modelData
+                readonly property bool asking: !!m.approval
+                width: hud.innerW
+                height: body.implicitHeight + 28
+                radius: 12
+                color: asking ? Qt.rgba(0.22, 0.16, 0.05, 0.9) : Qt.rgba(1, 1, 1, 0.04)
+                border.color: asking ? "#ffcf7a" : Qt.rgba(1, 1, 1, 0.08)
+                border.width: asking ? 2 : 1
 
-            Text {
-                text: hud.model && hud.model.kind === "approval"
-                      ? "Approve this action?"
-                      : (hud.model ? hud.model.title || "" : "")
-                color: "#eaf0fb"; font.pixelSize: 20; font.bold: true
-            }
-
-            // ---- approval prompt: the most important screen in the product ----
-            Loader {
-                active: hud.model && hud.model.kind === "approval"
-                width: parent.width
-                sourceComponent: Column {
-                    spacing: 8
-                    // the read-back, in words — what will actually happen
-                    Text { color: "#eaf0fb"; font.pixelSize: 16; wrapMode: Text.Wrap
-                           width: panel.width - 44
-                           visible: !!hud.model.action
-                           text: hud.model.action || "" }
-                    Repeater {
-                        model: hud.model.warnings || []
-                        Text { color: "#ff9a6a"; font.pixelSize: 14; wrapMode: Text.Wrap
-                               width: panel.width - 44
-                               text: "Careful: " + modelData }
-                    }
-                    Text { color: "#cdd7ea"; font.pixelSize: 14
-                           text: "tool:  " + (hud.model.tool || "") }
-                    Text { color: "#cdd7ea"; font.pixelSize: 13
-                           text: "args:  " + JSON.stringify(hud.model.args || {}) }
-                    Text { color: "#ffcf7a"; font.pixelSize: 13
-                           text: "risk:  " + hud.model.risk
-                                 + "   reversible: " + (hud.model.reversible ? "yes" : "no") }
-                    Text { color: "#9fb0cc"; font.pixelSize: 12; wrapMode: Text.Wrap
-                           width: panel.width - 44
-                           text: hud.model.reason || "" }
-                    Row {
-                        spacing: 12
-                        Rectangle {
-                            width: 120; height: 38; radius: 8; color: "#2f7d4f"
-                            Text { anchors.centerIn: parent; text: "Approve"; color: "white" }
-                            MouseArea { anchors.fill: parent; onClicked: bridge.answerApproval(true) }
-                        }
-                        Rectangle {
-                            width: 120; height: 38; radius: 8; color: "#8a3030"
-                            Text { anchors.centerIn: parent; text: "Deny"; color: "white" }
-                            MouseArea { anchors.fill: parent; onClicked: bridge.answerApproval(false) }
-                        }
-                    }
-                }
-            }
-
-            // ---- plan, with each step's real policy decision beside it ----
-            Loader {
-                active: hud.model && hud.model.kind === "plan"
-                width: parent.width
-                sourceComponent: ListView {
-                    width: panel.width - 44
-                    height: panel.height - 120
-                    clip: true
-                    model: hud.model.steps || []
-                    delegate: Row {
-                        spacing: 10
-                        Text { color: "#eaf0fb"; font.pixelSize: 13
-                               text: (index + 1) + ". " + (modelData.tool || "") }
-                        Text { font.pixelSize: 12
-                               color: modelData.decision === "deny" ? "#ff7a7a"
-                                    : modelData.decision === "confirm" ? "#ffcf7a" : "#8fd6a6"
-                               text: "[" + (modelData.decision || "allow") + "]" }
-                    }
-                }
-            }
-
-            // ---- provenance: which tools, which read-back, which audit line ----
-            Loader {
-                active: hud.model && hud.model.kind === "provenance"
-                width: parent.width
-                sourceComponent: Column {
-                    spacing: 6
-                    Repeater {
-                        model: hud.model.lines || []
-                        Text { color: "#cdd7ea"; font.pixelSize: 12; wrapMode: Text.Wrap
-                               width: panel.width - 44; text: modelData }
-                    }
-                    Text { color: "#7f8fa8"; font.pixelSize: 11
-                           text: "plan " + (hud.model.planId || "") + " · wellsy audit --plan " + (hud.model.planId || "") }
-                }
-            }
-
-            // ---- a task's answer and the sources the search returned (Phase 1) ----
-            Loader {
-                active: hud.model && hud.model.kind === "answer"
-                width: parent.width
-                sourceComponent: Column {
+                Column {
+                    id: body
+                    x: 14; y: 14
+                    width: parent.width - 28
                     spacing: 10
-                    Flickable {
-                        width: panel.width - 44
-                        height: Math.min(answerText.implicitHeight, panel.height - 220)
-                        contentHeight: answerText.implicitHeight
-                        clip: true
-                        Text { id: answerText; width: parent.width; wrapMode: Text.Wrap
-                               color: "#eaf0fb"; font.pixelSize: 15
-                               textFormat: Text.MarkdownText
-                               text: hud.model.text || "" }
-                    }
-                    Text { color: "#9fb0cc"; font.pixelSize: 12; font.bold: true
-                           visible: (hud.model.sources || []).length > 0
-                           text: "Sources" }
-                    Repeater {
-                        model: hud.model.sources || []
-                        // Plain text: a page title is web data and is never rendered as markup.
-                        Item {
-                            width: panel.width - 44
-                            height: src.implicitHeight
-                            Column {
-                                id: src
-                                width: parent.width
-                                Text { color: "#8fbfff"; font.pixelSize: 13; wrapMode: Text.Wrap
-                                       width: parent.width; textFormat: Text.PlainText
-                                       text: (index + 1) + ". " + (modelData.title || modelData.url) }
-                                Text { color: "#7f8fa8"; font.pixelSize: 11; elide: Text.ElideMiddle
-                                       width: parent.width; textFormat: Text.PlainText
-                                       text: modelData.url }
+
+                    // ---- label, status, cancel / dismiss ----
+                    Item {
+                        width: parent.width; height: 24
+                        Text { anchors.verticalCenter: parent.verticalCenter
+                               text: item.m.label || ""; color: "#eaf0fb"; font.pixelSize: 16; font.bold: true
+                               textFormat: Text.PlainText; elide: Text.ElideRight; width: parent.width - 150 }
+                        Row {
+                            anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                            spacing: 10
+                            Text { anchors.verticalCenter: parent.verticalCenter; font.pixelSize: 12
+                                   color: item.asking ? "#ffcf7a"
+                                        : item.m.status === "done" ? "#8fd6a6"
+                                        : item.m.status === "running" ? "#8fbfff" : "#ff9a8a"
+                                   text: item.asking ? "needs your yes"
+                                       : item.m.status === "running" ? "working…" : (item.m.status || "") }
+                            Rectangle {
+                                visible: item.m.status === "running"
+                                width: 64; height: 24; radius: 6; color: Qt.rgba(1, 1, 1, 0.08)
+                                Text { anchors.centerIn: parent; text: "Cancel"; color: "#cdd7ea"; font.pixelSize: 12 }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                            onClicked: bridge.act("cancel", item.m.id) }
                             }
-                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                                        onClicked: Qt.openUrlExternally(modelData.url) }
+                            Text {
+                                visible: item.m.status !== "running"
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "×"; color: "#7f8fa8"; font.pixelSize: 16
+                                MouseArea { anchors.fill: parent; anchors.margins: -6; cursorShape: Qt.PointingHandCursor
+                                            onClicked: bridge.act("dismiss", item.m.id) }
+                            }
                         }
                     }
-                    Text { color: "#7f8fa8"; font.pixelSize: 11; text: hud.model.meta || "" }
-                }
-            }
 
-            // ---- read-back verification (INVARIANTS #15) ----
-            Loader {
-                active: hud.model && hud.model.kind === "verify"
-                width: parent.width
-                sourceComponent: Column {
-                    spacing: 6
-                    Text { color: "#cdd7ea"; font.pixelSize: 13
-                           text: "claimed:  " + (hud.model.claimed || "") }
-                    Text { font.pixelSize: 13
-                           color: hud.model.verified ? "#8fd6a6" : "#ff7a7a"
-                           text: (hud.model.verified ? "confirmed by " : "NOT confirmed — ")
-                                 + (hud.model.method || "") }
+                    // ---- the approval: exactly what will happen, then Approve / Deny ----
+                    Column {
+                        visible: item.asking
+                        width: parent.width
+                        spacing: 6
+                        Text { text: item.asking ? item.m.approval.title : ""; color: "#ffe2a8"
+                               font.pixelSize: 15; font.bold: true; textFormat: Text.PlainText }
+                        Repeater {
+                            model: item.asking ? item.m.approval.fields : []
+                            Row {
+                                spacing: 8
+                                Text { width: 110; text: modelData.name; color: "#c9b48a"; font.pixelSize: 13
+                                       textFormat: Text.PlainText; horizontalAlignment: Text.AlignRight }
+                                Text { width: body.width - 118; text: modelData.value; color: "#fff4dc"
+                                       font.pixelSize: 13; wrapMode: Text.Wrap; textFormat: Text.PlainText
+                                       maximumLineCount: 8; elide: Text.ElideRight }
+                            }
+                        }
+                        Row {
+                            spacing: 12
+                            topPadding: 6
+                            Rectangle {
+                                width: 120; height: 36; radius: 8; color: "#2f7d4f"
+                                Text { anchors.centerIn: parent; text: "Approve"; color: "white"; font.bold: true }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                            onClicked: bridge.act("approve", item.m.approval.id) }
+                            }
+                            Rectangle {
+                                width: 120; height: 36; radius: 8; color: "#8a3030"
+                                Text { anchors.centerIn: parent; text: "Deny"; color: "white"; font.bold: true }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                            onClicked: bridge.act("deny", item.m.approval.id) }
+                            }
+                            Text { anchors.verticalCenter: parent.verticalCenter; color: "#c9b48a"; font.pixelSize: 12
+                                   text: "or say yes / no · silence is a no" }
+                        }
+                    }
+
+                    // ---- the answer ----
+                    Text { visible: !!item.m.text && !item.asking
+                           width: parent.width; wrapMode: Text.Wrap; color: "#eaf0fb"; font.pixelSize: 14
+                           textFormat: item.m.status === "done" ? Text.MarkdownText : Text.PlainText
+                           text: item.m.text || "" }
+
+                    // candidates to pick from, each with where it came from
+                    Repeater {
+                        model: item.m.candidates || []
+                        Rectangle {
+                            width: body.width; height: cand.implicitHeight + 14; radius: 8
+                            color: Qt.rgba(0.56, 0.75, 1, 0.08)
+                            Column {
+                                id: cand
+                                x: 10; y: 7; width: parent.width - 20; spacing: 2
+                                Text { text: (index + 1) + ".  " + modelData.value; color: "#eaf0fb"; font.pixelSize: 14
+                                       font.bold: true; textFormat: Text.PlainText; width: parent.width; elide: Text.ElideRight }
+                                Text { visible: !!modelData.note; text: modelData.note || ""; color: "#9fb0cc"
+                                       font.pixelSize: 12; textFormat: Text.PlainText; width: parent.width; wrapMode: Text.Wrap }
+                                Text { visible: !!modelData.source; text: modelData.source || ""; color: "#8fbfff"
+                                       font.pixelSize: 11; textFormat: Text.PlainText; width: parent.width; elide: Text.ElideMiddle
+                                       MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                                   onClicked: Qt.openUrlExternally(modelData.source) } }
+                            }
+                        }
+                    }
+
+                    // product / option cards
+                    Flow {
+                        visible: (item.m.cards || []).length > 0
+                        width: parent.width
+                        spacing: 10
+                        Repeater {
+                            model: item.m.cards || []
+                            Rectangle {
+                                width: 150; height: (modelData.image ? 126 : 6) + 94; radius: 10
+                                color: Qt.rgba(1, 1, 1, 0.06)
+                                clip: true
+                                Image { id: pic; x: 0; y: 0; width: parent.width; height: modelData.image ? 120 : 0
+                                        visible: !!modelData.image
+                                        fillMode: Image.PreserveAspectCrop; asynchronous: true
+                                        source: modelData.image || "" }
+                                Column {
+                                    x: 8; y: pic.height + 6; width: parent.width - 16; spacing: 3
+                                    Text { text: modelData.price || ""; visible: !!modelData.price; color: "#8fd6a6"
+                                           font.pixelSize: 14; font.bold: true; textFormat: Text.PlainText }
+                                    Text { text: modelData.title; color: "#eaf0fb"; font.pixelSize: 12; width: parent.width
+                                           wrapMode: Text.Wrap; maximumLineCount: 2; elide: Text.ElideRight
+                                           textFormat: Text.PlainText }
+                                    Text { text: modelData.subtitle || ""; color: "#9fb0cc"; font.pixelSize: 11
+                                           width: parent.width; elide: Text.ElideRight; textFormat: Text.PlainText }
+                                }
+                                MouseArea { anchors.fill: parent; enabled: !!modelData.url
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: Qt.openUrlExternally(modelData.url) }
+                            }
+                        }
+                    }
+
+                    // a comparison table
+                    Grid {
+                        id: grid
+                        visible: !!item.m.table
+                        readonly property var t: item.m.table || ({ columns: [], rows: [] })
+                        readonly property int cols: Math.max(1, t.columns.length)
+                        columns: cols
+                        columnSpacing: 1; rowSpacing: 1
+                        Repeater {
+                            model: grid.t.columns
+                            Rectangle { width: (body.width - grid.cols) / grid.cols; height: hc.implicitHeight + 10
+                                        color: Qt.rgba(0.56, 0.75, 1, 0.14)
+                                Text { id: hc; x: 6; y: 5; width: parent.width - 12; text: modelData; color: "#eaf0fb"
+                                       font.pixelSize: 12; font.bold: true; wrapMode: Text.Wrap; textFormat: Text.PlainText } }
+                        }
+                        Repeater {
+                            model: [].concat.apply([], grid.t.rows.map(function (r) {
+                                var row = r.slice(0, grid.cols); while (row.length < grid.cols) row.push(""); return row }))
+                            Rectangle { width: (body.width - grid.cols) / grid.cols; height: cc.implicitHeight + 10
+                                        color: Qt.rgba(1, 1, 1, 0.04)
+                                Text { id: cc; x: 6; y: 5; width: parent.width - 12; text: String(modelData); color: "#cdd7ea"
+                                       font.pixelSize: 12; wrapMode: Text.Wrap; textFormat: Text.PlainText } }
+                        }
+                    }
+
+                    // what was approved or blocked, in this task
+                    Repeater {
+                        model: item.m.actions || []
+                        Text { text: "• " + modelData; font.pixelSize: 12; textFormat: Text.PlainText
+                               color: modelData.indexOf("approved") >= 0 ? "#8fd6a6" : "#ff9a8a" }
+                    }
+
+                    // sources
+                    Repeater {
+                        model: item.m.sources || []
+                        Text { width: body.width; color: "#8fbfff"; font.pixelSize: 12; elide: Text.ElideRight
+                               textFormat: Text.PlainText
+                               text: (index + 1) + ". " + (modelData.title || modelData.url)
+                               MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                           onClicked: Qt.openUrlExternally(modelData.url) } }
+                    }
+
+                    Text { visible: !!item.m.meta; text: item.m.meta || ""; color: "#7f8fa8"; font.pixelSize: 11 }
                 }
             }
         }
     }
 
-    // Esc closes the HUD and routes to the deterministic stop path in backend.
+    // Esc hides the panel; tasks keep running and it comes back on the next change.
     Keys.onEscapePressed: bridge.escape()
     focus: bridge.hudVisible
 }

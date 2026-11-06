@@ -22,51 +22,6 @@ from engine.interface.signals import SignalBus
 from engine.interface.state import derive_state
 
 
-class ApprovalRelay:
-    """Bridges a worker-thread approver call to a main-thread QML click.
-    `listener(answer)` (step 9) also receives every click — the voice loop's
-    approval broker listens here, so a click and a spoken answer race and the
-    first one wins."""
-
-    def __init__(self) -> None:
-        self._ev = threading.Event()
-        self._answer: dict | None = None
-        self.listener: Callable[[dict], None] | None = None
-
-    def reset(self) -> None:
-        self._ev.clear()
-        self._answer = None
-
-    def set(self, approved: bool) -> None:          # main thread (QML -> backend)
-        self._answer = {"approved": bool(approved), "source": "user:orb"}
-        self._ev.set()
-        if self.listener is not None:
-            try:
-                self.listener(self._answer)
-            except Exception:
-                pass
-
-    def wait(self, timeout: float | None = None) -> dict:   # worker thread
-        self._ev.wait(timeout)
-        return self._answer or {"approved": False, "source": "user:orb:timeout"}
-
-
-def approval_view(request: dict) -> dict:
-    pv = request.get("preview") or {}
-    return {
-        "kind": "approval",
-        "title": "Approve this action?",
-        "tool": request.get("tool", ""),
-        "args": request.get("args", {}),
-        "risk": request.get("risk"),
-        "reversible": (request.get("risk", 3) or 3) < 3,
-        "reason": request.get("reason") or request.get("why") or "",
-        # step 9: the read-back, in words, and any date disagreement
-        "action": pv.get("action", ""),
-        "warnings": pv.get("dateWarnings", []),
-    }
-
-
 class OrbSession:
     """Owns the backend, the UI command queue, and the co-run of an async main.
 
@@ -77,12 +32,14 @@ class OrbSession:
     def __init__(self, bus: SignalBus | None = None, *, backend=None, hz: int = 60,
                  on_escape: Callable[[], None] | None = None):
         self.bus = bus or SignalBus()
-        self.relay = ApprovalRelay()
+        # Clicks on the panel, as {"type": "approve" | "deny" | "cancel" | "dismiss",
+        # "id": ...}. Called on the UI thread; the voice link sets it and hops to its loop.
+        self.on_action: Callable[[dict], None] | None = None
         self._hz = hz
         self._q: "queue.Queue[tuple]" = queue.Queue()
         self._on_escape = on_escape
         self._backend = backend or select_backend(
-            on_approval=self.relay.set, on_escape=self._escape,
+            on_action=self._action, on_escape=self._escape,
         )
 
     # -- worker-thread facing helpers (safe to call from the async main) ---- #
@@ -105,16 +62,11 @@ class OrbSession:
             self._q.put(("move", corner))
         return ok and hasattr(self._backend, "move_to_corner")
 
-    def ui_approver(self, request: dict) -> dict:
-        """Pass as `run_agent(approver=...)`. Blocks the worker thread until the
-        user answers in the orb HUD."""
-        self.relay.reset()
-        self.show_hud(approval_view(request))
-        ans = self.relay.wait()
-        self.hide_hud()
-        return ans
-
     # -- internals -------------------------------------------------------- #
+
+    def _action(self, action: dict) -> None:
+        if self.on_action is not None:
+            self.on_action(action)
 
     def _escape(self) -> None:
         if self._on_escape:

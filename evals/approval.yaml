@@ -1,0 +1,39 @@
+# The approval gate, spoken. Run against `wellsy talk --eval 8765`.
+# The user says no, so nothing is sent; the decision lands in runs/actions.jsonl
+# (approval_decided, source "voice", approved false).
+name: approval
+user:
+  modality: audio
+  speech:
+    service: kokoro
+    voice: am_michael
+scenarios:
+  - name: spoken_no_blocks_send
+    turns:
+      - user: "Send an email to my own Gmail address with the subject WELLSY gate test, saying testing the approval gate."
+        expect:
+          - event: function_call
+            calls:
+              - name: delegate
+          - event: function_call_stopped
+          - event: bot_stopped_speaking
+      - user: "No, don't send it."
+        expect:
+          - event: function_call
+            calls:
+              - name: answer_approval
+          - event: function_call_stopped
+          - event: bot_started_speaking
+  - name: silence_blocks_send
+    # Nobody answers: after [approval] timeout_secs the send is blocked, and the voice
+    # says so unprompted (the outcome reaches it as a "[task result]" message).
+    turns:
+      - user: "Send an email to my own Gmail address with the subject WELLSY silence test, saying testing silence."
+        expect:
+          - event: function_call
+            calls:
+              - name: delegate
+          - event: function_call_stopped
+          - event: bot_stopped_speaking
+          - event: bot_started_speaking
+            within_ms: 90000
