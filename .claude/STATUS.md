@@ -3,17 +3,15 @@
 The master session maintains this file. See `.claude/MASTER.md` §7.
 
 ## Now
-- **Phase 1 (voice + brain + model picker): BUILT; LIVE RUN DONE 2026-10-26; one "Done when" line fails.** Branch `rebuild/phase1-voice-brain`.
-  Owner's live run, own voice, laptop speakers, browser transport (16:15-16:20): 16 user turns, 17 replies, 0 replies cut off,
-  1 of 16 user turns was echo (the pyaudio mic on speakers: every reply cut, 3 of 10 turns echo). 4 research tasks, 1 cancelled by voice.
-  - Spoken replies < 1 s: **FAIL.** Live p50 1.47 s over 10 turns (scripted: p50 1.22-1.26 s). Gemini 3.8 Live alone is 1.0-1.1 s. Needs a decision.
-    Turns right after a `delegate` call took 9.8-16.2 s: fixed 2026-10-27 (decision log), now 0.5-1.1 s to "on it".
-  - Research answered out loud + shown in the HUD: **PASS (live).** e.g. "AI news research", 14 sources, $0.117, 56 s (DeepSeek).
-  - Brain swap DeepSeek / GLM / Claude is one setting: **PASS.** `brain = "glm"` in settings.toml, all three answered.
-- **Owner to-do:** open the Phase 1 PR; decide the latency bar (see Blockers); add OpenAI credit to test Premium voice; revoke the old Gmail app password.
+- **Phase 1 (voice + brain + model picker): DONE 2026-11-06.** PRs #26 and #27 merged. Next: Phase 2 (results panel + approval gate).
+  Owner's live runs on laptop speakers, browser transport (2026-10-26, 2026-10-27 incl. the recording): 0 replies cut off, 1 of 16 user turns echo.
+  - Spoken replies: **PASS on the amended bar** (about 1.5 s typical, owner 2026-11-06). Live p50 1.47 s over 38 turns since the 2026-10-27 fix (fastest 1.04 s). "On it" after a `delegate` call: 0.5-1.1 s.
+  - Research answered out loud + shown in the HUD: **PASS (live).** 11 of 13 tasks since 2026-10-27 done, the other 2 cancelled by voice. e.g. "AI news research", $0.185, 60 s (DeepSeek).
+  - Brain swap DeepSeek / GLM / Claude is one setting: **PASS.** Per task: DeepSeek ~$0.05, GLM $0.09, Claude Opus $0.23.
+  - 40 unit tests pass; scripted evals 2/2.
+- **Owner to-do:** add OpenAI credit to test Premium voice; revoke the old Gmail app password; `gh auth login`.
 
 ## Blockers
-- **Latency bar vs Gemini Live** (owner decides). Gemini 3.1 Flash Live Preview: p50 0.85 s raw, about 1.05 s with VAD. gpt-realtime-2.1 unmeasured (no credit).
 - **Premium voice untested** (owner): the OpenAI account returns insufficient_quota.
 
 ## Pinned components (pinned 2026-10-24; cutoff 2026-10-10)
@@ -58,6 +56,7 @@ The master session maintains this file. See `.claude/MASTER.md` §7.
 - The 20-task test (PLAN.md §5) first runs at the end of Phase 3.
 
 ## Decision log
+- 2026-11-06: owner closed Phase 1 and amended its latency bar to about 1.5 s typical live. Gemini 3.8 Live alone is 1.0-1.1 s, so under 1 s needs a different voice model, which is a settings swap (`[models]` / presets), not new code. Measured candidates: Gemini 3.1 Flash Live Preview p50 0.85 s raw, ~1.05 s with VAD; gpt-realtime-2.1 unmeasured (no credit); the Local preset (open source) is also one setting.
 - 2026-10-27: on Gemini 3.8 Live the voice says "on it" before calling `delegate` (it ended the call's turn with no audio, 9.5 s of silence), and WELLSY sends no progress notes mid-task: any text sent while a NON_BLOCKING call is pending (client content or realtime text) stalls 3.8 Live, so the result was never spoken unless the user talked (raw SDK, 3 of 3; without it, spoken 0.7 s after it lands). Now: "on it" 0.5-1.1 s after the request (5 of 5), result spoken unprompted (3 of 3, browser). No spoken progress on Gemini; the Local preset keeps it.
 - 2026-10-24: `wellsy talk` audio goes through the browser (Pipecat SmallWebRTC + its prebuilt page, 127.0.0.1) for WebRTC echo cancellation. On the pyaudio mic, laptop speakers cut every reply: 22 interruptions in 36 s, 3 of 10 "user" turns were Wellsy's own words. `--local` keeps the direct mic for headphones. Checked in headless Chrome: greeting, a spoken question answered, latency 1.27 s (unchanged); the speaker echo itself is the owner's run.
 - 2026-10-24: voice = Gemini Sulafat, expressive delivery via the prompt (3.8 Live rejects affective dialog). Name "Wellsy" said right ~3 of 4 times, never "Wesley" (36 samples, Whisper-checked); Gemini Live has no pronunciation control.
