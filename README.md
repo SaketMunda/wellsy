@@ -54,16 +54,33 @@ uv run wellsy talk                    # opens the talk page in your browser (pre
 uv run wellsy talk --local            # mic + speakers directly, no echo cancellation: headphones only
 uv run wellsy talk --local --out "MacBook Pro Speakers"   # with --local: pick a speaker (or --in for a mic) by name
 uv run wellsy ask "question"          # the brain alone, typed
-uv run wellsy report                  # latency p50/p95, cost per task per brain, echo; from runs/
+uv run wellsy report                  # latency p50/p95, cost per task per brain, approvals, echo; from runs/
 ```
 
 The model picker is the top of [engine/settings.toml](engine/settings.toml): `preset = "value" | "premium" | "local"`,
 and `brain = "glm"` (or `"claude-opus"`, `"deepseek-flash"`, any name in `[models]`) swaps only the brain.
 `WELLSY_PRESET` / `WELLSY_BRAIN` do the same for one run.
 
+## Results panel and approvals (Phase 2)
+
+Every task appears on the panel beside the orb. It shows running tasks with a Cancel
+button, and each answer with its cards, comparison table, candidates and sources.
+
+The brain can use your apps through Composio (`[composio] brain_toolkits`, Gmail and
+Calendar for now). An app action that sends, creates, changes or deletes something
+stops before it runs:
+- WELLSY reads the action back and asks "Shall I go ahead?";
+- the panel shows the action with Approve / Deny.
+
+A spoken yes counts only if you actually said yes after the read-back. The voice
+model's own say-so never approves. A no, or silence for `[approval] timeout_secs`,
+blocks the action. Every request and decision goes to `runs/actions.jsonl`, and
+`wellsy report` sums them up. `wellsy ask` asks for the same approval as a typed y/N.
+
 Scripted spoken checks use Pipecat's eval harness against `wellsy talk --eval 8765`:
 
 ```bash
 uv run python -m pipecat.evals run evals/latency.yaml --bot-url ws://localhost:8765 --timeout 20
 uv run python -m pipecat.evals run evals/tasks.yaml   --bot-url ws://localhost:8765 --timeout 30
+uv run pipecat eval run evals/approval.yaml --bot-url ws://localhost:8765   # a spoken no, and silence; nothing is sent
 ```

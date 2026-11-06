@@ -49,7 +49,7 @@ class FakeAgent:
 
 
 def test_brain_counts_cost_and_keeps_only_sources_the_search_returned(settings, monkeypatch):
-    monkeypatch.setattr(brain, "build", lambda s: (FakeAgent(), {"model": "m/x"}, "tavily_search"))
+    monkeypatch.setattr(brain, "build", lambda s: (FakeAgent(), {"model": "m/x"}, "tavily_search", set()))
     steps = []
 
     async def on_step(st):
@@ -70,7 +70,7 @@ def test_brain_without_an_answer_call_falls_back_to_its_last_text(settings, monk
             yield (), {"tools": {"messages": [ToolMessage(content=HITS, name="tavily_search", tool_call_id="c1")]}}
             yield (), {"model": {"messages": [AIMessage(content="It's 3.15.1.")]}}
 
-    monkeypatch.setattr(brain, "build", lambda s: (TextAgent(), {"model": "m/x"}, "tavily_search"))
+    monkeypatch.setattr(brain, "build", lambda s: (TextAgent(), {"model": "m/x"}, "tavily_search", set()))
     res = asyncio.run(brain.run("q", settings))
     assert res.spoken == "It's 3.15.1." and len(res.sources) == 2
 
@@ -103,7 +103,7 @@ class Params:
 class FakeSession:
     def __init__(self):
         from engine.interface.signals import SignalBus
-        self.bus, self.views = SignalBus(), []
+        self.bus, self.views, self.on_action = SignalBus(), [], None
 
     def show_hud(self, view):
         self.views.append(view)
@@ -125,15 +125,16 @@ def _link(settings, **kw):
 
 
 def test_delegate_answers_logs_cost_and_shows_the_panel(settings, monkeypatch):
-    monkeypatch.setattr(brain, "build", lambda s: (FakeAgent(), {"model": "m/x"}, "tavily_search"))
+    monkeypatch.setattr(brain, "build", lambda s: (FakeAgent(), {"model": "m/x"}, "tavily_search", set()))
     monkeypatch.setenv("TAVILY_API_KEY", "x")
     link, p = _link(settings), Params(task="latest python?", label="python release")
     asyncio.run(link.delegate(p))
 
     (reply, props), = p.results
     assert reply["status"] == "done" and reply["answer"] == "Python 3.15.1 is the latest." and props is None
-    view, = link.session.views
-    assert view["kind"] == "answer" and view["title"] == "python release" and len(view["sources"]) == 1
+    item = link.session.views[-1]["items"][0]
+    assert link.session.views[-1]["kind"] == "board"
+    assert item["label"] == "python release" and item["status"] == "done" and len(item["sources"]) == 1
     rec, = runs.read("tasks")
     assert rec["task_id"] == "call_1" and rec["cost"] == pytest.approx(0.0015 + settings["search"]["price_per_call"])
     assert link.running == {}
@@ -141,7 +142,7 @@ def test_delegate_answers_logs_cost_and_shows_the_panel(settings, monkeypatch):
 
 def test_cancel_task_by_label_stops_only_that_brain_and_reports_it(settings, monkeypatch):
     gate = asyncio.Event()
-    monkeypatch.setattr(brain, "build", lambda s: (FakeAgent(gate), {"model": "m/x"}, "tavily_search"))
+    monkeypatch.setattr(brain, "build", lambda s: (FakeAgent(gate), {"model": "m/x"}, "tavily_search", set()))
     link = _link(settings)
     laptops = Params("call_1", task="best laptops under 80k", label="laptop research")
     weather = Params("call_2", task="Bangalore weather today", label="Bangalore weather")
@@ -167,7 +168,7 @@ def test_cancel_task_by_label_stops_only_that_brain_and_reports_it(settings, mon
 
 def test_cancel_task_asks_when_the_label_is_ambiguous(settings, monkeypatch):
     gate = asyncio.Event()
-    monkeypatch.setattr(brain, "build", lambda s: (FakeAgent(gate), {"model": "m/x"}, "tavily_search"))
+    monkeypatch.setattr(brain, "build", lambda s: (FakeAgent(gate), {"model": "m/x"}, "tavily_search", set()))
     link = _link(settings)
     cancel = Params("fc_9", label="research")
 
@@ -186,7 +187,7 @@ def test_cancel_task_asks_when_the_label_is_ambiguous(settings, monkeypatch):
 
 def test_session_shutdown_cancels_the_brain_and_propagates(settings, monkeypatch):
     gate = asyncio.Event()
-    monkeypatch.setattr(brain, "build", lambda s: (FakeAgent(gate), {"model": "m/x"}, "tavily_search"))
+    monkeypatch.setattr(brain, "build", lambda s: (FakeAgent(gate), {"model": "m/x"}, "tavily_search", set()))
     link, p = _link(settings), Params(task="laptops", label="laptop research")
 
     async def go():
@@ -230,7 +231,7 @@ def test_narration_on_a_cascaded_llm_uses_pipecats_intermediate_results(settings
 
 
 def test_delegate_skips_narration_for_quick_steps(settings, monkeypatch):
-    monkeypatch.setattr(brain, "build", lambda s: (FakeAgent(), {"model": "m/x"}, "tavily_search"))
+    monkeypatch.setattr(brain, "build", lambda s: (FakeAgent(), {"model": "m/x"}, "tavily_search", set()))
     link, p = _link(settings), Params(task="q", label="q")
     asyncio.run(link.delegate(p))
     assert link.llm.frames == []                 # the task finished before narrate_after_secs

@@ -105,11 +105,11 @@ def _save_state(**kw) -> None:
 class QtPresenceBackend:
     name = "qt"
 
-    def __init__(self, *, on_approval=None, on_escape=None, on_hotkey=None,
+    def __init__(self, *, on_action=None, on_escape=None, on_hotkey=None,
                  size: int | None = None, fraction: float | None = None,
                  corner: str | None = None):
         self.cap: PresenceCapability = probe()
-        self._on_approval = on_approval
+        self._on_action = on_action
         self._on_escape = on_escape
         self._on_hotkey = on_hotkey
         self._app = None
@@ -153,7 +153,7 @@ class QtPresenceBackend:
         from engine.interface.backends.qt._bridge import Bridge
         self._bridge = Bridge(
             on_drag=self._drag, on_persist=self._persist,
-            on_approval=self._on_approval, on_escape=self._on_escape,
+            on_action=self._on_action, on_escape=self._on_escape,
             on_corner=self.move_to_corner,
         )
 

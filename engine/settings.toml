@@ -72,9 +72,27 @@ narrate_every_secs = 12
 [composio]
 # The Composio user that owns WELLSY's connected accounts.
 user_id = "wellsy"
+# The apps the brain can use. Composio's `important` tools of each (about 20 per app).
+brain_toolkits = ["gmail", "googlecalendar"]
 # The read-only tool `wellsy doctor` runs per toolkit. Each must carry Composio's
 # readOnlyHint tag; the doctor checks that at runtime before it calls the tool.
 read_checks = { gmail = "GMAIL_GET_PROFILE", googlecalendar = "GOOGLECALENDAR_LIST_CALENDARS" }
+
+[approval]
+# Sending, booking, buying, posting, deleting: any app tool its maker does not tag
+# read-only waits for a yes, spoken or clicked (engine/gate.py). Silence is a no.
+timeout_secs = 45
+# Extra tools that always need a yes, by name (e.g. a browser purchase click, Phase 3).
+always = []
+# A spoken yes counts only if the user's own words, said after the read-back, contain
+# a yes phrase and no no-phrase. The voice model's say-so alone never approves.
+yes_words = ["yes", "yeah", "yep", "yup", "sure", "ok", "okay", "go ahead", "send it", "do it",
+             "book it", "buy it", "confirm", "confirmed", "approve", "approved", "haan", "han", "theek hai"]
+no_words  = ["no", "nope", "don't", "dont", "not", "wait", "stop", "cancel", "hold on", "hold",
+             "later", "nahi", "mat", "ruko"]
+
+[panel]
+max_items = 6   # tasks shown on the panel, newest first
 
 [web]
 playwright_mcp = "0.0.83"  # @playwright/mcp on npm

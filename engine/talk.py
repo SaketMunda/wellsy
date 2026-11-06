@@ -5,8 +5,8 @@
     wellsy talk --local         # the mic and speakers directly, no echo cancellation (headphones)
     wellsy talk --local --out "MacBook Pro Speakers"   # pick the speaker (or --in for the mic) by name
     wellsy talk --eval 8765     # serve Pipecat's eval transport instead of the mic
-    wellsy ask "question"       # the brain alone, typed, answer printed (cost logged)
-    wellsy report               # latency p50/p95, cost per task per brain, echo
+    wellsy ask "question"       # the brain alone, typed, answer printed (cost logged); approvals typed y/N
+    wellsy report               # latency p50/p95, cost per task per brain, approvals, echo
 
 The preset and brain come from engine/settings.toml (`preset`, `brain`), or from
 WELLSY_PRESET / WELLSY_BRAIN for one run.
@@ -84,7 +84,7 @@ def ask(argv: list[str]) -> int:
     async def on_step(step: brain.Step) -> None:
         print(f"  · {step.kind}: {step.text}", flush=True)
 
-    res = asyncio.run(brain.run(task, settings, on_step))
+    res = asyncio.run(brain.run(task, settings, on_step, on_approval=typed_approver(settings), task_id="ask"))
     runs.log("tasks", {"task_id": "ask", "label": "ask", "preset": settings["preset"],
                        **asdict(res), "cost": round(res.cost, 6)})
     print(f"\n{res.spoken}\n\n{res.answer}\n")
@@ -95,6 +95,38 @@ def ask(argv: list[str]) -> int:
     if res.error:
         print(f"error: {res.error}")
     return 0 if res.status == "done" else 1
+
+
+def typed_approver(settings: dict):
+    """The approval gate on the terminal: y approves, anything else or silence blocks."""
+    import threading
+
+    from engine import gate as gates
+
+    g = gates.Gate(settings)
+
+    async def on_approval(tool: str, args: dict) -> dict:
+        ask = asyncio.create_task(g.ask(task_id="ask", label="ask", tool=tool, args=args))
+        await asyncio.sleep(0)
+        p = g.waiting()[0]
+        print(f"\n  APPROVE?  {p.title}", flush=True)
+        for k, v in p.fields:
+            print(f"    {k:>16}: {v}", flush=True)
+        print(f"  y = go ahead; anything else = no; {g.timeout:.0f} s of silence = no > ", end="", flush=True)
+        loop = asyncio.get_running_loop()
+
+        def read() -> None:
+            line = sys.stdin.readline()
+            if not line:            # end of input is not an answer; the timeout decides
+                return
+            loop.call_soon_threadsafe(g.answer, p.id, line.strip().lower() in ("y", "yes"), "typed")
+
+        threading.Thread(target=read, daemon=True).start()
+        d = await ask
+        print(f"  -> {'approved' if d['approved'] else 'blocked'} ({d['source']})", flush=True)
+        return d
+
+    return on_approval
 
 
 def report(argv: list[str]) -> int:
@@ -115,6 +147,7 @@ def report(argv: list[str]) -> int:
                       "cost_per_task": round(sum(r["cost"] for r in rs) / len(rs), 5),
                       "llm_cost_per_task": round(sum(r["llm_cost"] for r in rs) / len(rs), 5),
                       "secs": runs.summary([r["secs"] for r in rs])} for m, rs in cost.items()},
+        "approvals": _approvals(runs.read("actions")),
         "echo": {"user_turns": len(users),
                  "suspect_echo": sum(r.get("bot_overlap", 0) >= 0.6 and len(r.get("text", "").split()) >= 3
                                      for r in users),
@@ -130,10 +163,25 @@ def report(argv: list[str]) -> int:
     for m, t in out["tasks"].items():
         print(f"  {m}: n={t['n']} done={t['done']}  ${t['cost_per_task']:.4f}/task "
               f"(LLM ${t['llm_cost_per_task']:.4f})  p50 {t['secs'].get('p50', 0):.1f} s")
+    a = out["approvals"]
+    print(f"Approvals: {a['asked']} asked, {a['approved']} approved, blocked {a['blocked']} "
+          f"(by source: {', '.join(f'{k} {v}' for k, v in a['by_source'].items()) or 'none'}); "
+          f"{a['unconfirmed']} voice yes without the user's own yes refused")
     e = out["echo"]
     print(f"Echo: {e['suspect_echo']} of {e['user_turns']} user turns repeat the bot's own words; "
           f"{e['interruptions']} interruptions")
     return 0
+
+
+def _approvals(actions: list[dict]) -> dict:
+    dec = [r for r in actions if r.get("event") == "approval_decided"]
+    by: dict[str, int] = {}
+    for r in dec:
+        by[r.get("source", "?")] = by.get(r.get("source", "?"), 0) + 1
+    return {"asked": sum(r.get("event") == "approval_requested" for r in actions),
+            "approved": sum(bool(r.get("approved")) for r in dec),
+            "blocked": sum(not r.get("approved") for r in dec), "by_source": by,
+            "unconfirmed": sum(r.get("event") == "approval_unconfirmed" for r in actions)}
 
 
 def main(argv: list[str] | None = None) -> int:

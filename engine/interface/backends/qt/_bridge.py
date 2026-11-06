@@ -12,7 +12,7 @@ class Bridge(QObject):
     changed = Signal()
     hudChanged = Signal()
 
-    def __init__(self, *, on_drag, on_persist, on_approval, on_escape, on_corner=None):
+    def __init__(self, *, on_drag, on_persist, on_action, on_escape, on_corner=None):
         super().__init__()
         self._state = "asleep"
         self._amp = 0.0
@@ -22,7 +22,7 @@ class Bridge(QObject):
         self._show_because = False
         self._on_drag = on_drag
         self._on_persist = on_persist
-        self._on_approval = on_approval
+        self._on_action = on_action
         self._on_escape = on_escape
         self._on_corner = on_corner
 
@@ -64,11 +64,12 @@ class Bridge(QObject):
     def persistPosition(self) -> None:
         self._on_persist()
 
-    @Slot(bool)
-    def answerApproval(self, approved: bool) -> None:
-        if self._on_approval:
-            self._on_approval(approved)
-        self.hideHud()
+    @Slot(str, str)
+    def act(self, kind: str, ident: str) -> None:
+        """A panel button: "approve" / "deny" (an approval id), "cancel" / "dismiss"
+        (a task id). The runtime answers by sending the panel again."""
+        if self._on_action:
+            self._on_action({"type": kind, "id": ident})
 
     @Slot()
     def escape(self) -> None:
