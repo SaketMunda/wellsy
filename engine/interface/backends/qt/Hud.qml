@@ -49,6 +49,7 @@ Item {
                 id: item
                 readonly property var m: modelData
                 readonly property bool asking: !!m.approval
+                readonly property bool choosing: asking && m.approval.kind === "choose"
                 width: hud.innerW
                 height: body.implicitHeight + 28
                 radius: 12
@@ -75,7 +76,7 @@ Item {
                                    color: item.asking ? "#ffcf7a"
                                         : item.m.status === "done" ? "#8fd6a6"
                                         : item.m.status === "running" ? "#8fbfff" : "#ff9a8a"
-                                   text: item.asking ? "needs your yes"
+                                   text: item.choosing ? "needs your pick" : item.asking ? "needs your yes"
                                        : item.m.status === "running" ? "working…" : (item.m.status || "") }
                             Rectangle {
                                 visible: item.m.status === "running"
@@ -94,15 +95,51 @@ Item {
                         }
                     }
 
+                    // ---- a question: the options, each with where it came from; pick one ----
+                    Column {
+                        visible: item.choosing
+                        width: parent.width
+                        spacing: 8
+                        Text { text: item.choosing ? item.m.approval.title : ""; color: "#ffe2a8"; width: parent.width
+                               font.pixelSize: 15; font.bold: true; wrapMode: Text.Wrap; textFormat: Text.PlainText }
+                        Repeater {
+                            model: item.choosing ? item.m.approval.options : []
+                            Rectangle {
+                                width: body.width; height: opt.implicitHeight + 16; radius: 8
+                                color: Qt.rgba(1, 0.86, 0.6, 0.08); border.color: Qt.rgba(1, 0.81, 0.48, 0.35)
+                                Column {
+                                    id: opt
+                                    x: 12; y: 8; width: parent.width - 120; spacing: 2
+                                    Text { text: (index + 1) + ".  " + modelData.value; color: "#fff4dc"; font.pixelSize: 15
+                                           font.bold: true; width: parent.width; elide: Text.ElideRight; textFormat: Text.PlainText }
+                                    Text { visible: !!modelData.note; text: modelData.note || ""; color: "#c9b48a"
+                                           font.pixelSize: 12; width: parent.width; wrapMode: Text.Wrap; textFormat: Text.PlainText }
+                                    Text { visible: !!modelData.source; text: modelData.source || ""; color: "#8fbfff"
+                                           font.pixelSize: 11; width: parent.width; elide: Text.ElideMiddle; textFormat: Text.PlainText
+                                           MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                                       onClicked: Qt.openUrlExternally(modelData.source) } }
+                                }
+                                Rectangle {
+                                    anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter
+                                    width: 86; height: 34; radius: 8; color: "#2f5f8a"
+                                    Text { anchors.centerIn: parent; text: "Pick"; color: "white"; font.bold: true }
+                                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                                onClicked: bridge.pick(item.m.approval.id, modelData.value) }
+                                }
+                            }
+                        }
+                        Text { color: "#c9b48a"; font.pixelSize: 12; text: "or say which one" }
+                    }
+
                     // ---- the approval: exactly what will happen, then Approve / Deny ----
                     Column {
-                        visible: item.asking
+                        visible: item.asking && !item.choosing
                         width: parent.width
                         spacing: 6
                         Text { text: item.asking ? item.m.approval.title : ""; color: "#ffe2a8"
                                font.pixelSize: 15; font.bold: true; textFormat: Text.PlainText }
                         Repeater {
-                            model: item.asking ? item.m.approval.fields : []
+                            model: item.asking && !item.choosing ? item.m.approval.fields : []
                             Row {
                                 spacing: 8
                                 Text { width: 110; text: modelData.name; color: "#c9b48a"; font.pixelSize: 13

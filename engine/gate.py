@@ -1,5 +1,9 @@
 """The approval gate: WELLSY's own code (PLAN.md §2.3), on top of deepagents' pause.
 
+It also holds the brain's questions: `ask_user` (a choice between options, each with
+its source, e.g. which support address) pauses the same way, and the user's pick, by
+voice or click, goes back to the brain as the tool's answer.
+
 deepagents (LangChain's HumanInTheLoopMiddleware, `interrupt_on`) stops the brain
 before a risky tool runs and resumes it with a decision. This module decides which
 tools are risky, holds each paused action until the user answers, and logs it.
@@ -24,6 +28,8 @@ from dataclasses import dataclass, field
 
 from engine import runs
 
+ASK_USER = "ask_user"   # the brain's question tool (engine/brain.py); its pause is a choice, not a yes
+
 # Arguments shown first on the approval card and in the spoken read-back, when present.
 _KEY_ARGS = ("recipient_email", "to", "recipients", "attendees", "cc", "bcc", "subject", "summary",
              "title", "start_datetime", "start", "end_datetime", "end", "timezone", "body", "message",
@@ -32,7 +38,7 @@ _KEY_ARGS = ("recipient_email", "to", "recipients", "attendees", "cc", "bcc", "s
 
 @dataclass
 class Pending:
-    """One action waiting for the user's yes."""
+    """One action waiting for the user's yes, or one question waiting for a pick."""
     id: str
     task_id: str
     label: str            # the task's label, as the user knows it
@@ -44,14 +50,46 @@ class Pending:
     future: asyncio.Future | None = None
     asked_at: float | None = None     # when the voice was handed the read-back to ask
 
+    @property
+    def kind(self) -> str:
+        return "choose" if self.tool == ASK_USER else "approve"
+
+    @property
+    def options(self) -> list[dict]:
+        return [o if isinstance(o, dict) else {"value": str(o)} for o in self.args.get("options") or []]
+
+    def pick(self, said: str) -> str:
+        """The option the user's answer names: by its value, or by position ("the
+        second one", "2"); otherwise their own words."""
+        said_l = said.lower().strip()
+        for o in self.options:
+            if said_l and (said_l in o["value"].lower() or o["value"].lower() in said_l):
+                return o["value"]
+        said_w = said_l.replace(".", " ").replace(",", " ").split()
+        ordinals = (("first", "1", "one"), ("second", "2", "two"), ("third", "3", "three"),
+                    ("fourth", "4", "four"), ("fifth", "5", "five"))
+        # Later positions first: "the second one" says "one" too.
+        for i in reversed(range(min(len(ordinals), len(self.options)))):
+            if any(w in said_w for w in ordinals[i]):
+                return self.options[i]["value"]
+        return said.strip()
+
     def readback(self) -> str:
         """One line the voice can read back before asking."""
+        if self.kind == "choose":
+            return f"{self.args.get('question', '')} Options: " + "; ".join(
+                f"{i + 1}. {o['value']}" for i, o in enumerate(self.options))
         parts = [f"{k}: {v}" for k, v in self.fields[:4]]
         return f"{self.title}. " + "; ".join(parts)
 
     def view(self) -> dict:
-        return {"id": self.id, "title": self.title, "tool": self.tool,
+        if self.kind == "choose":
+            return {"id": self.id, "kind": "choose", "title": str(self.args.get("question", "")),
+                    "options": [{"value": o.get("value", ""), "note": o.get("note", ""),
+                                 "source": o.get("source", "")} for o in self.options]}
+        return {"id": self.id, "kind": "approve", "title": self.title, "tool": self.tool,
                 "fields": [{"name": k, "value": v} for k, v in self.fields]}
+
 
 
 def said_yes(text: str, settings: dict) -> bool:
@@ -113,12 +151,14 @@ class Gate:
         self._close(p, decision)
         return decision
 
-    def answer(self, approval_id: str, approved: bool, source: str, heard: str = "") -> bool:
-        """Resolve one pending action. False if it is gone or already answered."""
+    def answer(self, approval_id: str, approved: bool, source: str, heard: str = "", choice: str = "") -> bool:
+        """Resolve one pending action (or question: `choice`). False if it is gone or
+        already answered."""
         p = self.pending.get(approval_id)
         if p is None or p.future is None or p.future.done():
             return False
-        p.future.set_result({"approved": bool(approved), "source": source, **({"heard": heard} if heard else {})})
+        p.future.set_result({"approved": bool(approved), "source": source,
+                             **({"heard": heard} if heard else {}), **({"choice": choice} if choice else {})})
         return True
 
     def answer_threadsafe(self, approval_id: str, approved: bool, source: str = "click") -> None:
@@ -138,6 +178,7 @@ class Gate:
         runs.log("actions", {"event": "approval_decided", "approval_id": p.id, "task_id": p.task_id,
                              "label": p.label, "tool": p.tool, "approved": decision["approved"],
                              "source": decision["source"], "heard": decision.get("heard", ""),
+                             **({"choice": decision["choice"]} if decision.get("choice") else {}),
                              "secs": round(time.monotonic() - p.created, 2)})
         self._changed()
 

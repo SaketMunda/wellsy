@@ -72,6 +72,10 @@ stops before it runs:
 - WELLSY reads the action back and asks "Shall I go ahead?";
 - the panel shows the action with Approve / Deny.
 
+When WELLSY has to look up who or what to act on (an address, a contact, a product), it
+asks first: the options appear on the panel with where each came from, and you pick one by
+voice ("the second one") or with its Pick button.
+
 A spoken yes counts only if you actually said yes after the read-back. The voice
 model's own say-so never approves. A no, or silence for `[approval] timeout_secs`,
 blocks the action. Every request and decision goes to `runs/actions.jsonl`, and
@@ -83,5 +87,6 @@ Scripted spoken checks use Pipecat's eval harness against `wellsy talk --eval 87
 uv run python -m pipecat.evals run evals/latency.yaml --bot-url ws://localhost:8765 --timeout 20
 uv run python -m pipecat.evals run evals/tasks.yaml   --bot-url ws://localhost:8765 --timeout 30
 uv run pipecat eval run evals/approval.yaml --bot-url ws://localhost:8765   # a spoken no, and silence; nothing is sent
+uv run pipecat eval run evals/find_and_send.yaml --bot-url ws://localhost:8765   # find an address, pick it by voice, then a no; nothing is sent
 uv run pipecat eval run evals/approval_send.yaml --bot-url ws://localhost:8765   # a spoken yes: SENDS one real email to your own address
 ```

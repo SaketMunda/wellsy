@@ -80,6 +80,10 @@ answer, call `answer_approval`: approved true only on a clear yes; approved fals
 no, a "wait", a change of mind, or anything unclear. If they say nothing, do nothing:
 silence blocks it on its own. Never approve on the user's behalf.
 
+When a task comes back with status "needs_choice", ask its question in one short
+sentence and name the options briefly (they are on screen with where each came from).
+When the user answers, call `answer_choice` with their pick. Then the task carries on.
+
 Never say anything was sent, booked, bought, posted or deleted unless the task's final
 result lists it in `actions_done`. A yes is not a send: after a yes, wait for the result.
 If it lists `actions_failed` or `not_done`, say plainly that it did not happen and why. The
@@ -118,6 +122,15 @@ def tool_schemas():
                 "label": {"type": "string", "description": "The task's label, if more than one is waiting."},
             },
             required=["approved"],
+        ),
+        FunctionSchema(
+            name="answer_choice",
+            description="Give the user's pick when a task asked them to choose between options. Returns what happened next.",
+            properties={
+                "choice": {"type": "string", "description": "What the user picked, in their words or the option itself, e.g. 'the second one' or 'team@railway.com'."},
+                "label": {"type": "string", "description": "The task's label, if more than one is waiting."},
+            },
+            required=["choice"],
         ),
         FunctionSchema(
             name="cancel_task",
@@ -214,6 +227,14 @@ class Link:
             finally:
                 waiter.cancel()
         asking = self.gate.for_task(tid)
+        if asking and asking[0].kind == "choose":
+            p = asking[0]
+            p.asked_at = time.monotonic()
+            return {"status": "needs_choice", "task": p.label, "question": p.args.get("question", ""),
+                    "options": [o["value"] for o in p.options], "nothing_done_yet": True,
+                    "note": "Ask the question in one short sentence and name the options briefly; they "
+                            "are on screen with their sources. When the user answers, call "
+                            "`answer_choice` with what they picked."}
         if asking:
             p = asking[0]
             p.asked_at = time.monotonic()
@@ -289,7 +310,7 @@ class Link:
         """The user's spoken yes or no on the action waiting for one."""
         approved = bool(params.arguments.get("approved"))
         want = set(_words(str(params.arguments.get("label", ""))))
-        waiting = self.gate.waiting()
+        waiting = [p for p in self.gate.waiting() if p.kind == "approve"]
         if len(waiting) > 1 and want:
             waiting = sorted(waiting, key=lambda p: -len(want & set(_words(p.label))))[:1]
         if not waiting:
@@ -313,6 +334,28 @@ class Link:
                         "nothing, wait; it is blocked automatically if they stay silent."})
             return
         if not self.gate.answer(p.id, approved, "voice", heard=words):
+            await params.result_callback({"status": "already answered on screen"})
+            return
+        await self._reply(p.task_id, params)
+
+    async def answer_choice(self, params) -> None:
+        """The user's spoken pick on a question a task asked."""
+        said = str(params.arguments.get("choice", "")).strip()
+        want = set(_words(str(params.arguments.get("label", ""))))
+        waiting = [p for p in self.gate.waiting() if p.kind == "choose"]
+        if len(waiting) > 1 and want:
+            waiting = sorted(waiting, key=lambda p: -len(want & set(_words(p.label))))[:1]
+        if not waiting:
+            await params.result_callback({"status": "no question is waiting"})
+            return
+        p = waiting[0]
+        # Like a yes: the pick must come from the user's own words after the question.
+        words = await self._words_since(p.asked_at or p.created)
+        if not words or not said:
+            await params.result_callback({"status": "not answered yet", "note": "Wait for the user to pick."})
+            return
+        choice = p.pick(said)
+        if not self.gate.answer(p.id, True, "voice", heard=words, choice=choice):
             await params.result_callback({"status": "already answered on screen"})
             return
         await self._reply(p.task_id, params)
@@ -398,6 +441,8 @@ class Link:
         kind, ident = action.get("type"), str(action.get("id", ""))
         if kind in ("approve", "deny"):
             self.gate.answer(ident, kind == "approve", "click")
+        elif kind == "choose":
+            self.gate.answer(ident, True, "click", choice=str(action.get("value", "")))
         elif kind == "cancel" and ident in self.running:
             label = self._cancel(ident)
             if not self._open.get(ident):
@@ -557,6 +602,7 @@ def build_services(settings: dict, link: Link):
         llm.register_function("cancel_task", link.cancel_task)
         # Like `delegate`, it returns when the task resumes and finishes (or asks again).
         llm.register_function("answer_approval", link.answer_approval, cancel_on_interruption=False)
+        llm.register_function("answer_choice", link.answer_choice, cancel_on_interruption=False)
 
     if spec["provider"] == "gemini":
         from pipecat.services.google.gemini_live.llm import (

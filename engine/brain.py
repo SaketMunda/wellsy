@@ -44,6 +44,15 @@ Work like this:
 - When the user's request names someone or something you do not know (an address, a
   support contact), find it first: their mail, their contacts, the web. Never guess
   an email address.
+- When you had to look up who or what to act on because the user did not give it (an
+  address to write to, a contact, a product, an event), call `ask_user` before acting:
+  a short question and every plausible option you found, each with a few words on why
+  and the URL it came from, exactly as you found it. Then use the user's pick. Skip
+  the question only when you found exactly one option, or the user named it already.
+- Keep lookups short; the user is waiting. To find a contact or a target, one or two
+  web searches and one or two mail searches are enough, then ask. Read message
+  previews, not whole messages, unless the task is about that message. Don't
+  investigate beyond what the task needs.
 
 Finish by calling the `answer` tool once, with:
 - `spoken`: what the user hears. One to three short spoken sentences with the answer
@@ -157,6 +166,24 @@ def answer_tool(spoken: str, answer: str, **_display) -> str:
     return "answered"
 
 
+class Option(BaseModel):
+    value: str = Field(description="The option itself, e.g. an email address.")
+    note: str = Field("", description="Why it might be the one, in a few words.")
+    source: str = Field("", description="The URL it came from, exactly as you found it.")
+
+
+class AskUser(BaseModel):
+    question: str = Field(description="One short question, e.g. 'Which address should I write to?'")
+    options: list[Option] = Field(description="Two to five options.")
+
+
+@tool(gates.ASK_USER, args_schema=AskUser)
+def ask_user_tool(question: str, options: list) -> str:
+    """Ask the user to pick one of several options, shown on screen with their sources.
+    Returns the user's pick. Use it only when the choice matters and is unclear."""
+    return "no answer"   # never runs: the pause answers it with the user's pick
+
+
 # Composio's tool list is the same for every task; fetched once per process.
 _APP_TOOLS: tuple[list, set[str]] | None = None
 _APP_NAMES: set[str] = set()
@@ -197,8 +224,11 @@ def build(settings: dict):
     spec = cfg.model(settings, "brain")
     search = search_tool(settings)
     apps, read_only = app_tools(settings)
-    tools = [search, answer_tool, *apps]
+    tools = [search, answer_tool, ask_user_tool, *apps]
     risky = gates.risky_tools(tools, read_only, settings)
+    interrupt_on = {n: {"allowed_decisions": ["approve", "reject"]} for n in risky}
+    # A question pauses the same way; the user's pick comes back as the tool's answer.
+    interrupt_on[gates.ASK_USER] = {"allowed_decisions": ["respond"]}
     agent = create_deep_agent(
         model=chat_model(spec, settings),
         tools=tools,
@@ -206,7 +236,7 @@ def build(settings: dict):
         name="wellsy-brain",
         # deepagents pauses before these and resumes with the user's decision. Sub-agents
         # inherit the same list. The pause needs a checkpoint to resume from.
-        interrupt_on={n: {"allowed_decisions": ["approve", "reject"]} for n in risky},
+        interrupt_on=interrupt_on,
         checkpointer=InMemorySaver(),
     )
     return agent, spec, search.name, risky
@@ -312,6 +342,11 @@ async def _decide(tool: str, args: dict, on_approval: Approver | None, res: Task
                              "approved": False, "source": d["source"]})
     else:
         d = await on_approval(tool, args)
+    if tool == gates.ASK_USER:
+        if d.get("choice"):
+            return {"type": "respond", "message": f"The user picked: {d['choice']}"}
+        return {"type": "respond", "message": "The user did not pick an option. Do not act on any of "
+                "them; finish and tell the user you need their pick."}
     res.approvals.append({"tool": tool, "approved": d["approved"], "source": d["source"]})
     if d["approved"]:
         return {"type": "approve"}
