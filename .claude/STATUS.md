@@ -3,15 +3,13 @@
 The master session maintains this file. See `.claude/MASTER.md` §7.
 
 ## Now
-- **Phase 2 (results panel + approval gate): BUILT 2026-11-06, waiting for the owner's live run.** Branch `rebuild/phase2-panel-approval`.
-  - Gate: deepagents `interrupt_on` pauses any Composio tool not tagged `readOnlyHint` (send, create, update, delete in every app); resumes on the decision. Silence = no after 45 s. Log: `runs/actions.jsonl`.
-  - Spoken no blocks a Gmail send: **PASS live** (eval, Gemini 3.8 Live + DeepSeek + real Gmail): read-back, "No, don't send it." → blocked in 8.8 s, heard words logged.
-  - Silence blocks a send: **PASS live** (eval): blocked at 45.0 s, then spoken unprompted ("Since there was no response, I didn't send the email."). Typed: Calendar create blocked at 45.0 s.
-  - Typed no (`wellsy ask`): **PASS live**. Brain found the owner's address itself (`GMAIL_WHO_AM_I`), paused before `GMAIL_SEND_EMAIL`, did not retry. $0.0068, 15 s.
-  - Panel: tasks newest first, approval card with Approve/Deny, Cancel, cards / table / candidates / sources; rendered in Qt and checked by screenshot. 60 unit tests pass; `evals/approval.yaml` 2/2.
-  - **Not verified yet (owner's run):** a spoken **yes** that really sends, and Approve/Deny **clicks** on the live HUD. **Purchase** gating needs the browser (Phase 3; `[approval] always`); the **live browser view** too.
-- **Phase 1: DONE 2026-11-06** (latency ~1.5 s typical live, p50 1.47 s; research spoken + shown; brain swap is one setting).
-- **Owner to-do:** live Phase 2 run (see above); open the Phase 2 PR (`gh` not logged in); add OpenAI credit; revoke the old Gmail app password; `gh auth login`.
+- **Phase 2 (results panel + approval gate): merged (PR #29); fix branch `fix/phase2-send-reliability` after the owner's live run 2026-11-10.**
+  - Owner's run failed: no email arrived, yet Wellsy said "sent" (4 tries). Cause 1: DeepSeek V4.1 Flash, served by OpenRouter's cheapest fp4 resellers, left out subject/body (3 of 5 sends; fp8+: 1 of 5), Gmail rejected each, every retry needed a new yes and timed out. Cause 2: Gemini said "sent" on a "needs approval" result.
+  - Fix: Value brain = MiniMax M3.1 Flash, OpenRouter routed to fp8+ endpoints (`[openrouter] route`): complete send arguments 15/15, laptop research done with table + 3 cards. Voice results now list `actions_done` / `actions_failed`; the voice may claim a send only from `actions_done`.
+  - **Live 2026-11-10 (Gemini 3.8 Live + MiniMax + real Gmail): yes sends, and the email arrived (checked in the inbox); no blocks; silence blocks and is spoken. Evals 3/3. 62 unit tests.**
+  - **Waiting for:** the owner's own run (yes + HUD clicks). Purchase gating and the live browser view: Phase 3.
+- **Phase 1: DONE 2026-11-06.**
+- **Owner to-do:** live run on the fix branch; open its PR; add OpenAI credit; revoke the old Gmail app password; `gh auth login`.
 
 ## Blockers
 - **Premium voice untested** (owner): the OpenAI account returns insufficient_quota.
@@ -58,6 +56,9 @@ The master session maintains this file. See `.claude/MASTER.md` §7.
 - The 20-task test (PLAN.md §5) first runs at the end of Phase 3.
 
 ## Decision log
+- 2026-11-10: Value brain DeepSeek V4.1 Flash -> MiniMax M3.1 Flash (`minimax/minimax-m3.1-flash`, OpenRouter headline $0.15 in / $0.60 out, released 2026-10-19). 5-trial check of complete Gmail send arguments: DeepSeek default routing 2/5, fp8+ 4/5; GLM-5.3 5/5 ($0.024); GLM-5.3 Flash 0/5; Qwen3.8 Flash 15/15 but failed research twice; MiniMax M3.1 Flash 15/15, $0.0025 and 6.2 s per send task, research $0.023 LLM + search. DeepSeek's first-party endpoint is excluded by the OpenRouter account's no-training privacy setting (owner's choice, unchanged).
+- 2026-11-10: OpenRouter routing is a setting, `[openrouter] route` (default fp8/bf16/fp16/unknown quantizations): unrouted, OpenRouter picks the cheapest endpoint, often fp4.
+- 2026-11-10: the brain's answer is taken only after LangChain validates the `answer` call; an invalid one is handed back to the model (twice at most). Raw arguments crashed the task (a key with a stray space, a table sent as a string).
 - 2026-11-06: a spoken yes needs the user's own words. In a live silence eval Gemini 3.8 Live called `answer_approval(approved=true)` twice, 1.3 s after its read-back, with nobody speaking (nothing sent: Composio rejected DeepSeek's incomplete arguments). Now approval needs a user transcript after the read-back with a yes phrase and no no-phrase (`[approval] yes_words / no_words`); otherwise it stays pending and silence blocks it. Rerun: no self-approval, 2/2.
 - 2026-11-06: Phase 2 gate = deepagents' own `interrupt_on` (LangChain HumanInTheLoopMiddleware) + InMemorySaver checkpoint; risky = Composio's tags, not a per-app list. On Gemini 3.8 Live the paused task ends its `delegate` call with "needs_approval" (text mid-call stalls it); `answer_approval` carries the answer and returns the outcome; click/timeout outcomes go in as a "[task result]" message once no call is open (live: spoken 8-9 s after the timeout).
 - 2026-11-06: brain gets Composio Gmail + Calendar now (each app's `important` tools, ~20), pulled from Phase 3 because the Phase 2 test needs a real send.

@@ -109,6 +109,7 @@ class TaskResult:
     unverified_sources: list[dict] = field(default_factory=list)
     display: dict = field(default_factory=dict)   # cards / table / candidates, for the panel
     approvals: list[dict] = field(default_factory=list)   # each gated action and its decision
+    actions: list[dict] = field(default_factory=list)     # each risky app call: tool, status, error
     llm_calls: int = 0
     llm_cost: float = 0.0          # USD, summed from OpenRouter's usage.cost
     search_calls: int = 0
@@ -124,11 +125,14 @@ class TaskResult:
         return self.llm_cost + self.search_cost
 
 
-def chat_model(spec: dict):
-    """A LangChain chat model for a [models] entry."""
+def chat_model(spec: dict, settings: dict | None = None):
+    """A LangChain chat model for a [models] entry. OpenRouter models take the entry's
+    `route`, else `[openrouter] route` (OpenRouter's provider preferences)."""
     if spec["provider"] == "openrouter":
         from langchain_openrouter import ChatOpenRouter
-        return ChatOpenRouter(model=spec["model"], app_title="WELLSY", max_retries=2)
+        route = spec.get("route", (settings or {}).get("openrouter", {}).get("route"))
+        return ChatOpenRouter(model=spec["model"], app_title="WELLSY", max_retries=2,
+                              openrouter_provider=dict(route) if route else None)
     if spec["provider"] == "ollama":
         from langchain_ollama import ChatOllama
         return ChatOllama(model=spec["model"])
@@ -196,7 +200,7 @@ def build(settings: dict):
     tools = [search, answer_tool, *apps]
     risky = gates.risky_tools(tools, read_only, settings)
     agent = create_deep_agent(
-        model=chat_model(spec),
+        model=chat_model(spec, settings),
         tools=tools,
         system_prompt=SYSTEM_PROMPT,
         name="wellsy-brain",
@@ -226,6 +230,7 @@ async def run(task: str, settings: dict, on_step: Callable[[Step], Awaitable[Non
     calls: dict[str, tuple[str, dict]] = {}   # tool_call_id -> (tool, args), for the action log
     final: dict = {}      # the `answer` call's args
     last_text = ""        # the main agent's last plain reply, if it never calls `answer`
+    bad_answer, fixes = "", 0   # an `answer` call that failed validation; retries handed back
     config = {"configurable": {"thread_id": task_id or "task"}, "recursion_limit": 200}
     payload = {"messages": [{"role": "user", "content": task}]}
     t0 = time.monotonic()
@@ -241,14 +246,29 @@ async def run(task: str, settings: dict, on_step: Callable[[Step], Awaitable[Non
                         continue
                     for msg in _messages(delta):
                         await _account(msg, res, search_name, seen_urls, on_step, calls, risky, task_id)
-                        if ns or getattr(msg, "type", "") != "ai":
+                        if ns:
                             continue
-                        answers = [tc for tc in msg.tool_calls if tc["name"] == "answer"]
-                        if answers:
-                            final = answers[-1]["args"]
-                        elif msg.text:
+                        kind = getattr(msg, "type", "")
+                        # The answer counts once LangChain has validated and run the `answer`
+                        # call. An invalid one (a key with a stray space, a table sent as a
+                        # string; Qwen3.8 / MiniMax, 2026-11-10) goes back to the model as an
+                        # error and it retries, instead of crashing the task here.
+                        if kind == "tool" and getattr(msg, "name", "") == "answer":
+                            if getattr(msg, "status", "success") == "error":
+                                bad_answer = str(msg.content)[:800]
+                            else:
+                                final, bad_answer = calls.get(msg.tool_call_id, ("", {}))[1], ""
+                        elif kind == "ai" and msg.text and not msg.tool_calls:
                             last_text = msg.text
             payload = None
+            if bad_answer and not final and not interrupts and fixes < 2:
+                # `answer` ends the run (return_direct) even when its arguments fail
+                # validation, so the model never sees the error. Hand it back once more
+                # on the same checkpointed thread.
+                fixes += 1
+                payload = {"messages": [{"role": "user", "content":
+                           f"Your `answer` call was invalid: {bad_answer}\nCall `answer` again with valid arguments."}]}
+                bad_answer = ""
             if interrupts:
                 resume = {}
                 for intr in interrupts:
@@ -324,8 +344,13 @@ async def _account(msg, res: TaskResult, search_name: str, seen_urls: dict, on_s
     elif kind == "tool" and getattr(msg, "name", "") in (risky or set()) | _APP_NAMES:
         # Every app action that ran, or was refused, goes to the action log.
         name, args = calls.get(getattr(msg, "tool_call_id", ""), (msg.name, {}))
+        status = _app_status(msg)
+        if name in (risky or set()):
+            # What the voice may report: only a "done" here was really sent / booked / deleted.
+            res.actions.append({"tool": name, "status": status,
+                                **({"error": _app_error(msg)} if status == "failed" else {})})
         runs.log("actions", {"event": "tool", "task_id": task_id, "tool": name, "args": args,
-                             "status": _app_status(msg),
+                             "status": status,
                              "gated": name in (risky or set()), "result": str(msg.content)[:300]})
 
 
@@ -339,6 +364,14 @@ def _app_status(msg) -> str:
     except (ValueError, TypeError):
         return "done"
     return "failed" if isinstance(data, dict) and data.get("successful") is False else "done"
+
+
+def _app_error(msg) -> str:
+    try:
+        data = json.loads(msg.content)
+        return str(data.get("error") or data.get("data", {}).get("message") or "")[:200]
+    except (ValueError, TypeError, AttributeError):
+        return str(msg.content)[:200]
 
 
 def _step(tc: dict, search_name: str) -> Step | None:

@@ -12,7 +12,7 @@ does anything you could do on your computer or on the web:
 When a picture is clearer than speech, it shows the result on screen.
 
 It is not locked to any provider. By default it uses the cheapest competitive models
-(DeepSeek, GLM, Kimi, and Gemini Live, through OpenRouter or Google). You can switch
+(MiniMax, GLM, Kimi, and Gemini Live, through OpenRouter or Google). You can switch
 to premium models such as Claude or GPT, or to local models through Ollama, by
 changing one setting.
 
@@ -83,4 +83,5 @@ Scripted spoken checks use Pipecat's eval harness against `wellsy talk --eval 87
 uv run python -m pipecat.evals run evals/latency.yaml --bot-url ws://localhost:8765 --timeout 20
 uv run python -m pipecat.evals run evals/tasks.yaml   --bot-url ws://localhost:8765 --timeout 30
 uv run pipecat eval run evals/approval.yaml --bot-url ws://localhost:8765   # a spoken no, and silence; nothing is sent
+uv run pipecat eval run evals/approval_send.yaml --bot-url ws://localhost:8765   # a spoken yes: SENDS one real email to your own address
 ```

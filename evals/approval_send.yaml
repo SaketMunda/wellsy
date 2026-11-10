@@ -1,0 +1,26 @@
+# A spoken YES really sends. This SENDS ONE REAL EMAIL to the connected Gmail account's own
+# address. Run against `wellsy talk --eval 8765`; then check the inbox (or runs/actions.jsonl:
+# GMAIL_SEND_EMAIL status "done").
+name: approval_send
+user:
+  modality: audio
+  speech:
+    service: kokoro
+    voice: am_michael
+scenarios:
+  - name: spoken_yes_sends
+    turns:
+      - user: "Send an email to my own Gmail address with the subject WELLSY send test, saying this came from Wellsy."
+        expect:
+          - event: function_call
+            calls:
+              - name: delegate
+          - event: function_call_stopped
+          - event: bot_stopped_speaking
+      - user: "Yes, go ahead."
+        expect:
+          - event: function_call
+            calls:
+              - name: answer_approval
+          - event: function_call_stopped
+          - event: bot_started_speaking
