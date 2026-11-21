@@ -46,6 +46,8 @@ class FakeAgent:
             "sources": [{"title": "Python 3.15.1", "url": "https://www.python.org/downloads/release/python-3151/"},
                         {"title": "Made up", "url": "https://invented.example/"}]}}],
             response_metadata={"cost": 0.0005}, usage_metadata={"input_tokens": 200, "output_tokens": 40, "total_tokens": 240})]}}
+        # deepagents runs the `answer` tool (return_direct) and ends; its result marks the answer valid
+        yield (), {"tools": {"messages": [ToolMessage(content="answered", name="answer", tool_call_id="c2")]}}
 
 
 def test_brain_counts_cost_and_keeps_only_sources_the_search_returned(settings, monkeypatch):

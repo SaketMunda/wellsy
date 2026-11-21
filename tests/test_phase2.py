@@ -72,7 +72,7 @@ def script():
 @pytest.fixture
 def fake_brain(monkeypatch):
     SENT.clear()
-    monkeypatch.setattr(brain, "chat_model", lambda spec: script())
+    monkeypatch.setattr(brain, "chat_model", lambda spec, settings=None: script())
     monkeypatch.setattr(brain, "search_tool", lambda s: fake_search)
     monkeypatch.setattr(brain, "app_tools", lambda s: ([send_email, fetch_emails], {"GMAIL_FETCH_EMAILS"}))
 
@@ -201,6 +201,7 @@ def test_spoken_yes_sends_and_the_answer_comes_back_on_the_approval_call(setting
 
     asyncio.run(go())
     assert len(SENT) == 1 and yes.results[0]["status"] == "done" and "not_done" not in yes.results[0]
+    assert yes.results[0]["actions_done"] == ["Gmail: send email"]
     final = link.session.views[-1]["items"][0]
     assert final["status"] == "done" and final["approval"] is None and final["actions"] == ["Gmail: send email: approved"]
     assert final["candidates"][0]["value"] == "help@railway.example"
@@ -218,7 +219,8 @@ def test_spoken_no_blocks_the_send(settings, fake_brain):
         await link.answer_approval(no)
 
     asyncio.run(go())
-    assert SENT == [] and no.results[0]["not_done"] == ["GMAIL_SEND_EMAIL (not approved)"]
+    assert SENT == [] and no.results[0]["not_done"] == ["Gmail: send email (not approved)"]
+    assert no.results[0]["actions_done"] == []
     assert link.session.views[-1]["items"][0]["actions"] == ["Gmail: send email: blocked, you said no"]
 
 
@@ -303,3 +305,134 @@ def test_the_voice_model_cannot_approve_without_the_users_own_yes(settings, fake
                                        ("hmm", False), ("", False)])
 def test_said_yes(settings, text, yes):
     assert gate.said_yes(text, settings) is yes
+
+
+def test_an_invalid_answer_call_goes_back_to_the_model_instead_of_crashing(settings, monkeypatch):
+    """Live 2026-11-10: Qwen3.8 Flash sent `"answer "` (stray space) and a table as a
+    string; the raw args crashed the task. Now LangChain rejects the call, the model retries."""
+    model = ScriptedModel(messages=iter([
+        AIMessage(content="", tool_calls=[{"name": "answer", "id": "bad", "args": {
+            "spoken": "Here.", "answer ": "x", "table": '{"columns": ["a"], "rows": [["1"]]}'}}]),
+        AIMessage(content="", tool_calls=[{"name": "answer", "id": "good", "args": {
+            "spoken": "Here.", "answer": "Fixed.", "table": {"columns": ["a"], "rows": [["1"]]}}}]),
+    ]))
+    monkeypatch.setattr(brain, "chat_model", lambda spec, settings=None: model)
+    monkeypatch.setattr(brain, "search_tool", lambda s: fake_search)
+    monkeypatch.setattr(brain, "app_tools", lambda s: ([], set()))
+    res = asyncio.run(brain.run("compare", settings, task_id="t1"))
+    assert res.status == "done" and res.answer == "Fixed." and res.display["table"]["columns"] == ["a"]
+
+
+def test_an_approved_send_the_app_rejects_is_reported_as_failed_not_sent(settings, monkeypatch):
+    """Live 2026-11-10: the user said yes, Composio rejected the call (no subject or body),
+    and Gemini told the user it was sent. The result must say it failed, and why."""
+    @tool("GMAIL_SEND_EMAIL")
+    def broken_send(recipient_email: str, subject: str = "", body: str = "") -> str:
+        """Send an email."""
+        return '{"successful": false, "error": "At least one of subject or body must be provided"}'
+
+    broken_send.metadata = {"wellsy_source": "composio"}
+    model = ScriptedModel(messages=iter([
+        AIMessage(content="", tool_calls=[{"name": "GMAIL_SEND_EMAIL", "id": "s1",
+                                           "args": {"recipient_email": "me@example.com"}}]),
+        AIMessage(content="", tool_calls=[{"name": "answer", "id": "a1", "args": {
+            "spoken": "It did not go through.", "answer": "Gmail refused it."}}]),
+    ]))
+    monkeypatch.setattr(brain, "chat_model", lambda spec, settings=None: model)
+    monkeypatch.setattr(brain, "search_tool", lambda s: fake_search)
+    monkeypatch.setattr(brain, "app_tools", lambda s: ([broken_send], set()))
+    link = _link(settings)
+    d, yes = Params(task="email me", label="self email"), Params("fc_2", approved=True)
+
+    async def go():
+        await link.delegate(d)
+        assert d.results[0]["nothing_done_yet"] is True
+        link.hear("Yes.")
+        await link.answer_approval(yes)
+
+    asyncio.run(go())
+    reply = yes.results[0]
+    assert reply["actions_done"] == [] and "subject or body" in reply["actions_failed"][0]
+
+
+
+# --------------------------------------------------------------------------- #
+# a question: candidates with sources, the user picks                          #
+# --------------------------------------------------------------------------- #
+
+OPTIONS = [{"value": "support@railway.app", "note": "sent your security notice", "source": "https://docs.railway.com/platform/support"},
+           {"value": "team@railway.com", "note": "in the docs", "source": "https://docs.railway.com/overview/production-readiness-checklist"}]
+
+
+def picking_script(seen: list):
+    class Model(ScriptedModel):
+        def _generate(self, messages, *a, **k):
+            seen.append(messages[-1].content)
+            return super()._generate(messages, *a, **k)
+
+    return Model(messages=iter([
+        AIMessage(content="", tool_calls=[{"name": "ask_user", "id": "q1", "args": {
+            "question": "Which address should I write to?", "options": OPTIONS}}]),
+        AIMessage(content="", tool_calls=[{"name": "answer", "id": "a1", "args": {
+            "spoken": "Noted.", "answer": "Picked."}}]),
+    ]))
+
+
+@pytest.fixture
+def picking(monkeypatch):
+    seen: list = []
+    monkeypatch.setattr(brain, "chat_model", lambda spec, settings=None: picking_script(seen))
+    monkeypatch.setattr(brain, "search_tool", lambda s: fake_search)
+    monkeypatch.setattr(brain, "app_tools", lambda s: ([], set()))
+    return seen
+
+
+def test_a_spoken_pick_by_position_goes_back_to_the_brain(settings, picking):
+    link = _link(settings)
+    d, pick = Params(task="email railway support", label="railway email"), Params("fc_2", choice="the second one")
+
+    async def go():
+        await link.delegate(d)
+        assert d.results[0]["status"] == "needs_choice" and d.results[0]["options"] == ["support@railway.app", "team@railway.com"]
+        card = link.session.views[-1]["items"][0]["approval"]
+        assert card["kind"] == "choose" and card["options"][1]["source"].startswith("https://docs.railway.com")
+        link.hear("The second one.")
+        await link.answer_choice(pick)
+
+    asyncio.run(go())
+    assert pick.results[0]["status"] == "done" and picking[-1] == "The user picked: team@railway.com"
+    dec = [r for r in runs.read("actions") if r["event"] == "approval_decided"]
+    assert dec[0]["tool"] == "ask_user" and dec[0]["choice"] == "team@railway.com"
+
+
+def test_a_clicked_pick_goes_back_to_the_brain(settings, picking):
+    link = _link(settings)
+
+    async def go():
+        await link.delegate(Params(task="email railway support", label="railway email"))
+        aid = link.session.views[-1]["items"][0]["approval"]["id"]
+        link.ui_action({"type": "choose", "id": aid, "value": "support@railway.app"})
+        await _until(lambda: link.llm.frames)
+
+    asyncio.run(go())
+    assert picking[-1] == "The user picked: support@railway.app"
+
+
+def test_the_voice_cannot_pick_for_the_user(settings, picking):
+    link = _link(settings)
+    pick = Params("fc_2", choice="the first one")
+
+    async def go():
+        await link.delegate(Params(task="email railway support", label="railway email"))
+        await link.answer_choice(pick)              # nobody spoke after the question
+
+    asyncio.run(go())
+    assert pick.results[0]["status"] == "not answered yet"
+
+
+def test_typed_numbers_and_values_pick_an_option():
+    p = gate.Pending(id="a1", task_id="t", label="x", tool="ask_user", args={"question": "?", "options": OPTIONS},
+                     title="", fields=[])
+    assert p.pick("2") == "team@railway.com" and p.pick("Support@railway.app") == "support@railway.app"
+    assert p.pick("first") == "support@railway.app" and p.pick("something else") == "something else"
+    assert p.pick("the second one") == "team@railway.com" and p.pick("the first one") == "support@railway.app"

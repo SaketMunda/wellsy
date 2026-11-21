@@ -71,6 +71,12 @@ class Bridge(QObject):
         if self._on_action:
             self._on_action({"type": kind, "id": ident})
 
+    @Slot(str, str)
+    def pick(self, ident: str, value: str) -> None:
+        """A panel option clicked for a question (an approval id) a task asked."""
+        if self._on_action:
+            self._on_action({"type": "choose", "id": ident, "value": value})
+
     @Slot()
     def escape(self) -> None:
         if self._on_escape:

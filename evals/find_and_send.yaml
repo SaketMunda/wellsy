@@ -1,0 +1,35 @@
+# PLAN.md test 1, spoken: find an address you don't know, pick it from candidates with
+# sources, read back, and a no blocks the send (nothing reaches Railway).
+# Run against `wellsy talk --eval 8765`.
+name: find_and_send
+user:
+  modality: audio
+  speech:
+    service: kokoro
+    voice: am_michael
+scenarios:
+  - name: pick_then_no
+    turns:
+      - user: "Find Railway's support email address and email them asking when my app will be back online."
+        expect:
+          - event: function_call
+            calls:
+              - name: delegate
+          - event: function_call_stopped
+            within_ms: 150000
+          - event: bot_stopped_speaking
+      - user: "The first one."
+        expect:
+          - event: function_call
+            calls:
+              - name: answer_choice
+          - event: function_call_stopped
+            within_ms: 150000
+          - event: bot_stopped_speaking
+      - user: "No, don't send it."
+        expect:
+          - event: function_call
+            calls:
+              - name: answer_approval
+          - event: function_call_stopped
+          - event: bot_started_speaking

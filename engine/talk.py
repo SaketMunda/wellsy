@@ -109,21 +109,30 @@ def typed_approver(settings: dict):
         ask = asyncio.create_task(g.ask(task_id="ask", label="ask", tool=tool, args=args))
         await asyncio.sleep(0)
         p = g.waiting()[0]
-        print(f"\n  APPROVE?  {p.title}", flush=True)
-        for k, v in p.fields:
-            print(f"    {k:>16}: {v}", flush=True)
-        print(f"  y = go ahead; anything else = no; {g.timeout:.0f} s of silence = no > ", end="", flush=True)
+        if p.kind == "choose":
+            print(f"\n  PICK?  {p.args.get('question', '')}", flush=True)
+            for i, o in enumerate(p.options):
+                print(f"    {i + 1}. {o['value']}  ({o.get('note', '')})  {o.get('source', '')}", flush=True)
+            print(f"  number or text; {g.timeout:.0f} s of silence = no pick > ", end="", flush=True)
+        else:
+            print(f"\n  APPROVE?  {p.title}", flush=True)
+            for k, v in p.fields:
+                print(f"    {k:>16}: {v}", flush=True)
+            print(f"  y = go ahead; anything else = no; {g.timeout:.0f} s of silence = no > ", end="", flush=True)
         loop = asyncio.get_running_loop()
 
         def read() -> None:
             line = sys.stdin.readline()
             if not line:            # end of input is not an answer; the timeout decides
                 return
-            loop.call_soon_threadsafe(g.answer, p.id, line.strip().lower() in ("y", "yes"), "typed")
+            if p.kind == "choose":
+                loop.call_soon_threadsafe(lambda: g.answer(p.id, True, "typed", choice=p.pick(line)))
+            else:
+                loop.call_soon_threadsafe(g.answer, p.id, line.strip().lower() in ("y", "yes"), "typed")
 
         threading.Thread(target=read, daemon=True).start()
         d = await ask
-        print(f"  -> {'approved' if d['approved'] else 'blocked'} ({d['source']})", flush=True)
+        print(f"  -> {d.get('choice') or ('approved' if d['approved'] else 'blocked')} ({d['source']})", flush=True)
         return d
 
     return on_approval

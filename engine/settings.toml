@@ -7,6 +7,10 @@ brain = ""        # one-line brain swap: a name from [models], e.g. "glm" or "cl
 
 # Every model WELLSY can use. Each names a provider and that provider's model ID.
 [models]
+# Value brain since 2026-11-10: complete Gmail send arguments 15/15, research with table + cards.
+minimax-flash  = { provider = "openrouter", model = "minimax/minimax-m3.1-flash" }
+# Was the Value brain. Through OpenRouter's resellers (DeepSeek's own endpoint is excluded by the
+# account's no-training privacy setting) it left out subject/body in 3 of 5 sends (fp8+: 1 of 5).
 deepseek-flash = { provider = "openrouter", model = "deepseek/deepseek-v4.1-flash-1017" }
 glm            = { provider = "openrouter", model = "z-ai/glm-5.3" }
 kimi           = { provider = "openrouter", model = "moonshotai/kimi-k3" }
@@ -24,7 +28,7 @@ local-voice    = { provider = "local", model = "qwen3.5:4b-q4_K_M", stt = "mlx-c
 
 [presets.value]
 voice         = "gemini-live"
-brain         = "deepseek-flash"
+brain         = "minimax-flash"
 long_run      = "glm"
 hard_planning = "kimi"
 
@@ -36,6 +40,12 @@ alt_brain = "gpt"
 [presets.local]
 voice = "local-voice"
 brain = "ollama-brain"
+
+# OpenRouter routing for every OpenRouter model (its `provider` request field). By default
+# OpenRouter picks the cheapest endpoint, often an fp4 reseller that garbles tool calls
+# (2026-11-10). A [models] entry can set its own `route` instead.
+[openrouter]
+route = { quantizations = ["fp8", "bf16", "fp16", "unknown"] }
 
 # The brain's web search: any LangChain search tool, as "module:Class" plus its arguments.
 # Tavily: $0.008 a basic search, the first 1,000 a month free (tavily.com/pricing, 2026-10-24).
